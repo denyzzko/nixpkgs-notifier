@@ -1,6 +1,7 @@
 package nix
 
 import (
+	"encoding/json"
 	"fmt"
 	"os/exec"
 )
@@ -19,10 +20,28 @@ func CheckNixAvailability() bool {
 	return true
 }
 
-func GetNixPackageByName(name string) {
-	fmt.Printf("returning nix package with name %s", name)
+func GetNixPackageVersionByName(name string) (string, error) {
+	// build expression with package name
+	expr := "(import <nixpkgs> {})."
+	expr += name
+	expr += ".version"
+
+	// execude nix command
+	out, err := exec.Command("nix", "eval", "--extra-experimental-features", "nix-command", "--impure", "--json", "--expr", expr).CombinedOutput()
+
+	// handle error
+	if err != nil {
+		return "", fmt.Errorf("stderr:\n%s\nstdout:\n%s", err, out)
+	}
+
+	// return version
+	var version string
+	if err := json.Unmarshal(out, &version); err != nil {
+		return "", err
+	}
+	return version, nil
 }
 
-func GetNixPackageBatch() {
+func GetNixPackageVersionBatch() {
 
 }
