@@ -26,7 +26,7 @@ func GetNixPackageVersionByName(name string) (string, error) {
 	expr += name
 	expr += ".version"
 
-	// execude nix command
+	// execute nix command
 	out, err := exec.Command("nix", "eval", "--extra-experimental-features", "nix-command", "--impure", "--json", "--expr", expr).CombinedOutput()
 
 	// handle error
