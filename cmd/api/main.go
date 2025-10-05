@@ -25,13 +25,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close() // called when main finishes
+	defer db.Close()
+	log.Println("Connected to the database!")
 
 	// new request multiplexer
 	mux := http.NewServeMux()
 
 	// register routes
-	web.RegisterRoutes(mux)
+	web.RegisterRoutes(mux, db)
 
 	// chain middleware
 	chain := middleware.Chain(

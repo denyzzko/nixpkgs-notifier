@@ -36,7 +36,7 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	return &Store{pool: dbpool}, nil
 }
 
-func (s *Store) Close() {
+func (db *Store) Close() {
 	fmt.Println("Closing database conenction...")
-	s.pool.Close()
+	db.pool.Close()
 }

@@ -10,10 +10,12 @@ type User struct {
 	CreatedAt time.Time
 }
 
+/*
 type Package struct {
 	ID   int64
 	Name string
 }
+*/
 
 type UserPackage struct {
 	UserID           int64
