@@ -1,9 +1,9 @@
 package nix
 
 import (
-	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 func CheckNixAvailability() bool {
@@ -21,25 +21,30 @@ func CheckNixAvailability() bool {
 }
 
 func GetNixPackageVersionByName(name string) (string, error) {
-	// build expression with package name
-	expr := "(import <nixpkgs> {})."
-	expr += name
-	expr += ".version"
+	// build expression with package name and specified git branch
+	// TODO: branch parameter
+	args := []string{
+		"eval",
+		"--raw",
+		"--extra-experimental-features",
+		"nix-command flakes",
+		`github:NixOS/nixpkgs/nixos-25.05#` + name + `.version`,
+	}
 
 	// execute nix command
-	out, err := exec.Command("nix", "eval", "--extra-experimental-features", "nix-command", "--impure", "--json", "--expr", expr).CombinedOutput()
+	out, err := exec.Command("nix", args...).Output()
 
 	// handle error
 	if err != nil {
-		return "", fmt.Errorf("stderr:\n%s\nstdout:\n%s", err, out)
+		fmt.Println(strings.TrimSpace(string(err.Error())))
+		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			return "", fmt.Errorf("stderr:\n%s\nstdout:\n%s", err, out)
+		}
+		return "", err
 	}
 
 	// return version
-	var version string
-	if err := json.Unmarshal(out, &version); err != nil {
-		return "", err
-	}
-	return version, nil
+	return strings.TrimSpace(string(out)), nil
 }
 
 func GetNixPackageVersionBatch() {
