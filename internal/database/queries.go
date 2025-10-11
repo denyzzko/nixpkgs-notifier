@@ -29,8 +29,17 @@ var ErrNotFound = errors.New("not found")
 //go:embed sql/get_all_packages.sql
 var qGetAllPkgs string
 
-//go:embed sql/user_package_by_name.sql
-var qUserPkgByName string
+//go:embed sql/get_package_by_name.sql
+var qGetPkgByName string
+
+//go:embed sql/get_tracking.sql
+var qGetTracking string
+
+//go:embed sql/insert_tracking.sql
+var sInsertTracking string
+
+//go:embed sql/insert_package.sql
+var sInsertPackage string
 
 func (db *Store) QueryAllPackages(ctx context.Context) ([]PackageRow, error) {
 	var packages []PackageRow
@@ -58,11 +67,26 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]PackageRow, error) {
 	return packages, nil
 }
 
-func (db *Store) QueryUsersPackageByName(ctx context.Context, userID int64, pckgName string) (TrackingRow, error) {
+func (db *Store) QueryPackage(ctx context.Context, pckgName string) (PackageRow, error) {
+	var pckg PackageRow
+
+	// execute query
+	row := db.pool.QueryRow(ctx, qGetPkgByName, pckgName)
+	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.Name, &pckg.Version); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pckg, ErrNotFound
+		}
+		return pckg, err
+	}
+
+	return pckg, nil
+}
+
+func (db *Store) QueryTracking(ctx context.Context, userID int64, pckgID int64) (TrackingRow, error) {
 	var tracking TrackingRow
 
 	// execute query
-	row := db.pool.QueryRow(ctx, qUserPkgByName, userID, pckgName)
+	row := db.pool.QueryRow(ctx, qGetTracking, userID, pckgID)
 	if err := row.Scan(&tracking.CreatedAt, &tracking.UpdatedAt, &tracking.UserID, &tracking.PackageID, &tracking.UsersVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return tracking, ErrNotFound
@@ -71,4 +95,29 @@ func (db *Store) QueryUsersPackageByName(ctx context.Context, userID int64, pckg
 	}
 
 	return tracking, nil
+}
+
+func (db *Store) StorePackage(ctx context.Context, pckgName string, version string) (int64, error) {
+
+	// execute insert
+	// if there is already such package it will be updated if version changed
+	// returns id of created/updated package
+	var id int64
+	if err := db.pool.QueryRow(ctx, sInsertPackage, pckgName, version).Scan(&id); err != nil {
+		return 0, err
+	}
+
+	return id, nil
+}
+
+func (db *Store) StoreTracking(ctx context.Context, userID int64, pckgID int64, version string) error {
+
+	// execute insert
+	// if there is already such user<->pckg tracking it will be updated if version changed
+	_, err := db.pool.Exec(ctx, sInsertTracking, userID, pckgID, version)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
