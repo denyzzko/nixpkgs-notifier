@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 )
@@ -22,10 +23,12 @@ type VersionVerification struct {
 	UpToDate   bool   `json:"upToDate"`
 }
 
-func RegisterRoutes(mux *http.ServeMux, db *database.Store) {
+func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap) {
 	mux.HandleFunc("GET /package", getAllPackages(db))
 	mux.HandleFunc("GET /package/verify/{pckg}", verifyTracking(db))
 	mux.HandleFunc("POST /package/track/{pckg}", createTracking(db))
+	//mux.HandleFunc("GET /login", createTracking(db))
+	//mux.HandleFunc("GET /auth/callback", createTracking(db))
 
 	//mux.HandleFunc("GET /package/verify/all", verifyAllUsersPackages(db))
 	//mux.HandleFunc("POST /user", createUser(db))
