@@ -47,12 +47,12 @@ func main() {
 	mux := http.NewServeMux()
 
 	// register routes
-	web.RegisterRoutes(mux, db, provMap)
+	web.RegisterRoutes(ctx, mux, db, provMap)
 
 	// chain middleware
 	chain := middleware.Chain(
 		middleware.RequestLogger,
-		middleware.RequestAuth,
+		//middleware.RequestAuth,
 	)
 
 	// server

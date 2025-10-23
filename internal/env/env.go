@@ -1,7 +1,6 @@
 package env
 
 import (
-	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -36,8 +35,6 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		Path:     os.Getenv("DB_NAME"),
 		RawQuery: "sslmode=" + url.QueryEscape(os.Getenv("DB_SSLMODE")),
 	}
-
-	fmt.Println(dbUrl.String())
 
 	cfg := &EnvConfig{
 		ServerURL:          os.Getenv("SERVER_URL"),

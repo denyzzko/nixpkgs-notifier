@@ -16,8 +16,6 @@ func Chain(middlewares ...Middleware) Middleware {
 	}
 }
 
-// func Recoverer
-
 func RequestLogger(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("got request: %s %s", r.Method, r.URL.Path)
@@ -26,6 +24,7 @@ func RequestLogger(next http.Handler) http.HandlerFunc {
 	}
 }
 
+// TODO: change to read session cookie, load user or redirect to login page if not logged in
 func RequestAuth(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")

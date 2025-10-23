@@ -16,7 +16,7 @@ type Provider struct {
 	Name     string
 	URL      string
 	Verifier *oidc.IDTokenVerifier
-	Config   oauth2.Config
+	Config   *oauth2.Config
 }
 
 type ProviderConfig struct {
@@ -56,7 +56,7 @@ func SetupProviders(ctx context.Context, cfg *env.EnvConfig) (*ProviderMap, erro
 			Name:     pCfg.Name,
 			URL:      pCfg.URL,
 			Verifier: verifier,
-			Config:   config,
+			Config:   &config,
 		}
 	}
 
