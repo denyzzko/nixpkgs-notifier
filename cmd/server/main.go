@@ -11,6 +11,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/env"
 	"github.com/denyzzko/nixpkgs-notifier/internal/middleware"
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
+	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"github.com/denyzzko/nixpkgs-notifier/internal/web"
 )
 
@@ -43,15 +44,19 @@ func main() {
 		log.Fatalf("[ERROR] AUTH: Could not setup OIDC providers! error: %v", err)
 	}
 
+	// initialize session manager
+	sessionManager := session.NewManager()
+
 	// new request multiplexer
 	mux := http.NewServeMux()
 
 	// register routes
-	web.RegisterRoutes(ctx, mux, db, provMap)
+	web.RegisterRoutes(ctx, mux, db, provMap, sessionManager)
 
 	// chain middleware
 	chain := middleware.Chain(
 		middleware.RequestLogger,
+		sessionManager.LoadAndSave,
 		//middleware.RequestAuth,
 	)
 

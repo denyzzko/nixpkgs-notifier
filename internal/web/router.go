@@ -2,12 +2,8 @@ package web
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -15,6 +11,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
+	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"golang.org/x/oauth2"
 )
 
@@ -30,13 +27,13 @@ type VersionVerification struct {
 	UpToDate   bool   `json:"upToDate"`
 }
 
-func RegisterRoutes(ctx context.Context, mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap) {
+func RegisterRoutes(ctx context.Context, mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager) {
 	mux.HandleFunc("GET /package", getAllPackages(db))
 	mux.HandleFunc("GET /package/verify/{pckg}", verifyTracking(db))
 	mux.HandleFunc("POST /package/track/{pckg}", createTracking(db))
-	mux.HandleFunc("GET /auth/login", login(provMap))
-	mux.HandleFunc("GET /auth/callback", callback(ctx, provMap))
-	mux.HandleFunc("GET /me", me())
+	mux.HandleFunc("GET /auth/login", login(provMap, sessionManager))
+	mux.HandleFunc("GET /auth/callback", callback(ctx, db, provMap, sessionManager))
+	mux.HandleFunc("GET /me", me(sessionManager))
 
 	//mux.HandleFunc("GET /package/verify/all", verifyAllUsersPackages(db))
 	//mux.HandleFunc("POST /user", createUser(db))
@@ -174,51 +171,7 @@ func createTracking(db *database.Store) http.HandlerFunc {
 	}
 }
 
-// Random base64url string, used for state/nonce/verifier generation
-func randString(nByte int) (string, error) {
-	b := make([]byte, nByte)
-	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-// Set a short-lived, httpOnly cookie (used for OIDC handshake)
-func setCallbackCookie(w http.ResponseWriter, r *http.Request, name, value string) {
-	c := &http.Cookie{
-		Name:     name,
-		Value:    value,
-		Path:     "/",  // send on all paths
-		MaxAge:   600,  // 10 minutes
-		HttpOnly: true, // not readable by JS
-		Secure:   r.TLS != nil,
-	}
-	http.SetCookie(w, c)
-}
-
-// Delete cookies (that were used for OIDC handshake)
-func clearCallbackCookies(w http.ResponseWriter) {
-	names := []string{"state", "nonce", "code_verifier", "oidc_provider"}
-	for _, n := range names {
-		http.SetCookie(w, &http.Cookie{
-			Name:    n,
-			Value:   "",
-			Path:    "/",
-			Expires: time.Unix(0, 0),
-			MaxAge:  -1,
-		})
-	}
-}
-
-// PKCE S256 transform: base64url(SHA256(code_verifier))
-func pkceS256(verifier string) string {
-	sum := sha256.Sum256([]byte(verifier))
-	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
-
-	return challenge
-}
-
-func login(provMap *auth.ProviderMap) http.HandlerFunc {
+func login(provMap *auth.ProviderMap, sessionManager *session.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// block of code from: https://github.com/coreos/go-oidc/blob/v3/example/idtoken/app.go (line 66-79)
 		// get provider from query
@@ -229,39 +182,25 @@ func login(provMap *auth.ProviderMap) http.HandlerFunc {
 			return
 		}
 
-		// generate random state, nonce and code verifier
-		state, err := randString(16)
+		// generate secrets (random state, nonce, code verifier and challenge)
+		secrets, err := auth.CreateOIDCSecrets()
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		nonce, err := randString(16)
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		verifier, err := randString(32)
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			http.Error(w, "internal error while creating secrets", http.StatusInternalServerError)
 			return
 		}
 
-		// PKCE S256
-		challenge := pkceS256(verifier)
-
-		// store them in cookies
-		// along with provider name so it can be distinguished later
-		// will be changed later to be saved server-side
-		setCallbackCookie(w, r, "state", state)
-		setCallbackCookie(w, r, "nonce", nonce)
-		setCallbackCookie(w, r, "code_verifier", verifier)
-		setCallbackCookie(w, r, "oidc_provider", name)
+		// store necessary oidc data in session
+		sessionManager.SaveOIDCSecrets(r.Context(), secrets.State, session.OIDCAuthData{
+			Nonce:        secrets.Nonce,
+			CodeVerifier: secrets.CodeVerifier,
+			Provider:     name,
+		})
 
 		// build redirect url
 		authURL := prov.Config.AuthCodeURL(
-			state,
-			oidc.Nonce(nonce),
-			oauth2.SetAuthURLParam("code_challenge", challenge),
+			secrets.State,
+			oidc.Nonce(secrets.Nonce),
+			oauth2.SetAuthURLParam("code_challenge", secrets.CodeChallenge),
 			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 		)
 
@@ -270,36 +209,28 @@ func login(provMap *auth.ProviderMap) http.HandlerFunc {
 	}
 }
 
-func callback(ctx context.Context, provMap *auth.ProviderMap) http.HandlerFunc {
+func callback(ctx context.Context, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// block of code from: https://github.com/coreos/go-oidc/blob/v3/example/idtoken/app.go (line 82-136)
-		// get provider name that was stored in cookie
-		name, err := r.Cookie("oidc_provider")
-		if err != nil {
-			http.Error(w, "provider name not found", http.StatusBadRequest)
+
+		// get state from the query
+		state := r.URL.Query().Get("state")
+		if state == "" {
+			http.Error(w, "missing authorization state", http.StatusBadRequest)
 			return
 		}
-		prov, ok := provMap.Providers[name.Value]
+
+		// pop oidc data from session (verifies also match of state)
+		data, ok := sessionManager.PopOIDCSecrets(r.Context(), state)
+		if !ok {
+			http.Error(w, "unknown/expired state", http.StatusBadRequest)
+			return
+		}
+
+		// get provider by name
+		prov, ok := provMap.Providers[data.Provider]
 		if !ok {
 			http.Error(w, "unknown provider", http.StatusBadRequest)
-			return
-		}
-
-		// get state that was stored in cookie and verify it is same as the one in query
-		state, err := r.Cookie("state")
-		if err != nil {
-			http.Error(w, "state not found", http.StatusBadRequest)
-			return
-		}
-		if r.URL.Query().Get("state") != state.Value {
-			http.Error(w, "state did not match", http.StatusBadRequest)
-			return
-		}
-
-		// get code verifier
-		vck, err := r.Cookie("pkce_verifier")
-		if err != nil {
-			http.Error(w, "verifier not found", http.StatusBadRequest)
 			return
 		}
 
@@ -310,9 +241,9 @@ func callback(ctx context.Context, provMap *auth.ProviderMap) http.HandlerFunc {
 			return
 		}
 
-		// send code and code verifier (and other data like client_id) to providers token endpoint
+		// send code and code verifier to providers token endpoint
 		// provider sends back token that is used to get user information
-		oauth2Token, err := prov.Config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", vck.Value))
+		oauth2Token, err := prov.Config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", data.CodeVerifier))
 		if err != nil {
 			http.Error(w, "failed to exchange token: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -332,42 +263,63 @@ func callback(ctx context.Context, provMap *auth.ProviderMap) http.HandlerFunc {
 			return
 		}
 
-		// get nonce that was stored in a cookie and verify it macthes the one sent by provider in idtoken
-		nonce, err := r.Cookie("nonce")
-		if err != nil {
-			http.Error(w, "nonce not found", http.StatusBadRequest)
-			return
-		}
-		if idToken.Nonce != nonce.Value {
+		// get nonce that was stored in a session and verify it macthes the one sent by provider in idtoken
+		if idToken.Nonce != data.Nonce {
 			http.Error(w, "nonce did not match", http.StatusBadRequest)
 			return
 		}
 
 		// pull user info from the token
 		var claims struct {
-			Sub           string `json:"sub"`
-			Email         string `json:"email"`
-			EmailVerified bool   `json:"email_verified"`
+			Sub               string `json:"sub"`
+			Email             string `json:"email"`
+			EmailVerified     bool   `json:"email_verified"`
+			PreferredUsername string `json:"preferred_username"`
 		}
 		if err := idToken.Claims(&claims); err != nil {
 			http.Error(w, "claims parse failed: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		// temporary
-		// TODO: sessions
-		http.SetCookie(w, &http.Cookie{
-			Name:     "demo_session_user",
-			Value:    prov.URL + "|" + claims.Sub,
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-			Secure:   r.TLS != nil,
-			// Secure: true in HTTPS prod
-		})
+		// renew session token
+		err = sessionManager.RenewToken(r.Context())
+		if err != nil {
+			http.Error(w, "error renewing token "+err.Error(), http.StatusInternalServerError)
+		}
 
-		// delete data that were stored in cookies as they are no longer needed
-		clearCallbackCookies(w)
+		// map external identity -> local user
+		issuer := prov.Issuer
+		sub := claims.Sub
+
+		// get user by (issuer, sub)
+		var userID int64
+		accountRow, err := db.QueryAccountByIssuerSub(r.Context(), issuer, sub)
+		if err != nil {
+			if err == database.ErrNotFound {
+				// account was not found -> create user and account for this subject
+				userID, err = db.CreateUserWithAccount(r.Context(), database.UserInfo{
+					Email:         &claims.Email,
+					EmailVerified: claims.EmailVerified,
+					Username:      &claims.PreferredUsername,
+					Role:          "user",
+					Provider:      prov.Name,
+					Issuer:        issuer,
+					Subject:       sub,
+				})
+				if err != nil {
+					http.Error(w, "some database error occured: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+			} else {
+				http.Error(w, "some database error occured: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		} else {
+			userID = accountRow.UserID
+		}
+
+		// store user id in session
+		sessionManager.Put(r.Context(), "userID", userID)
 
 		// redirect user to the home page
 		// currently random /me that proves user is logged in for testing
@@ -375,13 +327,13 @@ func callback(ctx context.Context, provMap *auth.ProviderMap) http.HandlerFunc {
 	}
 }
 
-func me() http.HandlerFunc {
+func me(sessionManager *session.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie("demo_session_user")
-		if err != nil {
+		uid := sessionManager.GetUserID(r.Context())
+		if uid == 0 {
 			http.Error(w, "not logged in", http.StatusUnauthorized)
 			return
 		}
-		fmt.Fprintf(w, "Logged in as %s\n", c.Value)
+		fmt.Fprintf(w, "Logged in. user with id:%d\n", uid)
 	}
 }

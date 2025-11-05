@@ -2,23 +2,27 @@ package database
 
 import "time"
 
-type User struct {
+type PackageRow struct {
 	ID        int64
-	UserName  string
-	Email     string
-	Role      string
 	CreatedAt time.Time
+	Name      string
+	Version   string
 }
 
-/*
-type Package struct {
-	ID   int64
-	Name string
+type TrackingRow struct {
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	UserID       int64
+	PackageID    int64
+	UsersVersion string
 }
-*/
 
-type UserPackage struct {
-	UserID           int64
-	PackageID        int64
-	LastKnownVersion *string
+type AccountRow struct {
+	UserID        int64
+	CreatedAt     time.Time
+	Provider      string
+	Issuer        string
+	Subject       string
+	Email         string
+	EmailVerified bool
 }
