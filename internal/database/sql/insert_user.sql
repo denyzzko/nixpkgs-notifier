@@ -1,4 +1,4 @@
-INSERT INTO users (username, user_role)
+INSERT INTO user (username, role)
 VALUES ($1, $2)
 RETURNING id
 ;

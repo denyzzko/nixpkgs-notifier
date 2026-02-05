@@ -1,9 +1,10 @@
-SELECT id
+SELECT id,
        created_at,
        updated_at,
        name,
        branch,
        current_version
 FROM package
-ORDER BY name, branch
+WHERE name = $1
+AND branch = $2
 ;

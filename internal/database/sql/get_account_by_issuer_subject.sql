@@ -3,9 +3,10 @@ SELECT user_id,
        provider,
        issuer,
        subject,
-       email_address,
+       email,
        email_verified
        
-FROM accounts
+FROM account
 WHERE issuer = $1
 AND subject = $2
+;

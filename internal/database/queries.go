@@ -13,8 +13,8 @@ var ErrNotFound = errors.New("not found")
 //go:embed sql/get_all_packages.sql
 var qGetAllPkgs string
 
-//go:embed sql/get_package_by_name.sql
-var qGetPkgByName string
+//go:embed sql/get_package_by_name_branch.sql
+var qGetPkgByNameAndBranch string
 
 //go:embed sql/get_tracking.sql
 var qGetTracking string
@@ -34,6 +34,9 @@ var sInsertUser string
 //go:embed sql/insert_account.sql
 var sInsertAccount string
 
+//go:embed sql/get_user_by_id.sql
+var qGetUserByID string
+
 type UserInfo struct {
 	Email         *string
 	EmailVerified bool
@@ -44,8 +47,9 @@ type UserInfo struct {
 	Subject       string
 }
 
-func (db *Store) QueryAllPackages(ctx context.Context) ([]PackageRow, error) {
-	var packages []PackageRow
+// Retrieves all packages from database
+func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
+	var packages []Package
 	rows, err := db.pool.Query(ctx, qGetAllPkgs)
 	if err != nil {
 		return nil, err
@@ -54,8 +58,8 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]PackageRow, error) {
 
 	// loop through rows and store results
 	for rows.Next() {
-		var pckg PackageRow
-		if err := rows.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.Name, &pckg.Version); err != nil {
+		var pckg Package
+		if err := rows.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
 			return nil, err
 		}
 		packages = append(packages, pckg)
@@ -68,10 +72,11 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]PackageRow, error) {
 	return packages, nil
 }
 
-func (db *Store) QueryPackage(ctx context.Context, pckgName string) (PackageRow, error) {
-	var pckg PackageRow
-	row := db.pool.QueryRow(ctx, qGetPkgByName, pckgName)
-	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.Name, &pckg.Version); err != nil {
+// Retrieves package identified by its name and branch
+func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, branch string) (Package, error) {
+	var pckg Package
+	row := db.pool.QueryRow(ctx, qGetPkgByNameAndBranch, name, branch)
+	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pckg, ErrNotFound
 		}
@@ -81,10 +86,11 @@ func (db *Store) QueryPackage(ctx context.Context, pckgName string) (PackageRow,
 	return pckg, nil
 }
 
-func (db *Store) QueryTracking(ctx context.Context, userID int64, pckgID int64) (TrackingRow, error) {
-	var tracking TrackingRow
+// Retrieves tracking record for specific user and package
+func (db *Store) QueryTracking(ctx context.Context, userID int64, pckgID int64) (Tracking, error) {
+	var tracking Tracking
 	row := db.pool.QueryRow(ctx, qGetTracking, userID, pckgID)
-	if err := row.Scan(&tracking.CreatedAt, &tracking.UpdatedAt, &tracking.UserID, &tracking.PackageID, &tracking.UsersVersion); err != nil {
+	if err := row.Scan(&tracking.CreatedAt, &tracking.UpdatedAt, &tracking.UserID, &tracking.PackageID, &tracking.LastNotifiedVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return tracking, ErrNotFound
 		}
@@ -94,20 +100,20 @@ func (db *Store) QueryTracking(ctx context.Context, userID int64, pckgID int64) 
 	return tracking, nil
 }
 
-func (db *Store) StorePackage(ctx context.Context, pckgName string, version string) (int64, error) {
-	// if there is already such package it will be updated if version changed
-	// returns id of created/updated package
+// Inserts or updates package in database
+// Returns ID of the created/updated package (updated if version changed)
+func (db *Store) StorePackage(ctx context.Context, name string, branch string, version string) (int64, error) {
 	var id int64
-	if err := db.pool.QueryRow(ctx, sInsertPackage, pckgName, version).Scan(&id); err != nil {
+	if err := db.pool.QueryRow(ctx, sInsertPackage, name, branch, version).Scan(&id); err != nil {
 		return 0, err
 	}
 
 	return id, nil
 }
 
-func (db *Store) StoreTracking(ctx context.Context, userID int64, pckgID int64, version string) error {
-	// if there is already such user<->pckg tracking it will be updated if version changed
-	_, err := db.pool.Exec(ctx, sInsertTracking, userID, pckgID, version)
+// Inserts or updates tracking record (updated if version changed)
+func (db *Store) StoreTracking(ctx context.Context, userID int64, pckgID int64, lastNotifiedVersion string) error {
+	_, err := db.pool.Exec(ctx, sInsertTracking, userID, pckgID, lastNotifiedVersion)
 	if err != nil {
 		return err
 	}
@@ -115,8 +121,9 @@ func (db *Store) StoreTracking(ctx context.Context, userID int64, pckgID int64, 
 	return nil
 }
 
-func (db *Store) QueryAccountByIssuerSub(ctx context.Context, issuer string, subject string) (AccountRow, error) {
-	var acc AccountRow
+// Retrieves account by issuer and subject
+func (db *Store) QueryAccountByIssuerSub(ctx context.Context, issuer string, subject string) (Account, error) {
+	var acc Account
 	row := db.pool.QueryRow(ctx, qGetAccountByIssuerSub, issuer, subject)
 	if err := row.Scan(&acc.UserID, &acc.CreatedAt, &acc.Provider, &acc.Issuer, &acc.Subject, &acc.Email, &acc.EmailVerified); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -128,6 +135,7 @@ func (db *Store) QueryAccountByIssuerSub(ctx context.Context, issuer string, sub
 	return acc, nil
 }
 
+// Creates internal user with external identity (account) mapped to it
 func (db *Store) CreateUserWithAccount(ctx context.Context, info UserInfo) (int64, error) {
 	// begin transaction
 	tx, err := db.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -163,4 +171,18 @@ func (db *Store) CreateUserWithAccount(ctx context.Context, info UserInfo) (int6
 		return 0, err
 	}
 	return id, nil
+}
+
+// Retrieves user by id
+func (db *Store) QueryUserByID(ctx context.Context, id int64) (User, error) {
+	var usr User
+	row := db.pool.QueryRow(ctx, qGetUserByID, id)
+	if err := row.Scan(&usr.ID, &usr.CreatedAt, &usr.Username, &usr.Role); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return usr, ErrNotFound
+		}
+		return usr, err
+	}
+
+	return usr, nil
 }
