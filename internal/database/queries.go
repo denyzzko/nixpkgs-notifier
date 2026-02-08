@@ -16,6 +16,9 @@ var qGetAllPkgs string
 //go:embed sql/get_package_by_name_branch.sql
 var qGetPkgByNameAndBranch string
 
+//go:embed sql/get_package.sql
+var qGetPackage string
+
 //go:embed sql/get_tracking.sql
 var qGetTracking string
 
@@ -72,6 +75,20 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	return packages, nil
 }
 
+// Retrieves package identified by id
+func (db *Store) QueryPackage(ctx context.Context, packageID int64) (Package, error) {
+	var pckg Package
+	row := db.pool.QueryRow(ctx, qGetPackage, packageID)
+	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pckg, ErrNotFound
+		}
+		return pckg, err
+	}
+
+	return pckg, nil
+}
+
 // Retrieves package identified by its name and branch
 func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, branch string) (Package, error) {
 	var pckg Package
@@ -86,10 +103,10 @@ func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, b
 	return pckg, nil
 }
 
-// Retrieves tracking record for specific user and package
-func (db *Store) QueryTracking(ctx context.Context, userID int64, pckgID int64) (Tracking, error) {
+// Retrieves tracking record for specific user
+func (db *Store) QueryTracking(ctx context.Context, userID int64, trackingID int64) (Tracking, error) {
 	var tracking Tracking
-	row := db.pool.QueryRow(ctx, qGetTracking, userID, pckgID)
+	row := db.pool.QueryRow(ctx, qGetTracking, userID, trackingID)
 	if err := row.Scan(&tracking.CreatedAt, &tracking.UpdatedAt, &tracking.UserID, &tracking.PackageID, &tracking.LastNotifiedVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return tracking, ErrNotFound

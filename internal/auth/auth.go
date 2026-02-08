@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"io"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/denyzzko/nixpkgs-notifier/internal/env"
+	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"golang.org/x/oauth2"
 )
 
@@ -37,6 +39,13 @@ type OIDCSecrets struct {
 	Nonce         string
 	CodeVerifier  string
 	CodeChallenge string
+}
+
+type UserClaims struct {
+	Subject           string
+	Email             string
+	EmailVerified     bool
+	PreferredUsername string
 }
 
 func SetupProviders(ctx context.Context, cfg *env.EnvConfig) (*ProviderMap, error) {
@@ -119,7 +128,7 @@ func pkceS256(verifier string) string {
 }
 
 // Generate secrets (state, nonce, code verifier, challenge) that are used during OIDC auth
-func CreateOIDCSecrets() (OIDCSecrets, error) {
+func createOIDCSecrets() (OIDCSecrets, error) {
 	var secrets OIDCSecrets
 	state, err := randString(16)
 	if err != nil {
@@ -143,4 +152,129 @@ func CreateOIDCSecrets() (OIDCSecrets, error) {
 	}
 
 	return secrets, nil
+}
+
+// Generates the OIDC authorization URL with PKCE parameters (URL that user is redirected to for authentication)
+func buildAuthURL(provider *Provider, secrets OIDCSecrets) string {
+	return provider.Config.AuthCodeURL(
+		secrets.State,
+		oidc.Nonce(secrets.Nonce),
+		oauth2.SetAuthURLParam("code_challenge", secrets.CodeChallenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+	)
+}
+
+func exchangeCodeForToken(ctx context.Context, provider *Provider, code string, codeVerifier string) (*oauth2.Token, error) {
+	token, err := provider.Config.Exchange(
+		ctx,
+		code,
+		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to exchange token: %w", err)
+	}
+
+	return token, nil
+}
+
+func verifyAndExtractClaims(ctx context.Context, provider *Provider, rawIDToken string, expectedNonce string) (UserClaims, error) {
+	var claims UserClaims
+
+	// Verify ID token
+	idToken, err := provider.Verifier.Verify(ctx, rawIDToken)
+	if err != nil {
+		return claims, fmt.Errorf("failed to verify ID token: %w", err)
+	}
+
+	// Verify nonce to prevent replay attacks
+	if idToken.Nonce != expectedNonce {
+		return claims, fmt.Errorf("nonce mismatch: got %q, expected %q", idToken.Nonce, expectedNonce)
+	}
+
+	// Extract claims from ID token
+	var rawClaims struct {
+		Sub               string `json:"sub"`
+		Email             string `json:"email"`
+		EmailVerified     bool   `json:"email_verified"`
+		PreferredUsername string `json:"preferred_username"`
+	}
+
+	if err := idToken.Claims(&rawClaims); err != nil {
+		return claims, fmt.Errorf("failed to parse claims: %w", err)
+	}
+
+	claims.Subject = rawClaims.Sub
+	claims.Email = rawClaims.Email
+	claims.EmailVerified = rawClaims.EmailVerified
+	claims.PreferredUsername = rawClaims.PreferredUsername
+
+	return claims, nil
+}
+
+func extractIDToken(token *oauth2.Token) (string, error) {
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		return "", fmt.Errorf("no id_token field in oauth2 token")
+	}
+	return rawIDToken, nil
+}
+
+func AuthCodeFlowInitLogin(ctx context.Context, sessionManager *session.SessionManager, provider *Provider, providerName string) (string, error) {
+	// generate secrets (random state, nonce, code verifier and challenge)
+	secrets, err := createOIDCSecrets()
+	if err != nil {
+		return "", fmt.Errorf("internal error while creating secrets: %w", err)
+	}
+
+	// store necessary oidc secrets in session for later verification
+	sessionManager.SaveOIDCSecrets(ctx, secrets.State, session.OIDCAuthData{
+		Nonce:        secrets.Nonce,
+		CodeVerifier: secrets.CodeVerifier,
+		Provider:     providerName,
+	})
+
+	// build authorization url
+	authURL := buildAuthURL(provider, secrets)
+
+	return authURL, nil
+}
+
+func AuthCodeFlowCallback(ctx context.Context, sessionManager *session.SessionManager, provMap *ProviderMap, state string, code string) (UserClaims, *Provider, error) {
+	// pop oidc data from session (verifies also match of state)
+	oidcData, ok := sessionManager.PopOIDCSecrets(ctx, state)
+	if !ok {
+		return UserClaims{}, nil, fmt.Errorf("unknown/expired state")
+	}
+
+	// get provider by name
+	provider, ok := provMap.Providers[oidcData.Provider]
+	if !ok {
+		return UserClaims{}, nil, fmt.Errorf("unknown provider %q", oidcData.Provider)
+	}
+
+	// exchange authorization code for tokens
+	oauth2Token, err := exchangeCodeForToken(ctx, provider, code, oidcData.CodeVerifier)
+	if err != nil {
+		return UserClaims{}, nil, fmt.Errorf("oidc exchange code: %w", err)
+	}
+
+	// extract ID token from OAuth2 response
+	rawIDToken, err := extractIDToken(oauth2Token)
+	if err != nil {
+		return UserClaims{}, nil, fmt.Errorf("oidc extract id_token: %w", err)
+	}
+
+	// verify ID token and extract user claims
+	claims, err := verifyAndExtractClaims(ctx, provider, rawIDToken, oidcData.Nonce)
+	if err != nil {
+		return UserClaims{}, nil, fmt.Errorf("oidc verify/claims: %w", err)
+	}
+
+	// renew session token
+	err = sessionManager.RenewToken(ctx)
+	if err != nil {
+		return UserClaims{}, nil, fmt.Errorf("error renewing token: %w", err)
+	}
+
+	return claims, provider, nil
 }

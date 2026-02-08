@@ -64,3 +64,7 @@ func (sm *SessionManager) Get(ctx context.Context, key string) any {
 func (sm *SessionManager) GetUserID(ctx context.Context) int64 {
 	return sm.manager.GetInt64(ctx, "userID")
 }
+
+func (sm *SessionManager) Destroy(ctx context.Context) error {
+	return sm.manager.Destroy(ctx)
+}

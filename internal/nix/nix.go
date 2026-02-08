@@ -1,9 +1,12 @@
 package nix
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 )
 
 func CheckNixAvailability() bool {
@@ -20,15 +23,36 @@ func CheckNixAvailability() bool {
 	return true
 }
 
-func GetNixPackageVersionByName(name string) (string, error) {
+func GetPackageVersionByID(ctx context.Context, db *database.Store, packageID int64) (string, error) {
+	//get name and branch from id
+	pckg, err := db.QueryPackage(ctx, packageID)
+	if err != nil {
+		if err == database.ErrNotFound {
+			// this package was not found
+			return "", fmt.Errorf("package not found")
+		} else {
+			return "", fmt.Errorf("failed to get package: %w", err)
+		}
+	}
+
+	// get version
+	pckgVersion, err := GetPackageVersionByNameAndBranch(pckg.Name, pckg.Branch)
+	if err != nil {
+		return "", fmt.Errorf("failed to get package version from Nix: %w", err)
+	}
+
+	// return version
+	return pckgVersion, nil
+}
+
+func GetPackageVersionByNameAndBranch(name string, branch string) (string, error) {
 	// build expression with package name and specified git branch
-	// TODO: branch parameter
 	args := []string{
 		"eval",
 		"--raw",
 		"--extra-experimental-features",
 		"nix-command flakes",
-		`github:NixOS/nixpkgs/nixos-25.05#` + name + `.version`,
+		`github:NixOS/nixpkgs/` + branch + `#` + name + `.version`,
 	}
 
 	// execute nix command
@@ -45,8 +69,4 @@ func GetNixPackageVersionByName(name string) (string, error) {
 
 	// return version
 	return strings.TrimSpace(string(out)), nil
-}
-
-func GetNixPackageVersionBatch() {
-
 }

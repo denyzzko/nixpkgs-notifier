@@ -51,7 +51,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// register routes
-	web.RegisterRoutes(ctx, mux, db, provMap, sessionManager)
+	web.RegisterRoutes(mux, db, provMap, sessionManager)
 
 	// chain middleware
 	chain := middleware.Chain(
@@ -65,6 +65,9 @@ func main() {
 		Addr:              ":8080",
 		Handler:           chain(mux),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       90 * time.Second,
 	}
 
 	// run server
