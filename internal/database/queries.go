@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -55,7 +56,7 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	var packages []Package
 	rows, err := db.pool.Query(ctx, qGetAllPkgs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database.QueryAllPackages: query error: %w", err)
 	}
 	defer rows.Close()
 
@@ -63,13 +64,13 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	for rows.Next() {
 		var pckg Package
 		if err := rows.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("database.QueryAllPackages: scan error: %w", err)
 		}
 		packages = append(packages, pckg)
 	}
 	// check for overall query error, results may be incomplete
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database.QueryAllPackages: incomplete results: %w", err)
 	}
 
 	return packages, nil
@@ -81,9 +82,9 @@ func (db *Store) QueryPackage(ctx context.Context, packageID int64) (Package, er
 	row := db.pool.QueryRow(ctx, qGetPackage, packageID)
 	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return pckg, ErrNotFound
+			return Package{}, ErrNotFound
 		}
-		return pckg, err
+		return Package{}, fmt.Errorf("database.QueryPackage: error querying package (id=%d): %w", packageID, err)
 	}
 
 	return pckg, nil
@@ -95,9 +96,9 @@ func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, b
 	row := db.pool.QueryRow(ctx, qGetPkgByNameAndBranch, name, branch)
 	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return pckg, ErrNotFound
+			return Package{}, ErrNotFound
 		}
-		return pckg, err
+		return Package{}, fmt.Errorf("database.QueryPackageByNameAndBranch: error querying package (name=%q, branch=%q): %w", name, branch, err)
 	}
 
 	return pckg, nil
@@ -109,9 +110,9 @@ func (db *Store) QueryTracking(ctx context.Context, userID int64, trackingID int
 	row := db.pool.QueryRow(ctx, qGetTracking, userID, trackingID)
 	if err := row.Scan(&tracking.CreatedAt, &tracking.UpdatedAt, &tracking.UserID, &tracking.PackageID, &tracking.LastNotifiedVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return tracking, ErrNotFound
+			return Tracking{}, ErrNotFound
 		}
-		return tracking, err
+		return Tracking{}, fmt.Errorf("database.QueryTracking: error querying tracking (userID=%d, trackingID=%d): %w", userID, trackingID, err)
 	}
 
 	return tracking, nil
@@ -122,17 +123,17 @@ func (db *Store) QueryTracking(ctx context.Context, userID int64, trackingID int
 func (db *Store) StorePackage(ctx context.Context, name string, branch string, version string) (int64, error) {
 	var id int64
 	if err := db.pool.QueryRow(ctx, sInsertPackage, name, branch, version).Scan(&id); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("database.StorePackage: error storing package (name=%q, branch=%q): %w", name, branch, err)
 	}
 
 	return id, nil
 }
 
 // Inserts or updates tracking record (updated if version changed)
-func (db *Store) StoreTracking(ctx context.Context, userID int64, pckgID int64, lastNotifiedVersion string) error {
-	_, err := db.pool.Exec(ctx, sInsertTracking, userID, pckgID, lastNotifiedVersion)
+func (db *Store) StoreTracking(ctx context.Context, userID int64, packageID int64, lastNotifiedVersion string) error {
+	_, err := db.pool.Exec(ctx, sInsertTracking, userID, packageID, lastNotifiedVersion)
 	if err != nil {
-		return err
+		return fmt.Errorf("database.StoreTracking: error storing tracking (userID=%d, packageID=%d): %w", userID, packageID, err)
 	}
 
 	return nil
@@ -144,9 +145,9 @@ func (db *Store) QueryAccountByIssuerSub(ctx context.Context, issuer string, sub
 	row := db.pool.QueryRow(ctx, qGetAccountByIssuerSub, issuer, subject)
 	if err := row.Scan(&acc.UserID, &acc.CreatedAt, &acc.Provider, &acc.Issuer, &acc.Subject, &acc.Email, &acc.EmailVerified); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return acc, ErrNotFound
+			return Account{}, ErrNotFound
 		}
-		return acc, err
+		return Account{}, fmt.Errorf("database.QueryAccountByIssuerSub: error queriyng account (issuer=%q, subject=%q): %w", issuer, subject, err)
 	}
 
 	return acc, nil
@@ -157,7 +158,7 @@ func (db *Store) CreateUserWithAccount(ctx context.Context, info UserInfo) (int6
 	// begin transaction
 	tx, err := db.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("database.CreateUserWithAccount: error starting transaction: %w", err)
 	}
 	defer func() {
 		_ = tx.Rollback(ctx)
@@ -167,25 +168,25 @@ func (db *Store) CreateUserWithAccount(ctx context.Context, info UserInfo) (int6
 	var id int64
 	err = tx.QueryRow(ctx, sInsertUser, info.Username, info.Role).Scan(&id)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("database.CreateUserWithAccount: error creating user: %w", err)
 	}
 
 	// create linking account for that user
 	var linkedID int64
 	err = tx.QueryRow(ctx, sInsertAccount, id, info.Email, info.EmailVerified, info.Provider, info.Issuer, info.Subject).Scan(&linkedID)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("database.CreateUserWithAccount: error creating account (userID=%d): %w", id, err)
 	}
 
 	if id != linkedID {
 		tx.Rollback(ctx)
-		return 0, errors.New("user account mismatch")
+		return 0, fmt.Errorf("database.CreateUserWithAccount: user/account id mismatch (userID=%d, linkedID=%d): %w", id, linkedID, err)
 	}
 
 	// commit transaction
 	err = tx.Commit(ctx)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("database.CreateUserWithAccount: error commiting transaction: %w", err)
 	}
 	return id, nil
 }
@@ -196,9 +197,9 @@ func (db *Store) QueryUserByID(ctx context.Context, id int64) (User, error) {
 	row := db.pool.QueryRow(ctx, qGetUserByID, id)
 	if err := row.Scan(&usr.ID, &usr.CreatedAt, &usr.Username, &usr.Role); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return usr, ErrNotFound
+			return User{}, ErrNotFound
 		}
-		return usr, err
+		return User{}, fmt.Errorf("database.QueryUserByID: error querying user (id=%d): %w", id, err)
 	}
 
 	return usr, nil

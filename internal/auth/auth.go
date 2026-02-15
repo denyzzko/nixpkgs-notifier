@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
 	"github.com/denyzzko/nixpkgs-notifier/internal/env"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"golang.org/x/oauth2"
@@ -220,10 +221,12 @@ func extractIDToken(token *oauth2.Token) (string, error) {
 }
 
 func AuthCodeFlowInitLogin(ctx context.Context, sessionManager *session.SessionManager, provider *Provider, providerName string) (string, error) {
+	const op = "auth.AuthCodeFlowInitLogin"
+
 	// generate secrets (random state, nonce, code verifier and challenge)
 	secrets, err := createOIDCSecrets()
 	if err != nil {
-		return "", fmt.Errorf("internal error while creating secrets: %w", err)
+		return "", appError.NewAppError(op, appError.Internal, "internal error", err)
 	}
 
 	// store necessary oidc secrets in session for later verification
@@ -240,40 +243,42 @@ func AuthCodeFlowInitLogin(ctx context.Context, sessionManager *session.SessionM
 }
 
 func AuthCodeFlowCallback(ctx context.Context, sessionManager *session.SessionManager, provMap *ProviderMap, state string, code string) (UserClaims, *Provider, error) {
+	const op = "auth.AuthCodeFlowCallback"
+
 	// pop oidc data from session (verifies also match of state)
 	oidcData, ok := sessionManager.PopOIDCSecrets(ctx, state)
 	if !ok {
-		return UserClaims{}, nil, fmt.Errorf("unknown/expired state")
+		return UserClaims{}, nil, appError.NewAppError(op, appError.Invalid, "invalid or expired login state", fmt.Errorf("unknown/expired state in OIDC flow (on callback), state: '%q'", state))
 	}
 
 	// get provider by name
 	provider, ok := provMap.Providers[oidcData.Provider]
 	if !ok {
-		return UserClaims{}, nil, fmt.Errorf("unknown provider %q", oidcData.Provider)
+		return UserClaims{}, nil, appError.NewAppError(op, appError.Invalid, "unknown identity provider", fmt.Errorf("unknown provider %q in oidc session", oidcData.Provider))
 	}
 
 	// exchange authorization code for tokens
 	oauth2Token, err := exchangeCodeForToken(ctx, provider, code, oidcData.CodeVerifier)
 	if err != nil {
-		return UserClaims{}, nil, fmt.Errorf("oidc exchange code: %w", err)
+		return UserClaims{}, nil, appError.NewAppError(op, appError.Upstream, "failed to complete login with provider", fmt.Errorf("failed to exchange code for tokens in OIDC flow (on callback): %w", err))
 	}
 
 	// extract ID token from OAuth2 response
 	rawIDToken, err := extractIDToken(oauth2Token)
 	if err != nil {
-		return UserClaims{}, nil, fmt.Errorf("oidc extract id_token: %w", err)
+		return UserClaims{}, nil, appError.NewAppError(op, appError.Invalid, "invalid login response", fmt.Errorf("failed to extract id token from response in OIDC flow (on callback): %w", err))
 	}
 
 	// verify ID token and extract user claims
 	claims, err := verifyAndExtractClaims(ctx, provider, rawIDToken, oidcData.Nonce)
 	if err != nil {
-		return UserClaims{}, nil, fmt.Errorf("oidc verify/claims: %w", err)
+		return UserClaims{}, nil, appError.NewAppError(op, appError.Invalid, "invalid login response", fmt.Errorf("failed to verify/extract claims in OIDC flow (on callback): %w", err))
 	}
 
 	// renew session token
 	err = sessionManager.RenewToken(ctx)
 	if err != nil {
-		return UserClaims{}, nil, fmt.Errorf("error renewing token: %w", err)
+		return UserClaims{}, nil, appError.NewAppError(op, appError.Internal, "internal error", fmt.Errorf("failed to renew session: %w", err))
 	}
 
 	return claims, provider, nil

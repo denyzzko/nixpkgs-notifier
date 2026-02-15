@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -23,7 +24,7 @@ type VersionVerification struct {
 
 func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager) {
 	mux.HandleFunc("GET /package", getAllPackages(db))
-	mux.HandleFunc("GET /package/check/{trackingID}", checkTrackedPackageVersion(db, sessionManager))
+	mux.HandleFunc("GET /package/check/{id}", checkTrackedPackageVersion(db, sessionManager))
 	mux.HandleFunc("POST /package/track/{name}/{branch}", createTracking(db, sessionManager))
 	mux.HandleFunc("GET /auth/login", login(provMap, sessionManager))
 	mux.HandleFunc("GET /auth/login/specify", specify(sessionManager))
@@ -44,16 +45,20 @@ func getAllPackages(db *database.Store) http.HandlerFunc {
 		defer cancel()
 
 		// get all packages
-		pkgs, err := packages.GetAll(ctx, db)
+		packages, err := packages.GetAll(ctx, db)
 		if err != nil {
-			http.Error(w, "failed to get all packages: "+err.Error(), http.StatusInternalServerError)
+			writeAppErr(w, "web.getAllPackages", err)
 			return
 		}
 
 		// return json response with packages
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(pkgs); err != nil {
-			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(packages); err != nil {
+			// IDK about this maybe it wont be used anyway since SSR will be used instead of json probably
+			// currently needed because writeErr cant be used here since its not app error (maybe it could be wrapped to appError here though :)...)
+			// either way after this error system wont probably be able to send error message to user reliably so idkk maybe just log here
+			// ... i just didnt want to have those two lines here (log & error)
+			writeGenericErr(w, "web.getAllPackages", "failed to encode response", err, http.StatusInternalServerError)
 			return
 		}
 	}
@@ -66,34 +71,23 @@ func checkTrackedPackageVersion(db *database.Store, sessionManager *session.Sess
 		defer cancel()
 
 		// extract trackingID from request
-		trackingID_string := r.PathValue("trackingID")
+		trackingID_string := r.PathValue("id")
 		if trackingID_string == "" {
-			http.Error(w, "missing package tracking identifier in http query", http.StatusBadRequest)
+			writeGenericErr(w, "web.checkTrackedPackageVersion", "missing tracking id", errors.New("missing path param id in http request"), http.StatusBadRequest)
 			return
 		}
 
 		// check tracked package version
 		result, err := packages.Check(ctx, db, sessionManager, trackingID_string)
 		if err != nil {
-			// return specific error
-			if err.Error() == "you are not tracking this package" || err.Error() == "package not found" {
-				http.Error(w, err.Error(), http.StatusNotFound)
-				return
-			} else if err.Error() == "not authenticated" {
-				http.Error(w, err.Error(), http.StatusUnauthorized)
-				return
-			} else if err.Error() == "failed to get package version from Nix" {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeAppErr(w, "web.checkTrackedPackageVersion", err)
 			return
 		}
 
 		// return json reponse with package version compared
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(result); err != nil {
-			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+			writeGenericErr(w, "web.checkTrackedPackageVersion", "failed to encode response", err, http.StatusInternalServerError)
 			return
 		}
 	}
@@ -109,22 +103,14 @@ func createTracking(db *database.Store, sessionManager *session.SessionManager) 
 		packageName := r.PathValue("name")
 		packageBranch := r.PathValue("branch")
 		if packageName == "" || packageBranch == "" {
-			http.Error(w, "missing package name or branch in http query", http.StatusBadRequest)
+			writeGenericErr(w, "web.createTracking", "missing package name or branch", fmt.Errorf("missing package name or branch - name: '%q' branch: '%q'", packageName, packageBranch), http.StatusBadRequest)
 			return
 		}
 
 		// create tracking
 		err := packages.Track(ctx, db, sessionManager, packageName, packageBranch)
 		if err != nil {
-			// return specific error
-			if err.Error() == "failed to get package version from Nix" {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			} else if err.Error() == "not authenticated" {
-				http.Error(w, err.Error(), http.StatusUnauthorized)
-				return
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeAppErr(w, "web.createTracking", err)
 			return
 		}
 
@@ -140,13 +126,13 @@ func login(provMap *auth.ProviderMap, sessionManager *session.SessionManager) ht
 		providerName := r.URL.Query().Get("provider")
 		provider, ok := provMap.Providers[providerName]
 		if !ok {
-			http.Error(w, "unknown provider", http.StatusBadRequest)
+			writeGenericErr(w, "web.login", "unknown provider", fmt.Errorf("unknown provider in http request %q", providerName), http.StatusBadRequest)
 			return
 		}
 
 		authURL, err := auth.AuthCodeFlowInitLogin(r.Context(), sessionManager, provider, providerName)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeAppErr(w, "web.login", err)
 			return
 		}
 
@@ -164,28 +150,28 @@ func callback(db *database.Store, provMap *auth.ProviderMap, sessionManager *ses
 		// get state from query parameter
 		state := r.URL.Query().Get("state")
 		if state == "" {
-			http.Error(w, "missing authorization state", http.StatusBadRequest)
+			writeGenericErr(w, "web.callback", "missing authorization state", errors.New("missing query param state in OIDC flow (on callback)"), http.StatusBadRequest)
 			return
 		}
 
 		// get authorization code from query parameter
 		code := r.URL.Query().Get("code")
 		if code == "" {
-			http.Error(w, "missing authorization code", http.StatusBadRequest)
+			writeGenericErr(w, "web.callback", "missing authorization code", errors.New("missing query param code in OIDC flow (on callback)"), http.StatusBadRequest)
 			return
 		}
 
 		// exchange authorization code for tokens, extract ID token from response, verify ID token and extract user claims
 		claims, provider, err := auth.AuthCodeFlowCallback(ctx, sessionManager, provMap, state, code)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError) //TODO: currently just one type of error but AuthCodeFlowCallback should be able to return different types (internal, bad request, ...)
+			writeAppErr(w, "web.callback", err)
 			return
 		}
 
 		// get user by issuer, subject (if not found -> new one is created)
 		userID, err := users.GetUser(r.Context(), db, provider, claims)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeAppErr(w, "web.callback", err)
 			return
 		}
 
@@ -213,11 +199,11 @@ func home(sessionManager *session.SessionManager, db *database.Store) http.Handl
 		}
 		UserRow, err := db.QueryUserByID(r.Context(), uid)
 		if err != nil {
-			if err == database.ErrNotFound {
-				http.Error(w, "failed to find you, you do not exist :)", http.StatusNotFound)
-			} else {
-				http.Error(w, "some database error occured: "+err.Error(), http.StatusInternalServerError)
+			if errors.Is(err, database.ErrNotFound) {
+				writeGenericErr(w, "web.home", "user not found", err, http.StatusNotFound)
+				return
 			}
+			writeGenericErr(w, "web.home", "internal error", err, http.StatusInternalServerError)
 			return
 		}
 		fmt.Fprintf(w, "Welcome to the Nixpkgs Notifier!!!\nYour are logged in :)\n id:%d\n username:%s\n role:%s", uid, UserRow.Username, UserRow.Role)

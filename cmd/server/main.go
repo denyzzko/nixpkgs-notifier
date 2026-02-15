@@ -21,13 +21,13 @@ func main() {
 	// load configuration
 	cfg, err := env.LoadEnvConfig()
 	if err != nil {
-		log.Fatal("[ERROR] ENV: Could not read .env file!")
+		log.Fatalf("[ERROR] ENV: Could not read .env file!: %v", err)
 	}
 
 	// check nix availability
-	ok := nix.CheckNixAvailability()
-	if !ok {
-		log.Fatal("[ERROR] NIX: Nix is not available!")
+	err = nix.CheckNixAvailability()
+	if err != nil {
+		log.Fatalf("[ERROR] NIX: Nix is not available on this system!: %v", err)
 	}
 
 	// open connection to db
