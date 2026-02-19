@@ -4,7 +4,7 @@ SELECT id,
        name,
        branch,
        current_version
-FROM package
+FROM packages
 WHERE name = $1
 AND branch = $2
 ;

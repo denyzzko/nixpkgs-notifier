@@ -6,7 +6,7 @@ SELECT user_id,
        email,
        email_verified
        
-FROM account
+FROM accounts
 WHERE issuer = $1
 AND subject = $2
 ;

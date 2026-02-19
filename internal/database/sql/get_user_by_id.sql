@@ -2,6 +2,6 @@ SELECT id,
        created_at,
        username,
        role
-FROM user
+FROM users
 WHERE id = $1
 ;

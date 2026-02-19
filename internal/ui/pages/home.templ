@@ -1,0 +1,102 @@
+package pages
+
+import "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+
+type PackageResultVM struct {
+	Name    string
+	Branch  string
+	Version string
+	Tracked bool
+}
+
+type HomeVM struct {
+	HasQuery bool
+	Name     string
+	Branch   string
+	Error    string
+	Results  []PackageResultVM
+}
+
+templ HomePage(vm HomeVM) {
+	@layout.Base("Home", SearchPanel(vm))
+}
+
+templ SearchPanel(vm HomeVM) {
+	<div id="search-pane" class="min-vh-100 d-flex align-items-center justify-content-center">
+		<div class="card shadow-sm" style="max-width: 900px; width: 100%;">
+			<div class="card-body p-4">
+				<h1 class="h4 mb-4 text-center">Search package</h1>
+
+				if vm.Error != "" {
+					<div class="alert alert-danger" role="alert">
+						{vm.Error}
+					</div>
+				}
+
+				<form method="GET" action="/search" hx-get="/search" hx-target="#search-pane" hx-swap="outerHTML" hx-push-url="true">
+					if !vm.HasQuery {
+						<!-- Initial: inputs next to each other, button centered below -->
+						<div class="row g-3">
+							<div class="col-12 col-md-6">
+								<input class="form-control" name="name" value={vm.Name} placeholder="Enter package name ..." required />
+							</div>
+							<div class="col-12 col-md-6">
+								<input class="form-control" name="branch" value={vm.Branch} placeholder="Enter branch (e.g. nixos-unstable) ..." required/>
+							</div>
+						</div>
+
+						<div class="mt-4 d-flex justify-content-center">
+							<button type="submit" class="btn btn-primary px-4">Search</button>
+						</div>
+					} else {
+						<!-- After search: Smaller button next to inputs -->
+						<div class="row g-3 align-items-end">
+							<div class="col-12 col-md-5">
+								<input class="form-control" name="name" value={vm.Name} required />
+							</div>
+							<div class="col-12 col-md-5">
+								<input class="form-control" name="branch" value={vm.Branch} />
+							</div>
+							<div class="col-12 col-md-2 d-grid">
+								<button type="submit" class="btn btn-primary">Search</button>
+							</div>
+						</div>
+					}
+				</form>
+
+				if len(vm.Results) > 0 {
+					<hr class="my-4" />
+
+					<div class="list-group">
+						for _, result := range vm.Results {
+							@PackageItem(result)
+						}
+					</div>
+				}
+			</div>
+		</div>
+	</div>
+}
+
+templ PackageItem(result PackageResultVM) {
+	<div class="list-group-item d-flex align-items-center justify-content-between">
+		<div class="d-flex gap-3 align-items-center flex-wrap">
+			<div><strong>{result.Name}</strong></div>
+			//<div class="text-muted">{result.Branch}</div>
+			<div class="badge text-bg-secondary">v{result.Version}</div>
+		</div>
+
+		if result.Tracked {
+			<button class="btn btn-success" disabled>Tracked</button>
+		} else {
+			<button
+				class="btn btn-outline-primary"
+				hx-post={"/package/track/" + result.Name + "/" + result.Branch}
+				hx-target="closest .list-group-item"
+				hx-swap="outerHTML"
+			>
+				Track
+			</button>
+		}
+	</div>
+}

@@ -3,7 +3,7 @@ SELECT created_at,
        user_id,
        package_id,
        last_notified_version
-FROM tracking
+FROM trackings
 WHERE user_id = $1
 AND id = $2
 ;

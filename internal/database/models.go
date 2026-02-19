@@ -6,7 +6,7 @@ import "time"
 type User struct {
 	ID        int64
 	CreatedAt time.Time
-	Username  *string
+	Username  string
 	Role      string
 }
 

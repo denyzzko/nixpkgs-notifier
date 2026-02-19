@@ -1,4 +1,4 @@
-INSERT INTO account (user_id, email, email_verified, provider, issuer, subject)
+INSERT INTO accounts (user_id, email, email_verified, provider, issuer, subject)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (issuer, subject) DO UPDATE
   SET user_id = EXCLUDED.user_id

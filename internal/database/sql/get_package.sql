@@ -4,6 +4,6 @@ SELECT id,
        name,
        branch,
        current_version
-FROM package
+FROM packages
 AND id = $1
 ;

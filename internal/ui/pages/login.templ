@@ -1,0 +1,33 @@
+package pages
+
+import "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+
+templ LoginPage() {
+    @layout.Base("Login", LoginContent())
+}
+
+templ LoginContent() {
+    <div class="min-vh-100 d-flex align-items-center justify-content-center">
+        <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
+            <div class="card-body p-4">
+                <h1 class="h4 mb-3 text-center">Sign in</h1>
+
+                <div class="d-grid gap-2">
+                    <a class="btn btn-primary btn-lg" href="/auth/login?provider=google">
+                        Login with Google
+                    </a>
+                    <a class="btn btn-primary btn-lg" href="/auth/login?provider=X">
+                        Login with XXX
+                    </a>
+                    <a class="btn btn-primary btn-lg" href="/auth/login?provider=Y">
+                        Login with YYY
+                    </a>
+                </div>
+
+                <p class="text-muted small mt-3 mb-0 text-center">
+                    You will be redirected to the provider's page to authanticate.
+                </p>
+            </div>
+        </div>
+    </div>
+}
