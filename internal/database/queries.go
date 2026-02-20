@@ -11,6 +11,9 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+//go:embed sql/get_users_tracked_packages.sql
+var qGetUsersTrackedPackages string
+
 //go:embed sql/get_all_packages.sql
 var qGetAllPkgs string
 
@@ -38,8 +41,11 @@ var sInsertUser string
 //go:embed sql/insert_account.sql
 var sInsertAccount string
 
-//go:embed sql/get_user_by_id.sql
+//go:embed sql/get_user.sql
 var qGetUserByID string
+
+//go:embed sql/remove_tracking.sql
+var dRemoveTracking string
 
 type UserInfo struct {
 	Email         *string
@@ -51,9 +57,41 @@ type UserInfo struct {
 	Subject       string
 }
 
+type TrackedPackage struct {
+	PackageID           int64
+	Name                string
+	Branch              string
+	LastNotifiedVersion string
+}
+
+// Retrieves all packages from database that user tracks by his ID
+func (db *Store) QueryTrackedPackagesByUserID(ctx context.Context, userID int64) ([]TrackedPackage, error) {
+	rows, err := db.pool.Query(ctx, qGetUsersTrackedPackages, userID)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryTrackedPackagesByUserID: query error (userID=%d): %w", userID, err)
+	}
+	defer rows.Close()
+
+	// loop through rows and store results
+	var trackedPackages []TrackedPackage
+	for rows.Next() {
+		var pckg TrackedPackage
+		if err := rows.Scan(&pckg.PackageID, &pckg.Name, &pckg.Branch, &pckg.LastNotifiedVersion); err != nil {
+			return nil, fmt.Errorf("database.QueryTrackedPackagesByUserID: scan error: %w", err)
+		}
+		trackedPackages = append(trackedPackages, pckg)
+	}
+
+	// check for overall query error, results may be incomplete
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("database.QueryTrackedPackagesByUserID: incomplete results: %w", err)
+	}
+
+	return trackedPackages, nil
+}
+
 // Retrieves all packages from database
 func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
-	var packages []Package
 	rows, err := db.pool.Query(ctx, qGetAllPkgs)
 	if err != nil {
 		return nil, fmt.Errorf("database.QueryAllPackages: query error: %w", err)
@@ -61,6 +99,7 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	defer rows.Close()
 
 	// loop through rows and store results
+	var packages []Package
 	for rows.Next() {
 		var pckg Package
 		if err := rows.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
@@ -68,6 +107,7 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 		}
 		packages = append(packages, pckg)
 	}
+
 	// check for overall query error, results may be incomplete
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("database.QueryAllPackages: incomplete results: %w", err)
@@ -104,15 +144,15 @@ func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, b
 	return pckg, nil
 }
 
-// Retrieves tracking record for specific user
-func (db *Store) QueryTracking(ctx context.Context, userID int64, trackingID int64) (Tracking, error) {
+// Retrieves tracking record identified by user ID and tracked package ID
+func (db *Store) QueryTracking(ctx context.Context, userID int64, packageID int64) (Tracking, error) {
 	var tracking Tracking
-	row := db.pool.QueryRow(ctx, qGetTracking, userID, trackingID)
+	row := db.pool.QueryRow(ctx, qGetTracking, userID, packageID)
 	if err := row.Scan(&tracking.CreatedAt, &tracking.UpdatedAt, &tracking.UserID, &tracking.PackageID, &tracking.LastNotifiedVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Tracking{}, ErrNotFound
 		}
-		return Tracking{}, fmt.Errorf("database.QueryTracking: error querying tracking (userID=%d, trackingID=%d): %w", userID, trackingID, err)
+		return Tracking{}, fmt.Errorf("database.QueryTracking: error querying tracking (userID=%d, packageID=%d): %w", userID, packageID, err)
 	}
 
 	return tracking, nil
@@ -203,4 +243,16 @@ func (db *Store) QueryUserByID(ctx context.Context, id int64) (User, error) {
 	}
 
 	return usr, nil
+}
+
+// Deletes tracking identified by user ID and tracked package ID
+func (db *Store) DeleteTracking(ctx context.Context, userID int64, packageID int64) error {
+	result, err := db.pool.Exec(ctx, dRemoveTracking, packageID, userID)
+	if err != nil {
+		return fmt.Errorf("database.DeleteTracking: error deleting tracking (packageID=%d, userID=%d): %w", packageID, userID, err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

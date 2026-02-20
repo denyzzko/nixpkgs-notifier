@@ -5,5 +5,5 @@ SELECT created_at,
        last_notified_version
 FROM trackings
 WHERE user_id = $1
-AND id = $2
+AND package_id = $2
 ;

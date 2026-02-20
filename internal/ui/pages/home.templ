@@ -1,102 +1,199 @@
 package pages
 
-import "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+import (
+	"github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+	"fmt"
+)
 
-type PackageResultVM struct {
-	Name    string
-	Branch  string
-	Version string
-	Tracked bool
+type TrackedPackageVM struct {
+    PackageID           int64
+    Name                string
+    Branch              string
+    LastNotifiedVersion string
+    CurrentVersion     string
+    VersionChanged      bool
+	Verified            bool
 }
 
 type HomeVM struct {
-	HasQuery bool
-	Name     string
-	Branch   string
-	Error    string
-	Results  []PackageResultVM
+    Packages []TrackedPackageVM
 }
 
 templ HomePage(vm HomeVM) {
-	@layout.Base("Home", SearchPanel(vm))
+    @layout.Base("Home", HomeContent(vm))
 }
 
-templ SearchPanel(vm HomeVM) {
-	<div id="search-pane" class="min-vh-100 d-flex align-items-center justify-content-center">
-		<div class="card shadow-sm" style="max-width: 900px; width: 100%;">
-			<div class="card-body p-4">
-				<h1 class="h4 mb-4 text-center">Search package</h1>
+templ HomeContent(vm HomeVM) {
+    <div class="min-vh-100 d-flex align-items-center justify-content-center">
+        <div class="card shadow-sm" style="max-width: 900px; width: 100%;">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h4 mb-0">Tracked Packages</h1>
+                    <div class="d-flex gap-2">
+                        <button
+                            class="btn btn-outline-success btn-sm"
+                            hx-get="/package/track/form"
+                            hx-target="#new-package-slot"
+                            hx-swap="innerHTML"
+                            onclick="if(document.getElementById('new-package-slot').children.length > 0) { event.preventDefault(); }"
+                        >
+                            <i class="bi bi-plus-circle-fill"></i>
+                        </button>
+                        <button
+                            class="btn btn-outline-primary btn-sm"
+                            hx-post="/package/verify/all"
+                            hx-target="#tracked-list"
+                            hx-swap="innerHTML"
+                        >
+                            Verify All
+                        </button>
+                    </div>
+                </div>
 
-				if vm.Error != "" {
-					<div class="alert alert-danger" role="alert">
-						{vm.Error}
-					</div>
-				}
-
-				<form method="GET" action="/search" hx-get="/search" hx-target="#search-pane" hx-swap="outerHTML" hx-push-url="true">
-					if !vm.HasQuery {
-						<!-- Initial: inputs next to each other, button centered below -->
-						<div class="row g-3">
-							<div class="col-12 col-md-6">
-								<input class="form-control" name="name" value={vm.Name} placeholder="Enter package name ..." required />
-							</div>
-							<div class="col-12 col-md-6">
-								<input class="form-control" name="branch" value={vm.Branch} placeholder="Enter branch (e.g. nixos-unstable) ..." required/>
-							</div>
-						</div>
-
-						<div class="mt-4 d-flex justify-content-center">
-							<button type="submit" class="btn btn-primary px-4">Search</button>
-						</div>
-					} else {
-						<!-- After search: Smaller button next to inputs -->
-						<div class="row g-3 align-items-end">
-							<div class="col-12 col-md-5">
-								<input class="form-control" name="name" value={vm.Name} required />
-							</div>
-							<div class="col-12 col-md-5">
-								<input class="form-control" name="branch" value={vm.Branch} />
-							</div>
-							<div class="col-12 col-md-2 d-grid">
-								<button type="submit" class="btn btn-primary">Search</button>
-							</div>
-						</div>
-					}
-				</form>
-
-				if len(vm.Results) > 0 {
-					<hr class="my-4" />
-
-					<div class="list-group">
-						for _, result := range vm.Results {
-							@PackageItem(result)
-						}
-					</div>
-				}
-			</div>
-		</div>
-	</div>
+                <div id="tracked-list">
+                    @TrackedPackageList(vm.Packages)
+                </div>
+            </div>
+        </div>
+    </div>
 }
 
-templ PackageItem(result PackageResultVM) {
-	<div class="list-group-item d-flex align-items-center justify-content-between">
-		<div class="d-flex gap-3 align-items-center flex-wrap">
-			<div><strong>{result.Name}</strong></div>
-			//<div class="text-muted">{result.Branch}</div>
-			<div class="badge text-bg-secondary">v{result.Version}</div>
-		</div>
+templ TrackedPackageList(packages []TrackedPackageVM) {
+    <div class="list-group">
+        <div id="new-package-slot"></div>
+        for _, pckg := range packages {
+            @TrackedPackageItem(pckg)
+        }
+    </div>
+    if len(packages) == 0 {
+        <p class="text-center text-muted mt-2">You are not tracking any packages yet. Add them by clicking "+" button.</p>
+    }
+}
 
-		if result.Tracked {
-			<button class="btn btn-success" disabled>Tracked</button>
-		} else {
-			<button
-				class="btn btn-outline-primary"
-				hx-post={"/package/track/" + result.Name + "/" + result.Branch}
-				hx-target="closest .list-group-item"
-				hx-swap="outerHTML"
-			>
-				Track
-			</button>
-		}
-	</div>
+templ NewPackageForm() {
+    <form
+        class="list-group-item d-flex align-items-center justify-content-between gap-3"
+        hx-post="/package/track"
+        hx-target="#new-package-slot"
+        hx-swap="innerHTML"
+    >
+        <div class="d-flex gap-2 align-items-center flex-grow-1">
+            <input
+                class="form-control form-control-sm"
+                type="text"
+                name="name"
+                placeholder="Package name (e.g. go)"
+                required
+                autofocus
+            />
+            <input
+                class="form-control form-control-sm"
+                type="text"
+                name="branch"
+                placeholder="Branch (e.g. nixpkgs-unstable)"
+                required
+            />
+        </div>
+        <div class="d-flex gap-2">
+            <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+            >
+                Submit
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                hx-get="/package/track/cancel"
+                hx-target="#new-package-slot"
+                hx-swap="innerHTML"
+            >
+                Cancel
+            </button>
+        </div>
+    </form>
+}
+
+templ NewPackageError(name string, branch string, message string) {
+    <form
+        class="list-group-item d-flex align-items-center justify-content-between gap-3"
+        hx-post="/package/track"
+        hx-target="#new-package-slot"
+        hx-swap="innerHTML"
+    >
+        <div class="d-flex flex-column gap-1 flex-grow-1">
+            <div class="d-flex gap-2 align-items-center">
+                <input
+                    class="form-control form-control-sm is-invalid"
+                    type="text"
+                    name="name"
+                    value={name}
+                    placeholder="Package name (e.g. go)"
+                    required
+                />
+                <input
+                    class="form-control form-control-sm is-invalid"
+                    type="text"
+                    name="branch"
+                    value={branch}
+                    placeholder="Branch (e.g. nixpkgs-unstable)"
+                    required
+                />
+            </div>
+            <small class="text-danger">{message}</small>
+        </div>
+        <div class="d-flex gap-2 align-self-start mt-1">
+            <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+            >
+                Submit
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                hx-get="/package/track/cancel"
+                hx-target="#new-package-slot"
+                hx-swap="innerHTML"
+            >
+                Cancel
+            </button>
+        </div>
+    </form>
+}
+
+templ TrackedPackageItem(pckg TrackedPackageVM) {
+    <div class="list-group-item d-flex align-items-center justify-content-between">
+        <div class="d-flex gap-3 align-items-center flex-wrap">
+            <strong>{pckg.Name}</strong>
+            <span class="text-muted small">{pckg.Branch}</span>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            if !pckg.Verified {
+                <span class="badge text-bg-secondary border">v{pckg.LastNotifiedVersion}</span>
+            } else if pckg.VersionChanged {
+                <span class="badge text-bg-danger border border-danger">v{pckg.LastNotifiedVersion}</span>
+                <i class="bi bi-arrow-right"></i>
+                <span class="badge text-bg-success border border-success">v{pckg.CurrentVersion}</span>
+            } else {
+                <span class="badge text-bg-success border border-success">v{pckg.CurrentVersion}</span>
+            }
+            <button
+                class="btn btn-outline-secondary btn-sm"
+                hx-post={fmt.Sprintf("/package/verify/%d", pckg.PackageID)}
+                hx-target="closest .list-group-item"
+                hx-swap="outerHTML"
+            >
+                Verify
+            </button>
+            <button
+                class="btn btn-danger btn-sm"
+                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
+                hx-target="closest .list-group-item"
+                hx-swap="outerHTML"
+            >
+                Untrack
+            </button>
+        </div>
+    </div>
 }

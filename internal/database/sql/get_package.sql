@@ -5,5 +5,5 @@ SELECT id,
        branch,
        current_version
 FROM packages
-AND id = $1
+WHERE id = $1
 ;

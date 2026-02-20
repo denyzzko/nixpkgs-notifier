@@ -2,39 +2,41 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/packages"
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/users"
+	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
-	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/pages"
 )
 
-type VersionVerification struct {
-	Name       string `json:"name"`
-	StoredVrsn string `json:"storedVersion"`
-	CurrVrsn   string `json:"currentVersion"`
-	UpToDate   bool   `json:"upToDate"`
-}
-
 func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager) {
 	mux.HandleFunc("GET /", homePage(sessionManager, db))
-	mux.HandleFunc("GET /search", searchPackage())
-	mux.HandleFunc("GET /login", loginPage(sessionManager, db))
+
+	mux.HandleFunc("GET /login", loginPage())
 	mux.HandleFunc("GET /auth/login", login(provMap, sessionManager))
 	mux.HandleFunc("GET /auth/callback", callback(db, provMap, sessionManager))
-	mux.HandleFunc("POST /package/track/{name}/{branch}", trackPackage(db, sessionManager))
-
-	mux.HandleFunc("GET /package/check/{id}", checkTrackedPackageVersion(db, sessionManager))
 	mux.HandleFunc("GET /auth/logout", logout(sessionManager)) // TODO: make POST
+
+	mux.HandleFunc("POST /package/verify/{id}", verifyTrackedPackage(db, sessionManager))
+	mux.HandleFunc("POST /package/verify/all", verifyAllTrackedPackages(db, sessionManager))
+
+	mux.HandleFunc("POST /package/untrack/{id}", untrackPackage(db, sessionManager))
+	mux.HandleFunc("GET /package/track/form", trackPackageForm())
+	mux.HandleFunc("GET /package/track/cancel", trackPackageFormCancel())
+	mux.HandleFunc("POST /package/track", trackPackage(db, sessionManager))
+
+	//mux.HandleFunc("POST /package/track/{name}/{branch}", trackPackage(db, sessionManager))
+	//mux.HandleFunc("GET /package/check/{id}", checkTrackedPackageVersion(db, sessionManager))
+
 	//mux.HandleFunc("GET /auth/login/specify", specify(sessionManager))
 	//mux.HandleFunc("GET /package", getAllPackages(db))
 	//mux.HandleFunc("GET /package/verify/all", verifyAllUsersPackages(db))
@@ -47,86 +49,62 @@ func isHTMX(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"
 }
 
-func homePage(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		uid := sessionManager.GetUserID(r.Context())
-		if uid == 0 {
-			http.Redirect(w, r, "/login", http.StatusFound)
-			return
-		}
-		usr, err := db.QueryUserByID(r.Context(), uid)
-		if err != nil {
-			if errors.Is(err, database.ErrNotFound) {
-				writeGenericErr(w, "web.home", "user not found", err, http.StatusNotFound)
-				return
-			}
-			writeGenericErr(w, "web.home", "internal error", err, http.StatusInternalServerError)
-			return
-		}
-		//fmt.Fprintf(w, "Welcome to the Nixpkgs Notifier!!!\nYour are logged in :)\n id:%d\n username:%s\n role:%s", uid, usr.Username, usr.Role)
-		log.Printf("[INFO] user logged in: %s", usr.ID)
-
-		vm := pages.HomeVM{
-			HasQuery: false,
-		}
-
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pages.HomePage(vm).Render(r.Context(), w); err != nil {
-			writeGenericErr(w, "web.HomePage", "failed to render home page", errors.New("failed to render home page"), http.StatusInternalServerError)
-			return
-		}
+func renderPage(w http.ResponseWriter, r *http.Request, ctx context.Context, partial templ.Component, full templ.Component) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	var component templ.Component
+	if isHTMX(r) {
+		component = partial
+	} else {
+		component = full
+	}
+	if err := component.Render(ctx, w); err != nil {
+		log.Printf("[ERROR] render failed: %v", err)
 	}
 }
 
-func searchPackage() http.HandlerFunc {
+func homePage(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
-		name := r.URL.Query().Get("name")
-		branch := r.URL.Query().Get("branch")
-
-		vm := pages.HomeVM{
-			HasQuery: true,
-			Name:     name,
-			Branch:   branch,
-		}
-
-		if name == "" || branch == "" {
-			writeGenericErr(w, "web.searchPackage", "both package name and branch need to be filled", errors.New("both package name and branch need to be filled"), http.StatusBadRequest)
+		// get user from session
+		uid := sessionManager.GetUserID(ctx)
+		if uid == 0 {
+			http.Redirect(w, r, "/login", http.StatusFound)
 			return
-		} else {
-			version, err := nix.GetPackageVersionByNameAndBranch(ctx, name, branch)
-			if err != nil {
-				writeAppErr(w, "web.searchPackage", err)
-			} else {
-				vm.Results = []pages.PackageResultVM{{
-					Name: name, Branch: branch, Version: version, Tracked: false, // TODO: should check here if user already tracks this package and if yes Tracked: true
-				}}
-			}
 		}
+
+		// get all packages this user tracks
+		tracked, err := packages.GetTrackedPackages(ctx, db, uid)
+		if err != nil {
+			writeAppErr(w, "web.homePage", err)
+			return
+		}
+
+		// render response
+		pkgVMs := make([]pages.TrackedPackageVM, 0, len(tracked))
+		for _, t := range tracked {
+			pkgVMs = append(pkgVMs, pages.TrackedPackageVM{
+				PackageID:           t.PackageID,
+				Name:                t.Name,
+				Branch:              t.Branch,
+				LastNotifiedVersion: t.LastNotifiedVersion,
+			})
+		}
+
+		vm := pages.HomeVM{Packages: pkgVMs}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if isHTMX(r) {
-			// return only the panel (so htmx swaps it)
-			_ = pages.SearchPanel(vm).Render(ctx, w)
-			return
-		}
-
-		// return full page
 		_ = pages.HomePage(vm).Render(ctx, w)
-
 	}
 }
 
-func loginPage(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
+func loginPage() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// render response
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pages.LoginPage().Render(r.Context(), w); err != nil {
-			writeGenericErr(w, "web.loginPage", "failed to render login page", errors.New("failed to render login page"), http.StatusInternalServerError)
-			return
-		}
+		_ = pages.LoginPage().Render(r.Context(), w)
 	}
 }
 
@@ -141,6 +119,7 @@ func login(provMap *auth.ProviderMap, sessionManager *session.SessionManager) ht
 			return
 		}
 
+		// init
 		authURL, err := auth.AuthCodeFlowInitLogin(r.Context(), sessionManager, provider, providerName)
 		if err != nil {
 			writeAppErr(w, "web.login", err)
@@ -194,6 +173,176 @@ func callback(db *database.Store, provMap *auth.ProviderMap, sessionManager *ses
 	}
 }
 
+func verifyTrackedPackage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
+		defer cancel()
+
+		// extract package ID from request
+		packageID_string := r.PathValue("id")
+		if packageID_string == "" {
+			writeGenericErr(w, "web.verifyPackage", "missing package id", errors.New("missing path param id"), http.StatusBadRequest)
+			return
+		}
+
+		// check tracked package version
+		result, err := packages.Check(ctx, db, sessionManager, packageID_string)
+		if err != nil {
+			writeAppErr(w, "web.checkTrackedPackageVersion", err)
+			return
+		}
+
+		// render reponse
+		vm := pages.TrackedPackageVM{
+			PackageID:           result.PackageID,
+			Name:                result.Name,
+			Branch:              result.Branch,
+			LastNotifiedVersion: result.LastNotifiedVersion,
+			CurrentVersion:      result.CurrentVersion,
+			VersionChanged:      result.VersionChanged,
+			Verified:            true,
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = pages.TrackedPackageItem(vm).Render(ctx, w)
+	}
+}
+
+func verifyAllTrackedPackages(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
+		defer cancel()
+
+		// check all tracked package versions
+		results, err := packages.CheckAll(ctx, db, sessionManager)
+		if err != nil {
+			writeAppErr(w, "web.verifyAllPackages", err)
+			return
+		}
+
+		// render response
+		pkgVMs := make([]pages.TrackedPackageVM, 0, len(results))
+		for _, result := range results {
+			pkgVMs = append(pkgVMs, pages.TrackedPackageVM{
+				PackageID:           result.PackageID,
+				Name:                result.Name,
+				Branch:              result.Branch,
+				LastNotifiedVersion: result.LastNotifiedVersion,
+				CurrentVersion:      result.CurrentVersion,
+				VersionChanged:      result.VersionChanged,
+				Verified:            true,
+			})
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = pages.TrackedPackageList(pkgVMs).Render(ctx, w)
+	}
+}
+
+func untrackPackage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// extract package ID from request
+		packageID_string := r.PathValue("id")
+		if packageID_string == "" {
+			writeGenericErr(w, "web.untrackPackage", "missing package id", errors.New("missing path param id"), http.StatusBadRequest)
+			return
+		}
+
+		// delete tracking
+		if err := packages.Untrack(ctx, db, sessionManager, packageID_string); err != nil {
+			writeAppErr(w, "web.untrackPackage", err)
+			return
+		}
+
+		// empty response body - HTMX clears the item
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func trackPackageForm() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// render response
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = pages.NewPackageForm().Render(r.Context(), w)
+	}
+}
+
+func trackPackageFormCancel() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// empty response body — HTMX clears input item slot
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func trackPackage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
+		defer cancel()
+
+		// extract package name and branch from submitted form
+		packageName := r.FormValue("name")
+		packageBranch := r.FormValue("branch")
+
+		if packageName == "" || packageBranch == "" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_ = pages.NewPackageError(packageName, packageBranch, "Package name and branch are required.").Render(ctx, w)
+			return
+		}
+
+		// track package
+		if err := packages.Track(ctx, db, sessionManager, packageName, packageBranch); err != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_ = pages.NewPackageError(packageName, packageBranch, appError.PublicMessage(err)).Render(ctx, w)
+			return
+		}
+
+		// reload all tracked packages
+		uid := sessionManager.GetUserID(ctx)
+		tracked, err := packages.GetTrackedPackages(ctx, db, uid)
+		if err != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_ = pages.NewPackageError(packageName, packageBranch, "Package tracked but failed to reload. Please refresh.").Render(ctx, w)
+			return
+		}
+
+		// find the one that was just added and render it
+		for _, t := range tracked {
+			if t.Name == packageName && t.Branch == packageBranch {
+				vm := pages.TrackedPackageVM{
+					PackageID:           t.PackageID,
+					Name:                t.Name,
+					Branch:              t.Branch,
+					LastNotifiedVersion: t.LastNotifiedVersion,
+					CurrentVersion:      t.LastNotifiedVersion,
+					Verified:            true,
+				}
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_ = pages.TrackedPackageItem(vm).Render(ctx, w)
+				return
+			}
+		}
+
+		// fallback
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = pages.NewPackageError(packageName, packageBranch, "Package tracked but could not be found. Please try to refresh the page.").Render(ctx, w)
+	}
+}
+
+func logout(sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_ = sessionManager.Destroy(r.Context())
+		http.Redirect(w, r, "/", http.StatusFound)
+	}
+}
+
+/*
 func trackPackage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
@@ -211,7 +360,9 @@ func trackPackage(db *database.Store, sessionManager *session.SessionManager) ht
 		// create tracking
 		err := packages.Track(ctx, db, sessionManager, packageName, packageBranch)
 		if err != nil {
-			writeAppErr(w, "web.trackPackage", err)
+			log.Printf("[ERROR] web.trackPackage: %v", err)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_ = pages.PackageItemError(packageName, packageBranch, appError.PublicMessage(err)).Render(ctx, w)
 			return
 		}
 
@@ -222,6 +373,7 @@ func trackPackage(db *database.Store, sessionManager *session.SessionManager) ht
 		_ = pages.PackageItem(vm).Render(ctx, w)
 	}
 }
+
 
 func getAllPackages(db *database.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -249,42 +401,6 @@ func getAllPackages(db *database.Store) http.HandlerFunc {
 	}
 }
 
-func checkTrackedPackageVersion(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// create context
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-
-		// extract trackingID from request
-		trackingID_string := r.PathValue("id")
-		if trackingID_string == "" {
-			writeGenericErr(w, "web.checkTrackedPackageVersion", "missing tracking id", errors.New("missing path param id in http request"), http.StatusBadRequest)
-			return
-		}
-
-		// check tracked package version
-		result, err := packages.Check(ctx, db, sessionManager, trackingID_string)
-		if err != nil {
-			writeAppErr(w, "web.checkTrackedPackageVersion", err)
-			return
-		}
-
-		// return json reponse with package version compared
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(result); err != nil {
-			writeGenericErr(w, "web.checkTrackedPackageVersion", "failed to encode response", err, http.StatusInternalServerError)
-			return
-		}
-	}
-}
-
-func logout(sessionManager *session.SessionManager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		_ = sessionManager.Destroy(r.Context())
-		http.Redirect(w, r, "/", http.StatusFound)
-	}
-}
-
 func specify(sessionManager *session.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid := sessionManager.GetUserID(r.Context())
@@ -295,3 +411,4 @@ func specify(sessionManager *session.SessionManager) http.HandlerFunc {
 		fmt.Fprintf(w, "Welcome to the Nixpkgs Notifier!!!\n This is your first login. Please specify your account details:\n username: XXX\n email:XXX")
 	}
 }
+*/

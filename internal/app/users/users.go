@@ -28,8 +28,24 @@ func GetUser(ctx context.Context, db *database.Store, provider *auth.Provider, c
 		}
 		return 0, appError.NewAppError(op, appError.Internal, "failed to load user account", err)
 	}
+
 	// account found -> return existing user ID
 	return accountRow.UserID, nil
+}
+
+// Get user by his ID
+func GetUserByID(ctx context.Context, db *database.Store, userID int64) (database.User, error) {
+	const op = "users.GetUserByID"
+
+	user, err := db.QueryUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			return database.User{}, appError.NewAppError(op, appError.NotFound, "user not found", err)
+		}
+		return database.User{}, appError.NewAppError(op, appError.Internal, "failed to load user", err)
+	}
+
+	return user, nil
 }
 
 // Creates new internal user with external account mapped to it
