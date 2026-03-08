@@ -1,0 +1,251 @@
+package pages
+
+import (
+    "fmt"
+    "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+)
+
+type ChannelVM struct {
+    ID                   int64
+    Type                 string // "Email" or "Webhook"
+    Address              string
+    IsEnabled            bool
+    NotifyOnManualVerify bool
+}
+
+type ChannelsVM struct {
+    Channels []ChannelVM
+}
+
+templ ChannelsPage(vm ChannelsVM) {
+    @layout.Base("Channels", ChannelsContent(vm))
+}
+
+templ ChannelsContent(vm ChannelsVM) {
+    <div class="min-vh-100 d-flex align-items-center justify-content-center">
+        <div class="card shadow-sm" style="max-width: 900px; width: 100%;">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h4 mb-0">Notification Channels</h1>
+                    <button
+                        class="btn btn-outline-success btn-sm"
+                        hx-get="/channel/add/form"
+                        hx-target="#new-channel-slot"
+                        hx-swap="innerHTML"
+                        onclick="if(document.getElementById('new-channel-slot').children.length > 0) { event.preventDefault(); }"
+                    >
+                        <i class="bi bi-plus-circle-fill"></i>
+                    </button>
+                </div>
+
+                <div id="channel-list">
+                    @ChannelList(vm.Channels)
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+templ ChannelList(channels []ChannelVM) {
+    <div class="list-group">
+        <div id="new-channel-slot"></div>
+        for _, ch := range channels {
+            @ChannelItem(ch)
+        }
+    </div>
+    if len(channels) == 0 {
+        <p class="text-center text-muted mt-2">No channels configured yet. Add one by clicking "+" button.</p>
+    }
+}
+
+templ NewChannelForm() {
+    <form
+        class="list-group-item d-flex align-items-center justify-content-between gap-3"
+        hx-post="/channel/add"
+        hx-target="#new-channel-slot"
+        hx-swap="innerHTML"
+    >
+        <div class="d-flex gap-2 align-items-center flex-grow-1">
+            <select class="form-select form-select-sm" name="type" style="max-width: 120px;" required>
+                <option value="email">Email</option>
+                <option value="webhook">Webhook</option>
+            </select>
+            <input
+                class="form-control form-control-sm"
+                type="text"
+                name="address"
+                placeholder="Email address or webhook URL"
+                required
+                autofocus
+            />
+            <div class="d-flex gap-3 align-items-center ms-1">
+                <div class="form-check form-switch mb-0" title="You receive notifications on this channel about version change when you trigger a verification">
+                    <input class="form-check-input" type="checkbox" name="notify_on_manual_verify" id="new-manual"/>
+                    <label class="form-check-label small text-muted" for="new-manual">Manual verify</label>
+                </div>
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-success btn-sm">
+                <i class="bi bi-check-lg"></i>
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                hx-get="/channel/add/cancel"
+                hx-target="#new-channel-slot"
+                hx-swap="innerHTML"
+            >
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </form>
+}
+
+templ NewChannelError(chType string, address string, message string) {
+    <form
+        class="list-group-item d-flex flex-column gap-2"
+        hx-post="/channel/add"
+        hx-target="#new-channel-slot"
+        hx-swap="innerHTML"
+    >
+        <div class="d-flex gap-2 align-items-center">
+            <select class="form-select form-select-sm is-invalid" name="type" style="max-width: 120px;" required>
+                <option value="email" selected?={chType == "email"}>Email</option>
+                <option value="webhook" selected?={chType == "webhook"}>Webhook</option>
+            </select>
+            <input
+                class="form-control form-control-sm is-invalid"
+                type="text"
+                name="address"
+                value={address}
+                placeholder="Email address or webhook URL"
+                required
+            />
+        </div>
+        <small class="text-danger">{message}</small>
+        <div class="d-flex gap-2 align-self-end">
+            <button type="submit" class="btn btn-success btn-sm">
+                <i class="bi bi-check-lg"></i>
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                hx-get="/channel/add/cancel"
+                hx-target="#new-channel-slot"
+                hx-swap="innerHTML"
+            >
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </form>
+}
+
+templ ChannelItem(ch ChannelVM) {
+    <div class="list-group-item d-flex align-items-center justify-content-between gap-2" id={fmt.Sprintf("channel-%d", ch.ID)}>
+        <div class="d-flex gap-3 align-items-center flex-wrap flex-grow-1">
+            if ch.Type == "Email" {
+                <span class="badge text-bg-primary">Email</span>
+            } else {
+                <span class="badge text-bg-secondary">Webhook</span>
+            }
+            <span class="text-muted small text-truncate" style="max-width: 260px;" title={ch.Address}>{ch.Address}</span>
+        </div>
+        <div class="d-flex gap-3 align-items-center">
+            <div class="form-check form-switch mb-0" title="Enabled">
+                <input
+                    class="form-check-input"
+                    type="checkbox"
+                    checked?={ch.IsEnabled}
+                    hx-post={fmt.Sprintf("/channel/toggle/enabled/%d", ch.ID)}
+                    hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.IsEnabled)}
+                    hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+                    hx-swap="outerHTML"
+                />
+            </div>
+            <div class="form-check form-switch mb-0" title="Notify on manual verify">
+                <input
+                    class="form-check-input"
+                    type="checkbox"
+                    checked?={ch.NotifyOnManualVerify}
+                    hx-post={fmt.Sprintf("/channel/toggle/manual/%d", ch.ID)}
+                    hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.NotifyOnManualVerify)}
+                    hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+                    hx-swap="outerHTML"
+                />
+            </div>
+            <button
+                class="btn btn-outline-secondary btn-sm"
+                hx-post={fmt.Sprintf("/channel/test/%d", ch.ID)}
+                hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+                hx-swap="outerHTML"
+            >
+                Test
+            </button>
+            <button
+                class="btn btn-danger btn-sm"
+                hx-post={fmt.Sprintf("/channel/delete/%d", ch.ID)}
+                hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+                hx-swap="outerHTML"
+            >
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    </div>
+}
+
+templ ChannelItemWithMessage(ch ChannelVM, msgClass string, msg string) {
+    <div class="list-group-item d-flex flex-column gap-1" id={fmt.Sprintf("channel-%d", ch.ID)}>
+        <div class="d-flex align-items-center justify-content-between gap-2">
+            <div class="d-flex gap-3 align-items-center flex-wrap flex-grow-1">
+                if ch.Type == "Email" {
+                    <span class="badge text-bg-primary">Email</span>
+                } else {
+                    <span class="badge text-bg-secondary">Webhook</span>
+                }
+                <span class="text-muted small text-truncate" style="max-width: 260px;" title={ch.Address}>{ch.Address}</span>
+            </div>
+            <div class="d-flex gap-3 align-items-center">
+                <div class="form-check form-switch mb-0" title="Enabled">
+                    <input
+                        class="form-check-input"
+                        type="checkbox"
+                        checked?={ch.IsEnabled}
+                        hx-post={fmt.Sprintf("/channel/toggle/enabled/%d", ch.ID)}
+                        hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.IsEnabled)}
+                        hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+                        hx-swap="outerHTML"
+                    />
+                </div>
+                <div class="form-check form-switch mb-0" title="Notify on manual verify">
+                    <input
+                        class="form-check-input"
+                        type="checkbox"
+                        checked?={ch.NotifyOnManualVerify}
+                        hx-post={fmt.Sprintf("/channel/toggle/manual/%d", ch.ID)}
+                        hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.NotifyOnManualVerify)}
+                        hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+                        hx-swap="outerHTML"
+                    />
+                </div>
+                <button
+                    class="btn btn-outline-secondary btn-sm"
+                    hx-post={fmt.Sprintf("/channel/test/%d", ch.ID)}
+                    hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+                    hx-swap="outerHTML"
+                >
+                    Test
+                </button>
+                <button
+                    class="btn btn-danger btn-sm"
+                    hx-post={fmt.Sprintf("/channel/delete/%d", ch.ID)}
+                    hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+                    hx-swap="outerHTML"
+                >
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+        </div>
+        <small class={msgClass}>{msg}</small>
+    </div>
+}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
+	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/env"
 	"github.com/denyzzko/nixpkgs-notifier/internal/middleware"
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
@@ -50,11 +51,32 @@ func main() {
 	// initialize session manager
 	sessionManager := session.NewManager()
 
+	// initialize notification dispatcher
+	dispatchCtx, cancelDispatch := context.WithCancel(ctx)
+	defer cancelDispatch()
+	disp := dispatcher.New(
+		db,
+		dispatcher.Config{
+			Interval:    cfg.NotificationDispatchInterval,
+			MaxRetries:  cfg.NotificationMaxRetries,
+			WorkerCount: cfg.NotificationWorkerCount,
+		},
+		cfg.EmailProvider,
+		cfg.ResendAPIKey,
+		cfg.EmailFromAddr,
+		cfg.SMTPHost,
+		cfg.SMTPPort,
+		cfg.SMTPUser,
+		cfg.SMTPPass,
+		cfg.SMTPFrom,
+	)
+	disp.Start(dispatchCtx)
+
 	// new request multiplexer
 	mux := http.NewServeMux()
 
 	// register routes
-	web.RegisterRoutes(mux, db, provMap, sessionManager)
+	web.RegisterRoutes(mux, db, provMap, sessionManager, disp)
 
 	// chain middleware
 	chain := middleware.Chain(
@@ -95,6 +117,9 @@ func main() {
 
 	case sig := <-shutdown:
 		log.Printf("[INFO] Shutdown signal received: %v", sig)
+
+		// stop dispatcher
+		cancelDispatch()
 
 		// give server (in goroutine) time to finish (it could still be processing some requests)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

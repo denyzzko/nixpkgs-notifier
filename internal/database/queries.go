@@ -5,26 +5,51 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
 var ErrNotFound = errors.New("not found")
 
-//go:embed sql/get_users_tracked_packages.sql
+//go:embed sql/get_packages_from_trackings_by_userID.sql
 var qGetUsersTrackedPackages string
 
 //go:embed sql/get_all_packages.sql
-var qGetAllPkgs string
+var qGetAllPackages string
 
-//go:embed sql/get_package_by_name_branch.sql
-var qGetPkgByNameAndBranch string
+//go:embed sql/get_package_by_NAME_BRANCH.sql
+var qGetPackageByNameAndBranch string
 
-//go:embed sql/get_package.sql
+//go:embed sql/get_package_by_ID.sql
 var qGetPackage string
 
-//go:embed sql/get_tracking.sql
+//go:embed sql/get_tracking_by_userID_packageID.sql
 var qGetTracking string
+
+//go:embed sql/get_account_by_ISSUER_SUBJECT.sql
+var qGetAccountByIssuerSub string
+
+//go:embed sql/get_user_by_ID.sql
+var qGetUser string
+
+//go:embed sql/get_trackings_by_packageID.sql
+var qGetTrackingsByPackageID string
+
+//go:embed sql/get_active_channels_by_userID.sql
+var qGetActiveChannelsByUserID string
+
+//go:embed sql/get_channels_by_userID.sql
+var qGetChannelsByUserID string
+
+//go:embed sql/get_channel_by_ID.sql
+var qGetChannelByID string
+
+//go:embed sql/get_all_pending_failed_notifications.sql
+var qGetAllPendingFailedNotifications string
+
+//go:embed sql/get_notifications_by_userID.sql
+var qGetNotificationsByUserID string
 
 //go:embed sql/insert_tracking.sql
 var sInsertTracking string
@@ -32,20 +57,38 @@ var sInsertTracking string
 //go:embed sql/insert_package.sql
 var sInsertPackage string
 
-//go:embed sql/get_account_by_issuer_subject.sql
-var qGetAccountByIssuerSub string
-
 //go:embed sql/insert_user.sql
 var sInsertUser string
 
 //go:embed sql/insert_account.sql
 var sInsertAccount string
 
-//go:embed sql/get_user.sql
-var qGetUserByID string
+//go:embed sql/insert_notification.sql
+var sInsertNotification string
+
+//go:embed sql/insert_email_channel.sql
+var sInsertEmailChannel string
+
+//go:embed sql/insert_webhook_channel.sql
+var sInsertWebhookChannel string
 
 //go:embed sql/remove_tracking.sql
 var dRemoveTracking string
+
+//go:embed sql/remove_channel.sql
+var dRemoveChannel string
+
+//go:embed sql/update_notification_status_to_sent_by_ID.sql
+var sUpdateNotificationToSent string
+
+//go:embed sql/update_notification_status_to_failed_by_ID.sql
+var sUpdateNotificationToFailed string
+
+//go:embed sql/update_channel_is_enabled.sql
+var sUpdateChannelIsEnabled string
+
+//go:embed sql/update_notify_on_manual_verify.sql
+var sUpdateNotifyOnManualVerify string
 
 type UserInfo struct {
 	Email         *string
@@ -64,6 +107,28 @@ type TrackedPackage struct {
 	LastNotifiedVersion string
 }
 
+type UserChannel struct {
+	ID                   int64
+	IsEnabled            bool
+	EmailAddress         *string
+	WebhookURL           *string
+	NotifyOnManualVerify *bool
+}
+
+type UserNotification struct {
+	ID            int64
+	DetectedAt    time.Time
+	OldVersion    string
+	NewVersion    string
+	Status        NotificationStatus
+	AttemptCount  int
+	ErrorMessage  *string
+	PackageName   string
+	PackageBranch string
+	EmailAddress  *string
+	WebhookURL    *string
+}
+
 // Retrieves all packages from database that user tracks by his ID
 func (db *Store) QueryTrackedPackagesByUserID(ctx context.Context, userID int64) ([]TrackedPackage, error) {
 	rows, err := db.pool.Query(ctx, qGetUsersTrackedPackages, userID)
@@ -75,11 +140,11 @@ func (db *Store) QueryTrackedPackagesByUserID(ctx context.Context, userID int64)
 	// loop through rows and store results
 	var trackedPackages []TrackedPackage
 	for rows.Next() {
-		var pckg TrackedPackage
-		if err := rows.Scan(&pckg.PackageID, &pckg.Name, &pckg.Branch, &pckg.LastNotifiedVersion); err != nil {
+		var p TrackedPackage
+		if err := rows.Scan(&p.PackageID, &p.Name, &p.Branch, &p.LastNotifiedVersion); err != nil {
 			return nil, fmt.Errorf("database.QueryTrackedPackagesByUserID: scan error: %w", err)
 		}
-		trackedPackages = append(trackedPackages, pckg)
+		trackedPackages = append(trackedPackages, p)
 	}
 
 	// check for overall query error, results may be incomplete
@@ -92,7 +157,7 @@ func (db *Store) QueryTrackedPackagesByUserID(ctx context.Context, userID int64)
 
 // Retrieves all packages from database
 func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
-	rows, err := db.pool.Query(ctx, qGetAllPkgs)
+	rows, err := db.pool.Query(ctx, qGetAllPackages)
 	if err != nil {
 		return nil, fmt.Errorf("database.QueryAllPackages: query error: %w", err)
 	}
@@ -101,11 +166,11 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	// loop through rows and store results
 	var packages []Package
 	for rows.Next() {
-		var pckg Package
-		if err := rows.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
+		var p Package
+		if err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &p.Name, &p.Branch, &p.CurrentVersion); err != nil {
 			return nil, fmt.Errorf("database.QueryAllPackages: scan error: %w", err)
 		}
-		packages = append(packages, pckg)
+		packages = append(packages, p)
 	}
 
 	// check for overall query error, results may be incomplete
@@ -133,7 +198,7 @@ func (db *Store) QueryPackage(ctx context.Context, packageID int64) (Package, er
 // Retrieves package identified by its name and branch
 func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, branch string) (Package, error) {
 	var pckg Package
-	row := db.pool.QueryRow(ctx, qGetPkgByNameAndBranch, name, branch)
+	row := db.pool.QueryRow(ctx, qGetPackageByNameAndBranch, name, branch)
 	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Package{}, ErrNotFound
@@ -234,7 +299,7 @@ func (db *Store) CreateUserWithAccount(ctx context.Context, info UserInfo) (int6
 // Retrieves user by id
 func (db *Store) QueryUserByID(ctx context.Context, id int64) (User, error) {
 	var usr User
-	row := db.pool.QueryRow(ctx, qGetUserByID, id)
+	row := db.pool.QueryRow(ctx, qGetUser, id)
 	if err := row.Scan(&usr.ID, &usr.CreatedAt, &usr.Username, &usr.Role); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return User{}, ErrNotFound
@@ -255,4 +320,258 @@ func (db *Store) DeleteTracking(ctx context.Context, userID int64, packageID int
 		return ErrNotFound
 	}
 	return nil
+}
+
+// Retrieves all trackings rows for a specific package
+func (db *Store) QueryTrackingsByPackageID(ctx context.Context, packageID int64) ([]Tracking, error) {
+	rows, err := db.pool.Query(ctx, qGetTrackingsByPackageID, packageID)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryTrackingsByPackageID: query error (packageID=%d): %w", packageID, err)
+	}
+	defer rows.Close()
+
+	var trackings []Tracking
+	for rows.Next() {
+		var t Tracking
+		if err := rows.Scan(&t.UserID, &t.PackageID, &t.LastNotifiedVersion); err != nil {
+			return nil, fmt.Errorf("database.QueryTrackingsByPackageID: scan error: %w", err)
+		}
+		trackings = append(trackings, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("database.QueryTrackingsByPackageID: incomplete results: %w", err)
+	}
+	return trackings, nil
+}
+
+// Retrives all enabled (active) channels for a specific user
+func (db *Store) QueryActiveChannelsByUserID(ctx context.Context, userID int64) ([]ActiveChannel, error) {
+	rows, err := db.pool.Query(ctx, qGetActiveChannelsByUserID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryActiveChannelsByUserID: query error (userID=%d): %w", userID, err)
+	}
+	defer rows.Close()
+
+	var channels []ActiveChannel
+	for rows.Next() {
+		var c ActiveChannel
+		if err := rows.Scan(&c.ChannelID, &c.UserID, &c.EmailAddress, &c.WebhookURL, &c.NotifyOnManualVerify); err != nil {
+			return nil, fmt.Errorf("database.QueryActiveChannelsByUserID: scan error: %w", err)
+		}
+		channels = append(channels, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("database.QueryActiveChannelsByUserID: incomplete results: %w", err)
+	}
+	return channels, nil
+}
+
+// Retrieves all channels for a specific user (both emails and webhooks, enabled or not)
+func (db *Store) QueryChannelsByUserID(ctx context.Context, userID int64) ([]UserChannel, error) {
+	rows, err := db.pool.Query(ctx, qGetChannelsByUserID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryChannelsByUserID: query error (userID=%d): %w", userID, err)
+	}
+	defer rows.Close()
+
+	var channels []UserChannel
+	for rows.Next() {
+		var c UserChannel
+		if err := rows.Scan(&c.ID, &c.IsEnabled, &c.EmailAddress, &c.WebhookURL, &c.NotifyOnManualVerify); err != nil {
+			return nil, fmt.Errorf("database.QueryChannelsByUserID: scan error: %w", err)
+		}
+		channels = append(channels, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("database.QueryChannelsByUserID: incomplete results: %w", err)
+	}
+	return channels, nil
+}
+
+// Retrieves a single channel identified by id
+func (db *Store) QueryChannelByID(ctx context.Context, channelID int64, userID int64) (UserChannel, error) {
+	var c UserChannel
+	row := db.pool.QueryRow(ctx, qGetChannelByID, channelID, userID)
+	if err := row.Scan(&c.ID, &c.IsEnabled, &c.EmailAddress, &c.WebhookURL, &c.NotifyOnManualVerify); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return UserChannel{}, ErrNotFound
+		}
+		return UserChannel{}, fmt.Errorf("database.QueryChannelByID: error querying channel (id=%d, userID=%d): %w", channelID, userID, err)
+	}
+	return c, nil
+}
+
+// 1. Updates current_version of a package identified by name and branch
+// 2. Inserts pending notification for the change of this package per channel of user who tracks this package
+// In one transaction for atomicity
+func (db *Store) CreateNotificationsForVersionChange(ctx context.Context, packageName string, packageBranch string, newVersion string, packageID int64, jobs []ChannelNotification, detectedAt time.Time) error {
+	// begin transaction
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("database.CreateNotificationsForVersionChange: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// update current_version for package
+	_, err = tx.Exec(ctx, sInsertPackage, packageName, packageBranch, newVersion)
+	if err != nil {
+		return fmt.Errorf("database.CreateNotificationsForVersionChange: update package: %w", err)
+	}
+
+	// insert pending notification (one per job)
+	for _, job := range jobs {
+		_, err = tx.Exec(ctx, sInsertNotification, job.Channel.ChannelID, packageID, detectedAt, job.OldVersion, newVersion)
+		if err != nil {
+			return fmt.Errorf("database.CreateNotificationsForVersionChange: insert notification (channelID=%d): %w", job.Channel.ChannelID, err)
+		}
+	}
+
+	// commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("database.CreateNotificationsForVersionChange: commit tx: %w", err)
+	}
+	return nil
+}
+
+// Retrieves all pending and failed (if retry count < max retries) notifications
+// Includes package and channel details that are needed by the sender
+func (db *Store) QueryPendingFailedNotifications(ctx context.Context, maxRetries int) ([]PendingFailedNotification, error) {
+	rows, err := db.pool.Query(ctx, qGetAllPendingFailedNotifications, maxRetries)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryPendingNotifications: query error: %w", err)
+	}
+	defer rows.Close()
+
+	var notifications []PendingFailedNotification
+	for rows.Next() {
+		var n PendingFailedNotification
+		if err := rows.Scan(
+			&n.ID, &n.ChannelID, &n.PackageID,
+			&n.PackageName, &n.PackageBranch,
+			&n.OldVersion, &n.NewVersion, &n.DetectedAt,
+			&n.AttemptCount, &n.UserID,
+			&n.EmailAddress, &n.WebhookURL,
+		); err != nil {
+			return nil, fmt.Errorf("database.QueryPendingNotifications: scan error: %w", err)
+		}
+		notifications = append(notifications, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("database.QueryPendingNotifications: incomplete results: %w", err)
+	}
+	return notifications, nil
+}
+
+// 1. Marks the notification as "sent"
+// 2. updates the tracking's last notified version
+// In one transaction for atomicity
+func (db *Store) MarkNotificationSent(ctx context.Context, notificationID int64, userID int64, packageID int64, newVersion string) error {
+	// begin transaction
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("database.MarkNotificationSent: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// update notification status
+	if _, err = tx.Exec(ctx, sUpdateNotificationToSent, notificationID); err != nil {
+		return fmt.Errorf("database.MarkNotificationSent: update notification: %w", err)
+	}
+
+	// update trackings last_notified_version
+	if _, err = tx.Exec(ctx, sInsertTracking, userID, packageID, newVersion); err != nil {
+		return fmt.Errorf("database.MarkNotificationSent: update tracking lnv: %w", err)
+	}
+
+	// commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("database.MarkNotificationSent: commit tx: %w", err)
+	}
+	return nil
+}
+
+// Marks notifiation as "failed"
+// Increments attempt_count and stores the error message
+func (db *Store) MarkNotificationFailed(ctx context.Context, notificationID int64, errMsg string) error {
+	_, err := db.pool.Exec(ctx, sUpdateNotificationToFailed, notificationID, errMsg)
+	if err != nil {
+		return fmt.Errorf("database.MarkNotificationFailed: update error (id=%d): %w", notificationID, err)
+	}
+	return nil
+}
+
+// Creates a new email notification channel for a user
+func (db *Store) CreateEmailChannel(ctx context.Context, userID int64, emailAddress string, notifyOnManualVerify bool) (int64, error) {
+	var id int64
+	if err := db.pool.QueryRow(ctx, sInsertEmailChannel, userID, emailAddress, notifyOnManualVerify).Scan(&id); err != nil {
+		return 0, fmt.Errorf("database.CreateEmailChannel: error creating email channel (userID=%d): %w", userID, err)
+	}
+	return id, nil
+}
+
+// Creates a new webhook notification channel for a user
+func (db *Store) CreateWebhookChannel(ctx context.Context, userID int64, webhookURL string, notifyOnManualVerify bool) (int64, error) {
+	var id int64
+	if err := db.pool.QueryRow(ctx, sInsertWebhookChannel, userID, webhookURL, notifyOnManualVerify).Scan(&id); err != nil {
+		return 0, fmt.Errorf("database.CreateWebhookChannel: error creating webhook channel (userID=%d): %w", userID, err)
+	}
+	return id, nil
+}
+
+// Deletes user channel identified by id
+func (db *Store) DeleteChannel(ctx context.Context, channelID int64, userID int64) error {
+	result, err := db.pool.Exec(ctx, dRemoveChannel, channelID, userID)
+	if err != nil {
+		return fmt.Errorf("database.DeleteChannel: error deleting channel (channelID=%d, userID=%d): %w", channelID, userID, err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// Updates the is_enabled flag of a user channel
+func (db *Store) UpdateChannelEnabled(ctx context.Context, channelID int64, userID int64, isEnabled bool) error {
+	_, err := db.pool.Exec(ctx, sUpdateChannelIsEnabled, channelID, isEnabled, userID)
+	if err != nil {
+		return fmt.Errorf("database.UpdateChannelEnabled: error updating channel (channelID=%d): %w", channelID, err)
+	}
+	return nil
+}
+
+// Updates notify_on_manual_verify for a channel (email or webhook — only one row will match)
+func (db *Store) UpdateChannelNotifyOnManualVerify(ctx context.Context, channelID int64, value bool) error {
+	_, err := db.pool.Exec(ctx, sUpdateNotifyOnManualVerify, channelID, value)
+	if err != nil {
+		return fmt.Errorf("database.UpdateChannelNotifyOnManualVerify: error updating channel (channelID=%d): %w", channelID, err)
+	}
+	return nil
+}
+
+// Retrieves all notifications for a specific user
+// Ordered by detected_at (descending)
+func (db *Store) QueryNotificationsByUserID(ctx context.Context, userID int64) ([]UserNotification, error) {
+	rows, err := db.pool.Query(ctx, qGetNotificationsByUserID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryNotificationsByUserID: query error (userID=%d): %w", userID, err)
+	}
+	defer rows.Close()
+
+	var notifications []UserNotification
+	for rows.Next() {
+		var n UserNotification
+		if err := rows.Scan(
+			&n.ID, &n.DetectedAt, &n.OldVersion, &n.NewVersion,
+			&n.Status, &n.AttemptCount, &n.ErrorMessage,
+			&n.PackageName, &n.PackageBranch,
+			&n.EmailAddress, &n.WebhookURL,
+		); err != nil {
+			return nil, fmt.Errorf("database.QueryNotificationsByUserID: scan error: %w", err)
+		}
+		notifications = append(notifications, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("database.QueryNotificationsByUserID: incomplete results: %w", err)
+	}
+	return notifications, nil
 }

@@ -60,13 +60,15 @@ CREATE TABLE channels (
 -- Email notification channel (specialization of Channel)
 CREATE TABLE emails (
     channel_id      BIGINT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
-    email_address   TEXT NOT NULL
+    email_address   TEXT NOT NULL,
+    notify_on_manual_verify BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Webhook notification channel (specialization of Channel)
 CREATE TABLE webhooks (
     channel_id  BIGINT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
-    webhook_url TEXT NOT NULL
+    webhook_url TEXT NOT NULL,
+    notify_on_manual_verify BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Notification records tracking what notification was/will be send to users

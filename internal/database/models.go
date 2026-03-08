@@ -40,25 +40,19 @@ type Tracking struct {
 	LastNotifiedVersion string
 }
 
-// Notification channel configured by a user
-type Channel struct {
-	ID        int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	UserID    int64
-	IsEnabled bool
+// An enabled channel belonging to a user (with email or webhook details)
+type ActiveChannel struct {
+	ChannelID            int64
+	UserID               int64
+	EmailAddress         *string
+	WebhookURL           *string
+	NotifyOnManualVerify bool
 }
 
-// Email notification Channel
-type Email struct {
-	ChannelID   int64
-	EmailAdress string
-}
-
-// Webhook notification Channel
-type Webhook struct {
-	ChannelID  int64
-	WebhookURL string
+// Pairs active channel and version that is specific for that user package tracking (used when creating notifications)
+type ChannelNotification struct {
+	Channel    ActiveChannel
+	OldVersion string
 }
 
 // Status of notification
@@ -70,16 +64,18 @@ const (
 	NotificationStatusFailed  NotificationStatus = "failed"
 )
 
-// Notification record
-type Notification struct {
-	ID           int64
-	CreatedAt    time.Time
-	ChannelID    int64
-	PackageID    int64
-	DetectedAt   time.Time
-	OldVersion   string
-	NewVersion   string
-	Status       NotificationStatus
-	AttempCount  int
-	ErrorMessage *string
+// A notification that is to be sent (with email or webhook data)
+type PendingFailedNotification struct {
+	ID            int64
+	ChannelID     int64
+	PackageID     int64
+	PackageName   string
+	PackageBranch string
+	OldVersion    string
+	NewVersion    string
+	DetectedAt    time.Time
+	AttemptCount  int
+	UserID        int64
+	EmailAddress  *string
+	WebhookURL    *string
 }

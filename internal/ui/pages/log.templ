@@ -1,0 +1,112 @@
+package pages
+
+import (
+    "fmt"
+    "time"
+    "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+)
+
+type NotificationLogVM struct {
+    ID            int64
+    ChannelType   string
+    Address       string
+    DetectedAt    time.Time
+    PackageName   string
+    PackageBranch string
+    OldVersion    string
+    NewVersion    string
+    Status        string
+    AttemptCount  int
+    MaxRetries    int
+    ErrorMessage  string
+}
+
+type DeliveryLogVM struct {
+    Notifications []NotificationLogVM
+}
+
+templ DeliveryLogPage(vm DeliveryLogVM) {
+    @layout.Base("Delivery Log", DeliveryLogContent(vm))
+}
+
+templ DeliveryLogContent(vm DeliveryLogVM) {
+    <div class="min-vh-100 d-flex align-items-center justify-content-center">
+        <div class="card shadow-sm" style="max-width: 1100px; width: 100%;">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h4 mb-0">Delivery Log</h1>
+                </div>
+                <div id="log-list">
+                    @NotificationLogList(vm.Notifications)
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+templ NotificationLogList(notifications []NotificationLogVM) {
+    <div class="list-group">
+        for _, n := range notifications {
+            @NotificationLogItem(n)
+        }
+    </div>
+    if len(notifications) == 0 {
+        <p class="text-center text-muted mt-2">No notifications sent yet.</p>
+    }
+}
+
+templ NotificationLogItem(n NotificationLogVM) {
+    <div class="list-group-item d-flex align-items-center gap-3 flex-wrap py-2">
+        <!-- Type badge -->
+        <div style="min-width: 70px;">
+            if n.ChannelType == "Email" {
+                <span class="badge text-bg-primary">Email</span>
+            } else {
+                <span class="badge text-bg-secondary">Webhook</span>
+            }
+        </div>
+        <!-- Address -->
+        <div class="text-muted small text-truncate" style="min-width: 120px; max-width: 180px;" title={n.Address}>
+            {n.Address}
+        </div>
+        <!-- Detected at -->
+        <div class="text-muted small" style="min-width: 130px;">
+            {n.DetectedAt.Format("2006-01-02 15:04")}
+        </div>
+        <!-- Package -->
+        <div style="min-width: 130px;">
+            <strong class="small">{n.PackageName}</strong>
+            <span class="text-muted small ms-1">{n.PackageBranch}</span>
+        </div>
+        <!-- Version change -->
+        <div class="d-flex align-items-center gap-1" style="min-width: 140px;">
+            <span class="badge text-bg-secondary border">v{n.OldVersion}</span>
+            <i class="bi bi-arrow-right small"></i>
+            <span class="badge text-bg-secondary border">v{n.NewVersion}</span>
+        </div>
+        <!-- Status -->
+        <div style="min-width: 70px;">
+            if n.Status == "sent" {
+                <span class="badge text-bg-success">sent</span>
+            } else if n.Status == "failed" {
+                <span class="badge text-bg-danger">failed</span>
+            } else {
+                <span class="badge text-bg-warning text-dark">pending</span>
+            }
+        </div>
+        <!-- Attempts -->
+        <div class="text-muted small" style="min-width: 40px;">
+            {fmt.Sprintf("%d/%d", n.AttemptCount, n.MaxRetries)}
+        </div>
+        <!-- Error message -->
+        <div class="text-muted small flex-grow-1">
+            if n.ErrorMessage == "" {
+                <span>—</span>
+            } else if len(n.ErrorMessage) > 20 {
+                <span title={n.ErrorMessage}>{n.ErrorMessage[:20]}...</span>
+            } else {
+                <span title={n.ErrorMessage}>{n.ErrorMessage}</span>
+            }
+        </div>
+    </div>
+}

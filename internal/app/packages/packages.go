@@ -6,17 +6,12 @@ import (
 	"log"
 	"strconv"
 
+	"github.com/denyzzko/nixpkgs-notifier/internal/app/notifications"
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 )
-
-type Package struct {
-	Name           string `json:"name"`
-	Branch         string `json:"branch"`
-	CurrentVersion string `json:"version"`
-}
 
 type CheckResult struct {
 	PackageID           int64
@@ -31,8 +26,14 @@ type CheckResult struct {
 var ErrNotAuthenticated = errors.New("not authenticated")
 
 // Retrieves all packages that user tracks by his ID
-func GetTrackedPackages(ctx context.Context, db *database.Store, userID int64) ([]database.TrackedPackage, error) {
+func GetTrackedPackages(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) ([]database.TrackedPackage, error) {
 	const op = "packages.GetTracked"
+
+	// get user ID
+	userID := sessionManager.GetUserID(ctx)
+	if userID == 0 {
+		return nil, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
+	}
 
 	// get all tracked packages
 	trackedPackages, err := db.QueryTrackedPackagesByUserID(ctx, userID)
@@ -149,16 +150,9 @@ func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.S
 		}
 
 		versionChanged := currentVersion != pckg.LastNotifiedVersion
+		// version change detected -> fire async notification creation for all users tracking this package
 		if versionChanged {
-			packageID, err := db.StorePackage(ctx, pckg.Name, pckg.Branch, currentVersion)
-			if err != nil {
-				log.Printf("[WARN] %s: failed to update package version for %q/%q: %v", op, pckg.Name, pckg.Branch, err)
-			} else {
-				err = db.StoreTracking(ctx, userID, packageID, currentVersion)
-				if err != nil {
-					log.Printf("[WARN] %s: failed to update tracking for id=%d: %v", op, packageID, err)
-				}
-			}
+			go notifications.CreatePendingNotifications(context.Background(), db, pckg.PackageID, pckg.Name, pckg.Branch, currentVersion, userID)
 		}
 
 		results = append(results, CheckResult{
@@ -228,17 +222,9 @@ func Check(ctx context.Context, db *database.Store, sessionManager *session.Sess
 	result.CurrentVersion = currentVersion
 	result.VersionChanged = currentVersion != tracking.LastNotifiedVersion
 
-	// if version changed, update both package and tracking tables
+	// version change detected -> fire async notification creation for all users tracking this package
 	if result.VersionChanged {
-		_, err := db.StorePackage(ctx, pckg.Name, pckg.Branch, currentVersion)
-		if err != nil {
-			log.Printf("[WARN] %s: failed to update package version for %q/%q: %v", op, pckg.Name, pckg.Branch, err)
-		} else {
-			err := db.StoreTracking(ctx, userID, packageID, currentVersion)
-			if err != nil {
-				log.Printf("[WARN] %s: failed to update tracking for id=%d: %v", op, packageID, err)
-			}
-		}
+		go notifications.CreatePendingNotifications(context.Background(), db, packageID, pckg.Name, pckg.Branch, currentVersion, userID)
 	}
 
 	return result, nil
