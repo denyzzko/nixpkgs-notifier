@@ -21,7 +21,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/pages"
 )
 
-func homePage(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
+func indexPage(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -30,7 +30,7 @@ func homePage(sessionManager *session.SessionManager, db *database.Store) http.H
 		// get all packages this user tracks
 		tracked, err := packages.GetTrackedPackages(ctx, db, sessionManager)
 		if err != nil {
-			writeAppErr(w, "web.homePage", err)
+			writeAppErr(w, "web.indexPage", err)
 			return
 		}
 
@@ -40,10 +40,10 @@ func homePage(sessionManager *session.SessionManager, db *database.Store) http.H
 			pkgVMs = append(pkgVMs, trackedPackageVMFromTracked(t))
 		}
 
-		vm := pages.HomeVM{Packages: pkgVMs}
+		vm := pages.IndexVM{Packages: pkgVMs}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.HomePage(vm).Render(ctx, w)
+		_ = pages.IndexPage(vm).Render(ctx, w)
 	}
 }
 

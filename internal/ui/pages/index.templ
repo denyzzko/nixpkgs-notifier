@@ -15,15 +15,15 @@ type TrackedPackageVM struct {
 	Verified            bool
 }
 
-type HomeVM struct {
+type IndexVM struct {
     Packages []TrackedPackageVM
 }
 
-templ HomePage(vm HomeVM) {
-    @layout.Base("Home", HomeContent(vm))
+templ IndexPage(vm IndexVM) {
+    @layout.Base("Home", IndexContent(vm))
 }
 
-templ HomeContent(vm HomeVM) {
+templ IndexContent(vm IndexVM) {
     <div class="min-vh-100 d-flex align-items-center justify-content-center">
         <div class="card shadow-sm" style="max-width: 900px; width: 100%;">
             <div class="card-body p-4">

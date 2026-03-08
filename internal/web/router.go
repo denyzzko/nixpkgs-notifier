@@ -11,7 +11,7 @@ import (
 
 func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager, disp *dispatcher.Dispatcher) {
 	// home page (displays all tracked packages)
-	mux.HandleFunc("GET /", requireAuth(sessionManager, homePage(sessionManager, db)))
+	mux.HandleFunc("GET /", requireAuth(sessionManager, indexPage(sessionManager, db)))
 
 	// login page and corresponding routes
 	mux.HandleFunc("GET /login", loginPage())
