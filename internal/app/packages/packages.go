@@ -8,6 +8,7 @@ import (
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/notifications"
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
+	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
@@ -46,7 +47,7 @@ func GetTrackedPackages(ctx context.Context, db *database.Store, sessionManager 
 
 // Track creates or updates package tracking for a user
 // If the package that is to be tracked doesn't exist in the database, it will be created
-func Track(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, packageName string, packageBranch string) error {
+func Track(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker, packageName string, packageBranch string) error {
 	const op = "packages.Track"
 
 	// get user ID
@@ -55,16 +56,19 @@ func Track(ctx context.Context, db *database.Store, sessionManager *session.Sess
 		return appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
 	}
 
-	// get current version from nix
-	currentVersion, err := nix.GetPackageVersionByNameAndBranch(ctx, packageName, packageBranch)
-	if err != nil {
-		if errors.Is(err, nix.ErrAttrNotFound) {
-			return appError.NewAppError(op, appError.Invalid, "invalid package name or branch", err)
-		} else if errors.Is(err, nix.ErrEvalFailed) {
-			return appError.NewAppError(op, appError.Upstream, "failed to get package version from Nix", err)
+	// get current version via checker high-priority worker pool
+	resultCh := make(chan checker.NixResult, 1)
+	chk.EnqueueHigh(checker.CheckJob{Name: packageName, Branch: packageBranch, Result: resultCh})
+	nixResult := <-resultCh // blocks until result arrives in resultCh
+	if nixResult.Err != nil {
+		if errors.Is(nixResult.Err, nix.ErrAttrNotFound) {
+			return appError.NewAppError(op, appError.Invalid, "invalid package name or branch", nixResult.Err)
+		} else if errors.Is(nixResult.Err, nix.ErrEvalFailed) {
+			return appError.NewAppError(op, appError.Upstream, "failed to get package version from Nix", nixResult.Err)
 		}
-		return appError.NewAppError(op, appError.Internal, "internal error", err)
+		return appError.NewAppError(op, appError.Internal, "internal error", nixResult.Err)
 	}
+	currentVersion := nixResult.Version
 
 	// get package id by name and branch
 	var packageID int64
@@ -125,7 +129,7 @@ func Untrack(ctx context.Context, db *database.Store, sessionManager *session.Se
 	return nil
 }
 
-func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) ([]CheckResult, error) {
+func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) ([]CheckResult, error) {
 	const op = "packages.CheckAll"
 
 	// get user ID
@@ -141,17 +145,29 @@ func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.S
 	}
 
 	// for each tracked package check for a new version (uses just log to not fail the whole operation)
+	// enqueue all jobs first to the high priority queue
+	resultChans := make([]chan checker.NixResult, len(trackedPackages))
+	for i, pckg := range trackedPackages {
+		resultChans[i] = make(chan checker.NixResult, 1)
+		chk.EnqueueHigh(checker.CheckJob{Name: pckg.Name, Branch: pckg.Branch, Result: resultChans[i]})
+	}
+
+	// collect results in order
 	results := make([]CheckResult, 0, len(trackedPackages))
-	for _, pckg := range trackedPackages {
-		currentVersion, err := nix.GetPackageVersionByNameAndBranch(ctx, pckg.Name, pckg.Branch)
-		if err != nil {
-			log.Printf("[WARN] %s: nix eval failed for %q/%q: %v", op, pckg.Name, pckg.Branch, err)
+	for i, pckg := range trackedPackages {
+		nixResult := <-resultChans[i]
+
+		var currentVersion string
+		if nixResult.Err != nil {
+			log.Printf("[WARN] %s: nix eval failed for %q/%q: %v", op, pckg.Name, pckg.Branch, nixResult.Err)
 			currentVersion = pckg.LastNotifiedVersion
+		} else {
+			currentVersion = nixResult.Version
 		}
 
 		versionChanged := currentVersion != pckg.LastNotifiedVersion
-		// version change detected -> fire async notification creation for all users tracking this package
 		if versionChanged {
+			// version change detected -> fire async notification creation for all users tracking this package
 			go notifications.CreatePendingNotifications(context.Background(), db, pckg.PackageID, pckg.Name, pckg.Branch, currentVersion, userID)
 		}
 
@@ -169,7 +185,7 @@ func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.S
 }
 
 // Checks if the user's tracked package is up to date (compares the last notified version with the current version from Nix)
-func Check(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, packageID_string string) (CheckResult, error) {
+func Check(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker, packageID_string string) (CheckResult, error) {
 	const op = "packages.Check"
 
 	var result CheckResult
@@ -204,16 +220,19 @@ func Check(ctx context.Context, db *database.Store, sessionManager *session.Sess
 		return result, appError.NewAppError(op, appError.Internal, "failed to query package", err)
 	}
 
-	// get current version of package from nix
-	currentVersion, err := nix.GetPackageVersionByNameAndBranch(ctx, pckg.Name, pckg.Branch)
-	if err != nil {
-		if errors.Is(err, nix.ErrAttrNotFound) {
-			return result, appError.NewAppError(op, appError.Invalid, "invalid request - wrong package name or branch", err)
-		} else if errors.Is(err, nix.ErrEvalFailed) {
-			return result, appError.NewAppError(op, appError.Upstream, "failed to get package version from Nix", err)
+	// get current version via checker high-priority worker pool
+	resultCh := make(chan checker.NixResult, 1)
+	chk.EnqueueHigh(checker.CheckJob{Name: pckg.Name, Branch: pckg.Branch, Result: resultCh})
+	nixResult := <-resultCh // blocks until result arrives in resultCh
+	if nixResult.Err != nil {
+		if errors.Is(nixResult.Err, nix.ErrAttrNotFound) {
+			return result, appError.NewAppError(op, appError.Invalid, "invalid request - wrong package name or branch", nixResult.Err)
+		} else if errors.Is(nixResult.Err, nix.ErrEvalFailed) {
+			return result, appError.NewAppError(op, appError.Upstream, "failed to get package version from Nix", nixResult.Err)
 		}
-		return result, appError.NewAppError(op, appError.Internal, "internal error", err)
+		return result, appError.NewAppError(op, appError.Internal, "internal error", nixResult.Err)
 	}
+	currentVersion := nixResult.Version
 
 	result.PackageID = packageID
 	result.Name = pckg.Name

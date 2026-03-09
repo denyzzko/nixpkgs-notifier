@@ -14,6 +14,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/users"
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
+	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/notify"
@@ -127,7 +128,7 @@ func logout(sessionManager *session.SessionManager) http.HandlerFunc {
 	}
 }
 
-func verifyTrackedPackage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+func verifyTrackedPackage(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
@@ -141,7 +142,7 @@ func verifyTrackedPackage(db *database.Store, sessionManager *session.SessionMan
 		}
 
 		// check tracked package version
-		result, err := packages.Check(ctx, db, sessionManager, packageID_string)
+		result, err := packages.Check(ctx, db, sessionManager, chk, packageID_string)
 		if err != nil {
 			writeAppErr(w, "web.checkTrackedPackageVersion", err)
 			return
@@ -153,14 +154,14 @@ func verifyTrackedPackage(db *database.Store, sessionManager *session.SessionMan
 	}
 }
 
-func verifyAllTrackedPackages(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+func verifyAllTrackedPackages(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 		defer cancel()
 
 		// check all tracked package versions
-		results, err := packages.CheckAll(ctx, db, sessionManager)
+		results, err := packages.CheckAll(ctx, db, sessionManager, chk)
 		if err != nil {
 			writeAppErr(w, "web.verifyAllPackages", err)
 			return
@@ -215,7 +216,7 @@ func trackPackageFormCancel() http.HandlerFunc {
 	}
 }
 
-func trackPackage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+func trackPackage(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
@@ -232,7 +233,7 @@ func trackPackage(db *database.Store, sessionManager *session.SessionManager) ht
 		}
 
 		// track package
-		if err := packages.Track(ctx, db, sessionManager, packageName, packageBranch); err != nil {
+		if err := packages.Track(ctx, db, sessionManager, chk, packageName, packageBranch); err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = pages.NewPackageError(packageName, packageBranch, appError.PublicMessage(err)).Render(ctx, w)
 			return

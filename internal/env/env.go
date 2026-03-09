@@ -40,6 +40,10 @@ type EnvConfig struct {
 	NotificationMaxRetries          int           // defualt: 3
 	NotificationDisableOnMaxRetries bool          // default: true
 	NotificationWorkerCount         int           // default: 2
+
+	// Periodic package checker
+	PackageCheckInterval    time.Duration // default: 1h
+	PackageCheckWorkerCount int           // default: 2
 }
 
 func LoadEnvConfig() (*EnvConfig, error) {
@@ -63,6 +67,8 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	maxRetries := parseInt(os.Getenv("NOTIFICATION_MAX_RETRIES"), 3)
 	disableOnMaxRetries := parseBool(os.Getenv("NOTIFICATION_DISABLE_ON_MAX_RETRIES"), true)
 	workerCount := parseInt(os.Getenv("NOTIFICATION_WORKER_COUNT"), 2)
+	checkInterval := parseDuration(os.Getenv("PACKAGE_CHECK_INTERVAL"), 1*time.Hour)
+	checkWorkers := parseInt(os.Getenv("PACKAGE_CHECK_WORKER_COUNT"), 2)
 
 	cfg := &EnvConfig{
 		ServerURL:          os.Getenv("SERVER_URL"),
@@ -84,6 +90,8 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		NotificationMaxRetries:          maxRetries,
 		NotificationDisableOnMaxRetries: disableOnMaxRetries,
 		NotificationWorkerCount:         workerCount,
+		PackageCheckInterval:            checkInterval,
+		PackageCheckWorkerCount:         checkWorkers,
 	}
 
 	return cfg, nil

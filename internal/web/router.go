@@ -4,12 +4,13 @@ import (
 	"net/http"
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
+	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 )
 
-func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager, disp *dispatcher.Dispatcher) {
+func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager, disp *dispatcher.Dispatcher, chk *checker.Checker) {
 	// home page (displays all tracked packages)
 	mux.HandleFunc("GET /", requireAuth(sessionManager, indexPage(sessionManager, db)))
 
@@ -20,12 +21,12 @@ func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.Provid
 	mux.HandleFunc("GET /auth/logout", logout(sessionManager)) // TODO: make POST
 
 	// routes for package operations (package verifications, track/untrack)
-	mux.HandleFunc("POST /package/verify/{id}", verifyTrackedPackage(db, sessionManager))
-	mux.HandleFunc("POST /package/verify/all", verifyAllTrackedPackages(db, sessionManager))
+	mux.HandleFunc("POST /package/verify/{id}", verifyTrackedPackage(db, sessionManager, chk))
+	mux.HandleFunc("POST /package/verify/all", verifyAllTrackedPackages(db, sessionManager, chk))
 	mux.HandleFunc("POST /package/untrack/{id}", untrackPackage(db, sessionManager))
 	mux.HandleFunc("GET /package/track/form", trackPackageForm())
 	mux.HandleFunc("GET /package/track/cancel", trackPackageFormCancel())
-	mux.HandleFunc("POST /package/track", trackPackage(db, sessionManager))
+	mux.HandleFunc("POST /package/track", trackPackage(db, sessionManager, chk))
 
 	// notification channels page and corresponding routes for operations (add channel, delete channel, toggles, test)
 	mux.HandleFunc("GET /channels", requireAuth(sessionManager, channelsPage(sessionManager, db)))

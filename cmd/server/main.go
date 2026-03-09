@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
+	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/env"
@@ -72,11 +73,20 @@ func main() {
 	)
 	disp.Start(dispatchCtx)
 
+	// initialize package version checker
+	checkerCtx, cancelChecker := context.WithCancel(ctx)
+	defer cancelChecker()
+	chk := checker.New(db, checker.Config{
+		Interval:    cfg.PackageCheckInterval,
+		WorkerCount: cfg.PackageCheckWorkerCount,
+	})
+	chk.Start(checkerCtx)
+
 	// new request multiplexer
 	mux := http.NewServeMux()
 
 	// register routes
-	web.RegisterRoutes(mux, db, provMap, sessionManager, disp)
+	web.RegisterRoutes(mux, db, provMap, sessionManager, disp, chk)
 
 	// chain middleware
 	chain := middleware.Chain(
@@ -120,6 +130,9 @@ func main() {
 
 		// stop dispatcher
 		cancelDispatch()
+
+		// stop checker
+		cancelChecker()
 
 		// give server (in goroutine) time to finish (it could still be processing some requests)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
