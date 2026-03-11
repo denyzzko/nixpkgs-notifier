@@ -25,7 +25,10 @@ templ Base(title string, content templ.Component) {
                     <a class="nav-link" href="/">Packages</a>
                     <a class="nav-link" href="/channels">Channels</a>
                     <a class="nav-link" href="/log">Delivery Log</a>
-                    <a class="nav-link text-danger" href="/auth/logout">Logout</a>
+                    <button
+                        class="btn btn-link nav-link text-danger p-0 border-0"
+                        hx-post="/auth/logout"
+                    >Logout</button>
                 </div>
             </nav>
             @content

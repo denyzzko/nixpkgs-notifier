@@ -18,11 +18,11 @@ func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.Provid
 	mux.HandleFunc("GET /login", loginPage())
 	mux.HandleFunc("GET /auth/login", login(provMap, sessionManager))
 	mux.HandleFunc("GET /auth/callback", callback(db, provMap, sessionManager))
-	mux.HandleFunc("GET /auth/logout", logout(sessionManager)) // TODO: make POST
+	mux.HandleFunc("POST /auth/logout", logout(sessionManager))
 
 	// routes for package operations (package verifications, track/untrack)
-	mux.HandleFunc("POST /package/verify/{id}", verifyTrackedPackage(db, sessionManager, chk))
-	mux.HandleFunc("POST /package/verify/all", verifyAllTrackedPackages(db, sessionManager, chk))
+	mux.HandleFunc("POST /package/check/{id}", checkTrackedPackage(db, sessionManager, chk))
+	mux.HandleFunc("POST /package/check/all", checkAllTrackedPackages(db, sessionManager, chk))
 	mux.HandleFunc("POST /package/untrack/{id}", untrackPackage(db, sessionManager))
 	mux.HandleFunc("GET /package/track/form", trackPackageForm())
 	mux.HandleFunc("GET /package/track/cancel", trackPackageFormCancel())

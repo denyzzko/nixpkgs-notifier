@@ -29,6 +29,18 @@ type Config struct {
 	DisableOnMaxRetries bool          // when true, notification channel will be automatically disabled after reaching MaxRetries failures
 }
 
+// Email variables (config) loaded from env on startup
+type EmailConfig struct {
+	Provider  string // "resend" or "smtp"
+	ResendKey string
+	FromAddr  string
+	SMTPHost  string
+	SMTPPort  string
+	SMTPUser  string
+	SMTPPass  string
+	SMTPFrom  string
+}
+
 // Dispatcher with all resources it needs
 // It is created once in main.go on startup
 type Dispatcher struct {
@@ -42,12 +54,12 @@ type Dispatcher struct {
 }
 
 // Constructs a Dispatcher
-func New(db *database.Store, cfg Config, emailProvider, resendKey, fromAddr, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom string) *Dispatcher {
+func New(db *database.Store, cfg Config, emailCfg EmailConfig) *Dispatcher {
 	return &Dispatcher{
 		db:            db,
-		emailProvider: emailProvider,
-		resendSender:  notify.NewResendSender(resendKey, fromAddr),
-		smtpSender:    notify.NewSMTPSender(smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom),
+		emailProvider: emailCfg.Provider,
+		resendSender:  notify.NewResendSender(emailCfg.ResendKey, emailCfg.FromAddr),
+		smtpSender:    notify.NewSMTPSender(emailCfg.SMTPHost, emailCfg.SMTPPort, emailCfg.SMTPUser, emailCfg.SMTPPass, emailCfg.SMTPFrom),
 		webhookSender: notify.NewWebhookSender(),
 		cfg:           cfg,
 	}

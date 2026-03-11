@@ -41,11 +41,11 @@ templ IndexContent(vm IndexVM) {
                         </button>
                         <button
                             class="btn btn-outline-primary btn-sm"
-                            hx-post="/package/verify/all"
+                            hx-post="/package/check/all"
                             hx-target="#tracked-list"
                             hx-swap="innerHTML"
                         >
-                            Verify All
+                            Check All
                         </button>
                     </div>
                 </div>
@@ -180,11 +180,11 @@ templ TrackedPackageItem(pckg TrackedPackageVM) {
             }
             <button
                 class="btn btn-outline-secondary btn-sm"
-                hx-post={fmt.Sprintf("/package/verify/%d", pckg.PackageID)}
+                hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
                 hx-target="closest .list-group-item"
                 hx-swap="outerHTML"
             >
-                Verify
+                Check
             </button>
             <button
                 class="btn btn-danger btn-sm"

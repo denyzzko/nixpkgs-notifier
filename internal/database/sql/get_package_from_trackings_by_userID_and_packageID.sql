@@ -7,4 +7,5 @@ SELECT p.id,
 FROM trackings t
 JOIN packages p ON t.package_id = p.id
 WHERE t.user_id = $1
+  AND p.id = $2
 ;

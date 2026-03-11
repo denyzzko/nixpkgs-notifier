@@ -32,6 +32,7 @@ CREATE TABLE packages (
     id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_checked_at TIMESTAMPTZ,
     name            TEXT NOT NULL,
     branch          TEXT NOT NULL,
     current_version TEXT NOT NULL,

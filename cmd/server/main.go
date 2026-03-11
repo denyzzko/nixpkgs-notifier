@@ -52,35 +52,39 @@ func main() {
 	// initialize session manager
 	sessionManager := session.NewManager()
 
+	// app context
+	appCtx, cancelApp := context.WithCancel(ctx)
+	defer cancelApp()
+
 	// initialize notification dispatcher
-	dispatchCtx, cancelDispatch := context.WithCancel(ctx)
-	defer cancelDispatch()
 	disp := dispatcher.New(
 		db,
 		dispatcher.Config{
-			Interval:    cfg.NotificationDispatchInterval,
-			MaxRetries:  cfg.NotificationMaxRetries,
-			WorkerCount: cfg.NotificationWorkerCount,
+			Interval:            cfg.NotificationDispatchInterval,
+			MaxRetries:          cfg.NotificationMaxRetries,
+			WorkerCount:         cfg.NotificationWorkerCount,
+			DisableOnMaxRetries: cfg.NotificationDisableOnMaxRetries,
 		},
-		cfg.EmailProvider,
-		cfg.ResendAPIKey,
-		cfg.EmailFromAddr,
-		cfg.SMTPHost,
-		cfg.SMTPPort,
-		cfg.SMTPUser,
-		cfg.SMTPPass,
-		cfg.SMTPFrom,
+		dispatcher.EmailConfig{
+			Provider:  cfg.EmailProvider,
+			ResendKey: cfg.ResendAPIKey,
+			FromAddr:  cfg.EmailFromAddr,
+			SMTPHost:  cfg.SMTPHost,
+			SMTPPort:  cfg.SMTPPort,
+			SMTPUser:  cfg.SMTPUser,
+			SMTPPass:  cfg.SMTPPass,
+			SMTPFrom:  cfg.SMTPFrom,
+		},
 	)
-	disp.Start(dispatchCtx)
+	disp.Start(appCtx)
 
 	// initialize package version checker
-	checkerCtx, cancelChecker := context.WithCancel(ctx)
-	defer cancelChecker()
 	chk := checker.New(db, checker.Config{
-		Interval:    cfg.PackageCheckInterval,
-		WorkerCount: cfg.PackageCheckWorkerCount,
+		Interval:     cfg.PackageCheckInterval,
+		WorkerCount:  cfg.PackageCheckWorkerCount,
+		SkipInterval: cfg.PackageCheckSkipInterval,
 	})
-	chk.Start(checkerCtx)
+	chk.Start(appCtx)
 
 	// new request multiplexer
 	mux := http.NewServeMux()
@@ -128,11 +132,8 @@ func main() {
 	case sig := <-shutdown:
 		log.Printf("[INFO] Shutdown signal received: %v", sig)
 
-		// stop dispatcher
-		cancelDispatch()
-
-		// stop checker
-		cancelChecker()
+		// stop dispatcher and checker
+		cancelApp()
 
 		// give server (in goroutine) time to finish (it could still be processing some requests)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -1,3 +1,14 @@
+// Nix is package that handles nix CLI for evaluating package versions from nixpkgs
+//
+// This package exposes a single public function, GetPackageVersionByNameAndBranch(), which spawns a
+// nix eval subprocess for a given package name and branch
+// Concurrent calls for the same name+branch pair are automatically coalesced via singleflight so that only one subprocess runs
+// at a time and all callers share its result
+//
+// Errors are classified into three sentinel values:
+//   - ErrAttrNotFound: the package name or branch is invalid
+//   - ErrNixUnavailable: the nix binary is not present on this system
+//   - ErrEvalFailed: all other failures (network, timeout, unexpected nix error)
 package nix
 
 import (
@@ -6,23 +17,29 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 
-	"github.com/denyzzko/nixpkgs-notifier/internal/database"
+	"golang.org/x/sync/singleflight"
 )
 
 var (
-	// package attribute not found in nixpkgs for the given ref/branch error
+	// package attribute not found in nixpkgs for the given ref/branch
 	ErrAttrNotFound = errors.New("nix attribute not found")
 
-	// nix command not available on this system error
+	// nix command not available on this system
 	ErrNixUnavailable = errors.New("nix unavailable")
 
-	// all other nix eval failures (network, eval errors, timeouts, etc.) error
+	// all other nix eval failures (network, eval errors, timeouts, etc.)
 	ErrEvalFailed = errors.New("nix eval failed")
 )
 
-// Checks if nix --version can be executed (if not -> returns error)
+// nixEvalGroup coalesces concurrent nix eval calls for the same package+branch pair
+// If N goroutines request the same key(package+branch) at the same time, only one nix subprocess is spawned
+// all N callers receive the same result once it completes
+var nixEvalGroup singleflight.Group
+
+// Checks if nix binary is available by running nix --version (if not -> returns error)
 // This function is executed once on server startup
 func CheckNixAvailability() error {
 	cmd := exec.Command("nix", "--version")
@@ -35,24 +52,32 @@ func CheckNixAvailability() error {
 	return nil
 }
 
-func GetPackageVersionByID(ctx context.Context, db *database.Store, packageID int64) (string, error) {
-	//get name and branch from id
-	pckg, err := db.QueryPackage(ctx, packageID)
-	if err != nil {
-		return "", fmt.Errorf("nix.GetPackageVersionByID: query package(id=%d): %w", packageID, err)
-	}
+// Runs nix eval to fetch the current version of a package from a specific nixpkgs branch
+//
+// Concurrent calls for the same name+branch are automatically coalesced using singleflight
+// Only one nix subprocess runs, all waiting callers share its result
+func GetPackageVersionByNameAndBranch(ctx context.Context, name string, branch string) (string, error) {
+	key := name + "@" + branch
 
-	// get version
-	pckgVersion, err := GetPackageVersionByNameAndBranch(ctx, pckg.Name, pckg.Branch)
-	if err != nil {
-		return "", fmt.Errorf("nix.GetPackageVersionByID: nix eval (name=%q, branch=%q): %w", pckg.Name, pckg.Branch, err)
-	}
+	v, err, _ := nixEvalGroup.Do(key, func() (interface{}, error) {
+		return evalNix(ctx, name, branch)
+	})
 
-	// return version
-	return pckgVersion, nil
+	if err != nil {
+		return "", err
+	}
+	return v.(string), nil
 }
 
-func GetPackageVersionByNameAndBranch(ctx context.Context, name string, branch string) (string, error) {
+// Runs actual nix eval call for the given package name and branch
+// It is only called once per unique name+branch key at a time (enforced by nixEvalGroup)
+func evalNix(ctx context.Context, name string, branch string) (string, error) {
+	// validate name and branch to prevent undesired behavior
+	var validNixName = regexp.MustCompile(`^[a-zA-Z0-9._\-]+$`)
+	if !validNixName.MatchString(name) || !validNixName.MatchString(branch) {
+		return "", ErrAttrNotFound
+	}
+
 	// build expression with package name and specified git branch
 	args := []string{
 		"eval",
@@ -63,7 +88,7 @@ func GetPackageVersionByNameAndBranch(ctx context.Context, name string, branch s
 	}
 
 	// execute nix command
-	cmd := exec.Command("nix", args...)
+	cmd := exec.CommandContext(ctx, "nix", args...)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -84,6 +109,10 @@ func GetPackageVersionByNameAndBranch(ctx context.Context, name string, branch s
 	return "", classifyNixError(err, stderr.String(), name, branch)
 }
 
+// Maps a nix eval failure to one of the package sentinel errors
+// It inspects stderr output and returns:
+//   - ErrAttrNotFound for invalid package name or branch (HTTP 422, missing attribute, unknown commit)
+//   - ErrEvalFailed for network and timeout errors ( also fallback for anything else)
 func classifyNixError(err error, stderr, name, branch string) error {
 	s := stderr
 	if strings.TrimSpace(s) == "" {

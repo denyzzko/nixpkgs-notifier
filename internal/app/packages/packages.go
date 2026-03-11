@@ -37,7 +37,7 @@ func GetTrackedPackages(ctx context.Context, db *database.Store, sessionManager 
 	}
 
 	// get all tracked packages
-	trackedPackages, err := db.QueryTrackedPackagesByUserID(ctx, userID)
+	trackedPackages, err := db.QueryUsersTrackedPackages(ctx, userID)
 	if err != nil {
 		return nil, appError.NewAppError(op, appError.Internal, "failed to load tracked packages", err)
 	}
@@ -46,14 +46,16 @@ func GetTrackedPackages(ctx context.Context, db *database.Store, sessionManager 
 }
 
 // Track creates or updates package tracking for a user
-// If the package that is to be tracked doesn't exist in the database, it will be created
-func Track(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker, packageName string, packageBranch string) error {
+// If the package that is to be tracked doesn't exist in the database, it is created
+// Always runs nix eval (via EnqueueHigh) because cached version would set an incorrect last_notified_version baseline
+func Track(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker, packageName string, packageBranch string) (database.TrackedPackage, error) {
 	const op = "packages.Track"
 
+	var trackedPackage database.TrackedPackage
 	// get user ID
 	userID := sessionManager.GetUserID(ctx)
 	if userID == 0 {
-		return appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
+		return trackedPackage, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
 	}
 
 	// get current version via checker high-priority worker pool
@@ -62,11 +64,11 @@ func Track(ctx context.Context, db *database.Store, sessionManager *session.Sess
 	nixResult := <-resultCh // blocks until result arrives in resultCh
 	if nixResult.Err != nil {
 		if errors.Is(nixResult.Err, nix.ErrAttrNotFound) {
-			return appError.NewAppError(op, appError.Invalid, "invalid package name or branch", nixResult.Err)
+			return trackedPackage, appError.NewAppError(op, appError.Invalid, "invalid package name or branch", nixResult.Err)
 		} else if errors.Is(nixResult.Err, nix.ErrEvalFailed) {
-			return appError.NewAppError(op, appError.Upstream, "failed to get package version from Nix", nixResult.Err)
+			return trackedPackage, appError.NewAppError(op, appError.Upstream, "failed to get package version from Nix", nixResult.Err)
 		}
-		return appError.NewAppError(op, appError.Internal, "internal error", nixResult.Err)
+		return trackedPackage, appError.NewAppError(op, appError.Internal, "internal error", nixResult.Err)
 	}
 	currentVersion := nixResult.Version
 
@@ -76,34 +78,41 @@ func Track(ctx context.Context, db *database.Store, sessionManager *session.Sess
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
 			// this package name and branch combination was not found -> it should be created
-			//
-			// TODO: what if this package name and branch combination SHOULD NOT exist ???
-			//		- should not happen here as nix eval already passed before but still needs some thinking:
-			//			-> when nix eval fails due to "not finding" specified package it should probably by somehow handled
-			//			-> removed from database or something like this
-			//			-> first of all user should not be able to send requests for nonexisting packages or branches
 			packageID, err = db.StorePackage(ctx, packageName, packageBranch, currentVersion)
 			if err != nil {
-				return appError.NewAppError(op, appError.Internal, "failed to store package", err)
+				return trackedPackage, appError.NewAppError(op, appError.Internal, "failed to store package", err)
 			}
 		} else {
-			return appError.NewAppError(op, appError.Internal, "failed to query package", err)
+			return trackedPackage, appError.NewAppError(op, appError.Internal, "failed to query package", err)
 		}
 	} else {
 		packageID = pckg.ID
 	}
 
+	// update last_checked_at
+	err = db.UpdatePackageLastCheckedAt(ctx, packageID)
+	if err != nil {
+		log.Printf("[WARN] %s: update last_checked_at failed (%q/%q): %v", op, packageName, packageBranch, err)
+	}
+
 	// store tracking of new package for user (if already exists it will be just updated)
 	err = db.StoreTracking(ctx, userID, packageID, currentVersion)
 	if err != nil {
-		return appError.NewAppError(op, appError.Internal, "failed to store tracking", err)
+		return trackedPackage, appError.NewAppError(op, appError.Internal, "failed to store tracking", err)
 	}
 
-	return nil
+	trackedPackage = database.TrackedPackage{
+		PackageID:           packageID,
+		Name:                packageName,
+		Branch:              packageBranch,
+		LastNotifiedVersion: currentVersion,
+		CurrentVersion:      currentVersion,
+	}
+	return trackedPackage, nil
 }
 
 // Untreck deletes tracking for a user
-func Untrack(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, packageID_string string) error {
+func Untrack(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, packageIDStr string) error {
 	const op = "packages.Untrack"
 
 	// get user ID
@@ -113,7 +122,7 @@ func Untrack(ctx context.Context, db *database.Store, sessionManager *session.Se
 	}
 
 	// convert package ID string to int64
-	packageID, err := strconv.ParseInt(packageID_string, 10, 64)
+	packageID, err := strconv.ParseInt(packageIDStr, 10, 64)
 	if err != nil {
 		return appError.NewAppError(op, appError.Invalid, "invalid package id", err)
 	}
@@ -129,6 +138,9 @@ func Untrack(ctx context.Context, db *database.Store, sessionManager *session.Se
 	return nil
 }
 
+// Checks all packages the user tracks for version updates
+// All jobs are enqueued into the high-priority queue so workers process them concurrently (up to WorkerCount in parallel)
+// Uses EnqueueHighOrSkip: if a package was checked within SkipInterval, its stored CurrentVersion is returned (no nix eval)
 func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) ([]CheckResult, error) {
 	const op = "packages.CheckAll"
 
@@ -139,7 +151,7 @@ func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.S
 	}
 
 	// get all tracked packages
-	trackedPackages, err := db.QueryTrackedPackagesByUserID(ctx, userID)
+	trackedPackages, err := db.QueryUsersTrackedPackages(ctx, userID)
 	if err != nil {
 		return nil, appError.NewAppError(op, appError.Internal, "failed to load tracked packages", err)
 	}
@@ -149,7 +161,14 @@ func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.S
 	resultChans := make([]chan checker.NixResult, len(trackedPackages))
 	for i, pckg := range trackedPackages {
 		resultChans[i] = make(chan checker.NixResult, 1)
-		chk.EnqueueHigh(checker.CheckJob{Name: pckg.Name, Branch: pckg.Branch, Result: resultChans[i]})
+		chk.EnqueueHighOrSkip(checker.CheckJob{
+			Name:           pckg.Name,
+			Branch:         pckg.Branch,
+			PackageID:      pckg.PackageID,
+			CurrentVersion: pckg.CurrentVersion,
+			LastCheckedAt:  pckg.LastCheckedAt,
+			Result:         resultChans[i],
+		})
 	}
 
 	// collect results in order
@@ -160,7 +179,7 @@ func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.S
 		var currentVersion string
 		if nixResult.Err != nil {
 			log.Printf("[WARN] %s: nix eval failed for %q/%q: %v", op, pckg.Name, pckg.Branch, nixResult.Err)
-			currentVersion = pckg.LastNotifiedVersion
+			currentVersion = pckg.CurrentVersion
 		} else {
 			currentVersion = nixResult.Version
 		}
@@ -185,7 +204,7 @@ func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.S
 }
 
 // Checks if the user's tracked package is up to date (compares the last notified version with the current version from Nix)
-func Check(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker, packageID_string string) (CheckResult, error) {
+func Check(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker, packageIDStr string) (CheckResult, error) {
 	const op = "packages.Check"
 
 	var result CheckResult
@@ -196,33 +215,30 @@ func Check(ctx context.Context, db *database.Store, sessionManager *session.Sess
 	}
 
 	// convert package ID string to int64
-	packageID, err := strconv.ParseInt(packageID_string, 10, 64)
+	packageID, err := strconv.ParseInt(packageIDStr, 10, 64)
 	if err != nil {
 		return result, appError.NewAppError(op, appError.Invalid, "invalid package id", err)
 	}
 
-	// fetch users tracking
-	tracking, err := db.QueryTracking(ctx, userID, packageID)
+	// fetch users tracked package
+	pckg, err := db.QueryUsersTrackedPackage(ctx, userID, packageID)
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
 			return result, appError.NewAppError(op, appError.NotFound, "tracking not found", err)
-		} else {
-			return result, appError.NewAppError(op, appError.Internal, "failed to query tracking", err)
 		}
-	}
-
-	// fetch package from tracking
-	pckg, err := db.QueryPackage(ctx, packageID)
-	if err != nil {
-		if errors.Is(err, database.ErrNotFound) {
-			return result, appError.NewAppError(op, appError.Internal, "internal error - package not found", err)
-		}
-		return result, appError.NewAppError(op, appError.Internal, "failed to query package", err)
+		return result, appError.NewAppError(op, appError.Internal, "failed to query tracked package", err)
 	}
 
 	// get current version via checker high-priority worker pool
 	resultCh := make(chan checker.NixResult, 1)
-	chk.EnqueueHigh(checker.CheckJob{Name: pckg.Name, Branch: pckg.Branch, Result: resultCh})
+	chk.EnqueueHighOrSkip(checker.CheckJob{
+		Name:           pckg.Name,
+		Branch:         pckg.Branch,
+		PackageID:      pckg.PackageID,
+		CurrentVersion: pckg.CurrentVersion,
+		LastCheckedAt:  pckg.LastCheckedAt,
+		Result:         resultCh,
+	})
 	nixResult := <-resultCh // blocks until result arrives in resultCh
 	if nixResult.Err != nil {
 		if errors.Is(nixResult.Err, nix.ErrAttrNotFound) {
@@ -237,9 +253,9 @@ func Check(ctx context.Context, db *database.Store, sessionManager *session.Sess
 	result.PackageID = packageID
 	result.Name = pckg.Name
 	result.Branch = pckg.Branch
-	result.LastNotifiedVersion = tracking.LastNotifiedVersion
+	result.LastNotifiedVersion = pckg.LastNotifiedVersion
 	result.CurrentVersion = currentVersion
-	result.VersionChanged = currentVersion != tracking.LastNotifiedVersion
+	result.VersionChanged = currentVersion != pckg.LastNotifiedVersion
 
 	// version change detected -> fire async notification creation for all users tracking this package
 	if result.VersionChanged {
@@ -248,45 +264,3 @@ func Check(ctx context.Context, db *database.Store, sessionManager *session.Sess
 
 	return result, nil
 }
-
-/*
-// Search gets version of a package from Nix
-func Search(ctx context.Context, name string, branch string) (Package, error) {
-	const op = "packages.Search"
-
-	version, err := nix.GetPackageVersionByNameAndBranch(ctx, name, branch)
-	if err != nil {
-		if errors.Is(err, nix.ErrAttrNotFound) {
-			return Package{}, appError.NewAppError(op, appError.NotFound, fmt.Sprintf("package %q not found on branch %q", name, branch), err)
-		}
-		return Package{}, appError.NewAppError(op, appError.Upstream, "could not reach nixpkgs, please try again", err)
-	}
-
-	//TODO: check here if user already tracks this package and return boolean
-
-	return Package{Name: name, Branch: branch, CurrentVersion: version}, nil
-}
-
-// Retrieves all packages from the database
-func GetAll(ctx context.Context, db *database.Store) ([]Package, error) {
-	const op = "packages.GetAll"
-
-	// get all packages from database
-	rows, err := db.QueryAllPackages(ctx)
-	if err != nil {
-		return nil, appError.NewAppError(op, appError.Internal, "failed to query packages", err)
-	}
-
-	// convert to type Package LATER THIS WILL PROLLY NOT BE USED
-	packages := make([]Package, 0, len(rows))
-	for _, row := range rows {
-		packages = append(packages, Package{
-			Name:           row.Name,
-			Branch:         row.Branch,
-			CurrentVersion: row.CurrentVersion,
-		})
-	}
-
-	return packages, nil
-}
-*/

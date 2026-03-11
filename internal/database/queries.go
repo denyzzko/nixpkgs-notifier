@@ -15,6 +15,9 @@ var ErrNotFound = errors.New("not found")
 //go:embed sql/get_packages_from_trackings_by_userID.sql
 var qGetUsersTrackedPackages string
 
+//go:embed sql/get_package_from_trackings_by_userID_and_packageID.sql
+var qGetUsersTrackedPackage string
+
 //go:embed sql/get_all_packages.sql
 var qGetAllPackages string
 
@@ -90,50 +93,14 @@ var sUpdateChannelIsEnabled string
 //go:embed sql/update_notify_on_manual_verify.sql
 var sUpdateNotifyOnManualVerify string
 
-type UserInfo struct {
-	Email         *string
-	EmailVerified bool
-	Username      *string
-	Role          string
-	Provider      string
-	Issuer        string
-	Subject       string
-}
-
-type TrackedPackage struct {
-	PackageID           int64
-	Name                string
-	Branch              string
-	LastNotifiedVersion string
-}
-
-type UserChannel struct {
-	ID                   int64
-	IsEnabled            bool
-	EmailAddress         *string
-	WebhookURL           *string
-	NotifyOnManualVerify *bool
-}
-
-type UserNotification struct {
-	ID            int64
-	DetectedAt    time.Time
-	OldVersion    string
-	NewVersion    string
-	Status        NotificationStatus
-	AttemptCount  int
-	ErrorMessage  *string
-	PackageName   string
-	PackageBranch string
-	EmailAddress  *string
-	WebhookURL    *string
-}
+//go:embed sql/update_package_last_checked_at.sql
+var sUpdatePackageLastCheckedAt string
 
 // Retrieves all packages from database that user tracks by his ID
-func (db *Store) QueryTrackedPackagesByUserID(ctx context.Context, userID int64) ([]TrackedPackage, error) {
+func (db *Store) QueryUsersTrackedPackages(ctx context.Context, userID int64) ([]TrackedPackage, error) {
 	rows, err := db.pool.Query(ctx, qGetUsersTrackedPackages, userID)
 	if err != nil {
-		return nil, fmt.Errorf("database.QueryTrackedPackagesByUserID: query error (userID=%d): %w", userID, err)
+		return nil, fmt.Errorf("database.QueryUsersTrackedPackages: query error (userID=%d): %w", userID, err)
 	}
 	defer rows.Close()
 
@@ -141,18 +108,33 @@ func (db *Store) QueryTrackedPackagesByUserID(ctx context.Context, userID int64)
 	var trackedPackages []TrackedPackage
 	for rows.Next() {
 		var p TrackedPackage
-		if err := rows.Scan(&p.PackageID, &p.Name, &p.Branch, &p.LastNotifiedVersion); err != nil {
-			return nil, fmt.Errorf("database.QueryTrackedPackagesByUserID: scan error: %w", err)
+		if err := rows.Scan(&p.PackageID, &p.Name, &p.Branch, &p.LastNotifiedVersion, &p.LastCheckedAt, &p.CurrentVersion); err != nil {
+			return nil, fmt.Errorf("database.QueryUsersTrackedPackages: scan error: %w", err)
 		}
 		trackedPackages = append(trackedPackages, p)
 	}
 
 	// check for overall query error, results may be incomplete
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("database.QueryTrackedPackagesByUserID: incomplete results: %w", err)
+		return nil, fmt.Errorf("database.QueryUsersTrackedPackages: incomplete results: %w", err)
 	}
 
 	return trackedPackages, nil
+}
+
+// Retrieves a single package from database that user tracks identified by userID and packageID
+func (db *Store) QueryUsersTrackedPackage(ctx context.Context, userID int64, packageID int64) (TrackedPackage, error) {
+	var p TrackedPackage
+
+	row := db.pool.QueryRow(ctx, qGetUsersTrackedPackage, userID, packageID)
+	if err := row.Scan(&p.PackageID, &p.Name, &p.Branch, &p.LastNotifiedVersion, &p.LastCheckedAt, &p.CurrentVersion); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return TrackedPackage{}, ErrNotFound
+		}
+		return TrackedPackage{}, fmt.Errorf("database.QueryUsersTrackedPackage: error querying tracked package (userID=%d, packageID=%d): %w", userID, packageID, err)
+	}
+
+	return p, nil
 }
 
 // Retrieves all packages from database
@@ -167,7 +149,7 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	var packages []Package
 	for rows.Next() {
 		var p Package
-		if err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &p.Name, &p.Branch, &p.CurrentVersion); err != nil {
+		if err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &p.LastCheckedAt, &p.Name, &p.Branch, &p.CurrentVersion); err != nil {
 			return nil, fmt.Errorf("database.QueryAllPackages: scan error: %w", err)
 		}
 		packages = append(packages, p)
@@ -185,7 +167,7 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 func (db *Store) QueryPackage(ctx context.Context, packageID int64) (Package, error) {
 	var pckg Package
 	row := db.pool.QueryRow(ctx, qGetPackage, packageID)
-	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
+	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.LastCheckedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Package{}, ErrNotFound
 		}
@@ -199,7 +181,7 @@ func (db *Store) QueryPackage(ctx context.Context, packageID int64) (Package, er
 func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, branch string) (Package, error) {
 	var pckg Package
 	row := db.pool.QueryRow(ctx, qGetPackageByNameAndBranch, name, branch)
-	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
+	if err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.LastCheckedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Package{}, ErrNotFound
 		}
@@ -207,6 +189,16 @@ func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, b
 	}
 
 	return pckg, nil
+}
+
+// Updates last_checked_at timestamp for a package
+// Called after every nix eval (regardless of whether the version changed)
+func (db *Store) UpdatePackageLastCheckedAt(ctx context.Context, packageID int64) error {
+	_, err := db.pool.Exec(ctx, sUpdatePackageLastCheckedAt, packageID)
+	if err != nil {
+		return fmt.Errorf("database.UpdatePackageLastCheckedAt: error updating package (id=%d): %w", packageID, err)
+	}
+	return nil
 }
 
 // Retrieves tracking record identified by user ID and tracked package ID
@@ -221,6 +213,28 @@ func (db *Store) QueryTracking(ctx context.Context, userID int64, packageID int6
 	}
 
 	return tracking, nil
+}
+
+// Retrieves all trackings rows for a specific package
+func (db *Store) QueryTrackingsByPackageID(ctx context.Context, packageID int64) ([]Tracking, error) {
+	rows, err := db.pool.Query(ctx, qGetTrackingsByPackageID, packageID)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryTrackingsByPackageID: query error (packageID=%d): %w", packageID, err)
+	}
+	defer rows.Close()
+
+	var trackings []Tracking
+	for rows.Next() {
+		var t Tracking
+		if err := rows.Scan(&t.UserID, &t.PackageID, &t.LastNotifiedVersion); err != nil {
+			return nil, fmt.Errorf("database.QueryTrackingsByPackageID: scan error: %w", err)
+		}
+		trackings = append(trackings, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("database.QueryTrackingsByPackageID: incomplete results: %w", err)
+	}
+	return trackings, nil
 }
 
 // Inserts or updates package in database
@@ -285,7 +299,7 @@ func (db *Store) CreateUserWithAccount(ctx context.Context, info UserInfo) (int6
 
 	if id != linkedID {
 		tx.Rollback(ctx)
-		return 0, fmt.Errorf("database.CreateUserWithAccount: user/account id mismatch (userID=%d, linkedID=%d): %w", id, linkedID, err)
+		return 0, fmt.Errorf("database.CreateUserWithAccount: user/account id mismatch (userID=%d, linkedID=%d)", id, linkedID)
 	}
 
 	// commit transaction
@@ -320,28 +334,6 @@ func (db *Store) DeleteTracking(ctx context.Context, userID int64, packageID int
 		return ErrNotFound
 	}
 	return nil
-}
-
-// Retrieves all trackings rows for a specific package
-func (db *Store) QueryTrackingsByPackageID(ctx context.Context, packageID int64) ([]Tracking, error) {
-	rows, err := db.pool.Query(ctx, qGetTrackingsByPackageID, packageID)
-	if err != nil {
-		return nil, fmt.Errorf("database.QueryTrackingsByPackageID: query error (packageID=%d): %w", packageID, err)
-	}
-	defer rows.Close()
-
-	var trackings []Tracking
-	for rows.Next() {
-		var t Tracking
-		if err := rows.Scan(&t.UserID, &t.PackageID, &t.LastNotifiedVersion); err != nil {
-			return nil, fmt.Errorf("database.QueryTrackingsByPackageID: scan error: %w", err)
-		}
-		trackings = append(trackings, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("database.QueryTrackingsByPackageID: incomplete results: %w", err)
-	}
-	return trackings, nil
 }
 
 // Retrives all enabled (active) channels for a specific user
@@ -540,8 +532,8 @@ func (db *Store) UpdateChannelEnabled(ctx context.Context, channelID int64, user
 }
 
 // Updates notify_on_manual_verify for a channel (email or webhook — only one row will match)
-func (db *Store) UpdateChannelNotifyOnManualVerify(ctx context.Context, channelID int64, value bool) error {
-	_, err := db.pool.Exec(ctx, sUpdateNotifyOnManualVerify, channelID, value)
+func (db *Store) UpdateChannelNotifyOnManualVerify(ctx context.Context, channelID int64, userID int64, value bool) error {
+	_, err := db.pool.Exec(ctx, sUpdateNotifyOnManualVerify, channelID, value, userID)
 	if err != nil {
 		return fmt.Errorf("database.UpdateChannelNotifyOnManualVerify: error updating channel (channelID=%d): %w", channelID, err)
 	}

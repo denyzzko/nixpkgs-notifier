@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/channels"
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/notifications"
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/packages"
@@ -21,6 +22,11 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/pages"
 )
+
+func renderHTML(w http.ResponseWriter, ctx context.Context, component templ.Component) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = component.Render(ctx, w)
+}
 
 func indexPage(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -43,16 +49,14 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 
 		vm := pages.IndexVM{Packages: pkgVMs}
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.IndexPage(vm).Render(ctx, w)
+		renderHTML(w, ctx, pages.IndexPage(vm))
 	}
 }
 
 func loginPage() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// render response
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.LoginPage().Render(r.Context(), w)
+		renderHTML(w, r.Context(), pages.LoginPage())
 	}
 }
 
@@ -128,33 +132,32 @@ func logout(sessionManager *session.SessionManager) http.HandlerFunc {
 	}
 }
 
-func verifyTrackedPackage(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
+func checkTrackedPackage(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 		defer cancel()
 
 		// extract package ID from request
-		packageID_string := r.PathValue("id")
-		if packageID_string == "" {
-			writeGenericErr(w, "web.verifyPackage", "missing package id", errors.New("missing path param id"), http.StatusBadRequest)
+		packageIDStr := r.PathValue("id")
+		if packageIDStr == "" {
+			writeGenericErr(w, "web.checkTrackedPackage", "missing package id", errors.New("missing path param id"), http.StatusBadRequest)
 			return
 		}
 
 		// check tracked package version
-		result, err := packages.Check(ctx, db, sessionManager, chk, packageID_string)
+		result, err := packages.Check(ctx, db, sessionManager, chk, packageIDStr)
 		if err != nil {
-			writeAppErr(w, "web.checkTrackedPackageVersion", err)
+			writeAppErr(w, "web.checkTrackedPackage", err)
 			return
 		}
 
 		// render reponse
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.TrackedPackageItem(trackedPackageVM(result)).Render(ctx, w)
+		renderHTML(w, ctx, pages.TrackedPackageItem(trackedPackageVM(result)))
 	}
 }
 
-func verifyAllTrackedPackages(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
+func checkAllTrackedPackages(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
@@ -163,7 +166,7 @@ func verifyAllTrackedPackages(db *database.Store, sessionManager *session.Sessio
 		// check all tracked package versions
 		results, err := packages.CheckAll(ctx, db, sessionManager, chk)
 		if err != nil {
-			writeAppErr(w, "web.verifyAllPackages", err)
+			writeAppErr(w, "web.checkAllTrackedPackages", err)
 			return
 		}
 
@@ -172,8 +175,8 @@ func verifyAllTrackedPackages(db *database.Store, sessionManager *session.Sessio
 		for _, result := range results {
 			pkgVMs = append(pkgVMs, trackedPackageVM(result))
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.TrackedPackageList(pkgVMs).Render(ctx, w)
+
+		renderHTML(w, ctx, pages.TrackedPackageList(pkgVMs))
 	}
 }
 
@@ -184,14 +187,14 @@ func untrackPackage(db *database.Store, sessionManager *session.SessionManager) 
 		defer cancel()
 
 		// extract package ID from request
-		packageID_string := r.PathValue("id")
-		if packageID_string == "" {
+		packageIDStr := r.PathValue("id")
+		if packageIDStr == "" {
 			writeGenericErr(w, "web.untrackPackage", "missing package id", errors.New("missing path param id"), http.StatusBadRequest)
 			return
 		}
 
 		// delete tracking
-		if err := packages.Untrack(ctx, db, sessionManager, packageID_string); err != nil {
+		if err := packages.Untrack(ctx, db, sessionManager, packageIDStr); err != nil {
 			writeAppErr(w, "web.untrackPackage", err)
 			return
 		}
@@ -204,8 +207,7 @@ func untrackPackage(db *database.Store, sessionManager *session.SessionManager) 
 func trackPackageForm() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// render response
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.NewPackageForm().Render(r.Context(), w)
+		renderHTML(w, r.Context(), pages.NewPackageForm())
 	}
 }
 
@@ -233,32 +235,15 @@ func trackPackage(db *database.Store, sessionManager *session.SessionManager, ch
 		}
 
 		// track package
-		if err := packages.Track(ctx, db, sessionManager, chk, packageName, packageBranch); err != nil {
+		trackedPackage, err := packages.Track(ctx, db, sessionManager, chk, packageName, packageBranch)
+		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = pages.NewPackageError(packageName, packageBranch, appError.PublicMessage(err)).Render(ctx, w)
 			return
 		}
 
-		// reload all tracked packages
-		tracked, err := packages.GetTrackedPackages(ctx, db, sessionManager)
-		if err != nil {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_ = pages.NewPackageError(packageName, packageBranch, "Package tracked but failed to reload. Please refresh.").Render(ctx, w)
-			return
-		}
-
-		// find the one that was just added and render it
-		for _, t := range tracked {
-			if t.Name == packageName && t.Branch == packageBranch {
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				_ = pages.TrackedPackageItem(trackedPackageVMFromTracked(t)).Render(ctx, w)
-				return
-			}
-		}
-
-		// fallback
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.NewPackageError(packageName, packageBranch, "Package tracked but could not be found. Please try to refresh the page.").Render(ctx, w)
+		// render newly tracked package
+		renderHTML(w, ctx, pages.TrackedPackageItem(trackedPackageVMFromTracked(trackedPackage)))
 	}
 }
 
@@ -281,16 +266,15 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store) ht
 			chVMs = append(chVMs, channelVM(ch))
 		}
 		vm := pages.ChannelsVM{Channels: chVMs}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.ChannelsPage(vm).Render(ctx, w)
+
+		renderHTML(w, ctx, pages.ChannelsPage(vm))
 	}
 }
 
 func addChannelForm() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// render response
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.NewChannelForm().Render(r.Context(), w)
+		renderHTML(w, r.Context(), pages.NewChannelForm())
 	}
 }
 
@@ -331,8 +315,7 @@ func addChannel(db *database.Store, sessionManager *session.SessionManager) http
 		}
 
 		// render response
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.ChannelItem(channelVM(ch)).Render(ctx, w)
+		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch)))
 	}
 }
 
@@ -367,15 +350,15 @@ func toggleChannelEnabled(db *database.Store, sessionManager *session.SessionMan
 		defer cancel()
 
 		// extract channel ID and toggle value from request
-		channelID_string := r.PathValue("id")
-		if channelID_string == "" {
+		channelIDStr := r.PathValue("id")
+		if channelIDStr == "" {
 			writeGenericErr(w, "web.toggleChannelEnabled", "missing channel id", errors.New("missing path param id"), http.StatusBadRequest)
 			return
 		}
 		value := r.FormValue("value") == "true"
 
 		// convert channel ID string to int64
-		channelID, err := strconv.ParseInt(channelID_string, 10, 64)
+		channelID, err := strconv.ParseInt(channelIDStr, 10, 64)
 		if err != nil {
 			writeGenericErr(w, "web.toggleChannelEnabled", "invalid channel id", err, http.StatusBadRequest)
 			return
@@ -389,8 +372,7 @@ func toggleChannelEnabled(db *database.Store, sessionManager *session.SessionMan
 		}
 
 		// render response
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.ChannelItem(channelVM(ch)).Render(ctx, w)
+		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch)))
 	}
 }
 
@@ -401,15 +383,15 @@ func toggleNotifyOnManualVerify(db *database.Store, sessionManager *session.Sess
 		defer cancel()
 
 		// extract channel ID and toggle value from request
-		channelID_string := r.PathValue("id")
-		if channelID_string == "" {
+		channelIDStr := r.PathValue("id")
+		if channelIDStr == "" {
 			writeGenericErr(w, "web.toggleNotifyOnManualVerify", "missing channel id", errors.New("missing path param id"), http.StatusBadRequest)
 			return
 		}
 		value := r.FormValue("value") == "true"
 
 		// convert channel ID string to int64
-		channelID, err := strconv.ParseInt(channelID_string, 10, 64)
+		channelID, err := strconv.ParseInt(channelIDStr, 10, 64)
 		if err != nil {
 			writeGenericErr(w, "web.toggleNotifyOnManualVerify", "invalid channel id", err, http.StatusBadRequest)
 			return
@@ -423,8 +405,7 @@ func toggleNotifyOnManualVerify(db *database.Store, sessionManager *session.Sess
 		}
 
 		// render response
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.ChannelItem(channelVM(ch)).Render(ctx, w)
+		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch)))
 	}
 }
 
@@ -466,11 +447,10 @@ func testChannel(db *database.Store, sessionManager *session.SessionManager, dis
 		testErr := disp.Test(ctx, channelID, emailAddress, webhookURL)
 
 		// render channel back with the result message
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if testErr != nil {
-			_ = pages.ChannelItemWithMessage(channelVM(ch), "text-danger small", "Test failed: "+notify.PublicMessage(testErr)).Render(ctx, w)
+			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(ch), "text-danger small", "Test failed: "+notify.PublicMessage(testErr)))
 		} else {
-			_ = pages.ChannelItemWithMessage(channelVM(ch), "text-success small", "Test message sent successfully.").Render(ctx, w)
+			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(ch), "text-success small", "Test message sent successfully."))
 		}
 	}
 }
@@ -498,7 +478,7 @@ func notificationsPage(sessionManager *session.SessionManager, db *database.Stor
 		}
 
 		vm := pages.DeliveryLogVM{Notifications: vms}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = pages.DeliveryLogPage(vm).Render(ctx, w)
+
+		renderHTML(w, ctx, pages.DeliveryLogPage(vm))
 	}
 }

@@ -60,7 +60,7 @@ func CreatePendingNotifications(ctx context.Context, db *database.Store, package
 		return
 	}
 
-	log.Printf("[INFO] notifications: %d pending notification(s) created for %s/%s l.n.v.->%s", len(jobs), packageName, packageBranch, newVersion)
+	log.Printf("[INFO] notifications: %d pending notification(s) created for %s/%s new version: %s", len(jobs), packageName, packageBranch, newVersion)
 }
 
 // Returns all notification records for the user
