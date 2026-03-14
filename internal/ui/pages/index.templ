@@ -24,86 +24,177 @@ templ IndexPage(vm IndexVM) {
 }
 
 templ IndexContent(vm IndexVM) {
-    <div class="min-vh-100 d-flex align-items-center justify-content-center">
-        <div class="card shadow-sm" style="max-width: 900px; width: 100%;">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h1 class="h4 mb-0">Tracked Packages</h1>
-                    <div class="d-flex gap-2">
-                        <button
-                            class="btn btn-outline-success btn-sm"
-                            hx-get="/package/track/form"
-                            hx-target="#new-package-slot"
-                            hx-swap="innerHTML"
-                            onclick="if(document.getElementById('new-package-slot').children.length > 0) { event.preventDefault(); }"
-                        >
-                            <i class="bi bi-plus-circle-fill"></i>
-                        </button>
-                        <button
-                            class="btn btn-outline-primary btn-sm"
-                            hx-post="/package/check/all"
-                            hx-target="#tracked-list"
-                            hx-swap="innerHTML"
-                        >
-                            Check All
-                        </button>
-                    </div>
-                </div>
+    <div style="padding-top: 5rem; padding-bottom: 2rem;">
+        <div style="max-width: 900px; width: 100%; margin: 0 auto;">
 
-                <div id="tracked-list">
-                    @TrackedPackageList(vm.Packages)
+            <!-- Above card -->
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <!-- Card heading -->
+                <h1 class="h4 text-white mb-0">Tracked packages</h1>
+                <!-- Buttons on top of card -->
+                <div class="d-flex gap-2">
+                    <!-- Check all button -->
+                    <button
+                        class="btn btn-sm rounded-5 px-3"
+                        style="background: #009DE0; border: none; color: white;"
+                        hx-post="/package/check/all"
+                        hx-target="#tracked-list"
+                        hx-swap="innerHTML"
+                    >
+                        Check All
+                    </button>
+                    <!-- Add(Track) package button -->
+                    <button
+                        class="btn btn-sm rounded-5 px-3"
+                        style="border: 1px solid #009DE0; color: #009DE0;"
+                        hx-get="/package/track/form"
+                        hx-target="#new-package-slot"
+                        hx-swap="innerHTML"
+                        onclick="if(document.getElementById('new-package-slot').children.length > 0) { event.preventDefault(); }"
+                    >
+                        <i class="bi bi-plus-circle-fill"></i>
+                    </button>
                 </div>
             </div>
+
+            <!-- Card -->
+            <div class="card shadow-sm rounded-5" style="background: #252525; border: 1px solid #5A5A5A;">
+                <div class="card-body p-4">
+                    <!-- Column names -->
+                    <div class="d-flex ps-3 pe-2 align-items-end">
+                        <!-- Package name -->
+                        <div style="flex: 2;">
+                            <span class="small" style="color: #AAAAAA;">Name</span>
+                        </div>
+                        <!-- - -->
+                        <div style="flex: 1;"></div>
+                        <!-- Package Branch -->
+                        <div style="flex: 2;">
+                            <span class="small" style="color: #AAAAAA;">Branch</span>
+                        </div>
+                        <!-- Package version -->
+                        <div style="flex: 2;">
+                            <span class="small" style="color: #AAAAAA;">Version</span>
+                        </div>
+                        <!-- - -->
+                        <div style="flex: 2;"></div>
+                    </div>
+                    <!-- Tracked packages -->
+                    <div id="tracked-list" style="max-height: 60vh; overflow-y: auto;">
+                        @TrackedPackageList(vm.Packages)
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 }
 
 templ TrackedPackageList(packages []TrackedPackageVM) {
-    <div class="list-group">
+    <div class="d-flex flex-column gap-2">
         <div id="new-package-slot"></div>
         for _, pckg := range packages {
             @TrackedPackageItem(pckg)
         }
     </div>
     if len(packages) == 0 {
-        <p class="text-center text-muted mt-2">You are not tracking any packages yet. Add them by clicking "+" button.</p>
+        <p class="text-center text-secondary mt-2">You are not tracking any packages yet. Add them by clicking "+" button.</p>
     }
+}
+
+templ TrackedPackageItem(pckg TrackedPackageVM) {
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
+        <!-- Package name -->
+        <div style="flex: 2;">
+            <strong class="text-white">{pckg.Name}</strong>
+        </div>
+        <!-- - -->
+        <div style="flex: 1;"></div>
+        <!-- Package branch -->
+        <div style="flex: 2;" >
+            <span class="small text-white">{pckg.Branch}</span>
+        </div>
+        <!-- Package version -->
+        <div style="flex: 2;">
+            if !pckg.Verified {
+                <span class="badge border">v{pckg.LastNotifiedVersion}</span>
+            } else if pckg.VersionChanged {
+                <span class="badge border border-warning text-warning">v{pckg.LastNotifiedVersion}</span>
+                <i class="bi bi-arrow-right text-warning"></i>
+                <span class="badge border border-warning text-warning">v{pckg.CurrentVersion}</span>
+            } else {
+                <span class="badge" style="border: 1px solid #68FF90; color: #68FF90">v{pckg.CurrentVersion}</span>
+            }
+        </div>
+        <!-- Buttons -->
+        <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+            <!-- Check button -->
+            <button
+                class="btn btn-sm rounded-5"
+                style="border: 1px solid #009DE0; color: #009DE0;"
+                hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
+                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                hx-swap="outerHTML"
+            >
+                Check
+            </button>
+            <!-- Untrack buttons -->
+            <button
+                class="btn btn-sm rounded-5"
+                style="border: 1px solid #FF6F6F; color: #FF6F6F;"
+                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
+                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                hx-swap="outerHTML"
+            >
+                Untrack
+            </button>
+        </div>
+
+    </div>
 }
 
 templ NewPackageForm() {
     <form
-        class="list-group-item d-flex align-items-center justify-content-between gap-3"
+        class="d-flex align-items-center rounded-5 ps-2 pe-2 py-2 gap-3"
+        style="background: #474747;"
         hx-post="/package/track"
         hx-target="#new-package-slot"
         hx-swap="innerHTML"
     >
-        <div class="d-flex gap-2 align-items-center flex-grow-1">
+        <!-- Package name input -->
+        <div style="flex: 1;">
             <input
-                class="form-control form-control-sm"
+                class="form-control form-control-sm rounded-5 border-0 text-white"
+                style="background: #7E7E7E;"
                 type="text"
                 name="name"
                 placeholder="Package name (e.g. go)"
                 required
                 autofocus
             />
+        </div>
+        <!-- Package branch input -->
+        <div style="flex: 1;">
             <input
-                class="form-control form-control-sm"
+                class="form-control form-control-sm rounded-5 border-0 text-white"
+                style="background: #7E7E7E;"
                 type="text"
                 name="branch"
                 placeholder="Branch (e.g. nixpkgs-unstable)"
                 required
             />
         </div>
-        <div class="d-flex gap-2">
-            <button
-                type="submit"
-                class="btn btn-primary btn-sm"
-            >
+        <!-- Buttons -->
+        <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
+            <!-- Submit button -->
+            <button type="submit" class="btn btn-success btn-sm rounded-5 px-3">
                 Submit
             </button>
+            <!-- Cancel button -->
             <button
                 type="button"
-                class="btn btn-outline-secondary btn-sm"
+                class="btn btn-sm rounded-5 px-3"
+                style="background: #6C6C6C; color: white; border: none;"
                 hx-get="/package/track/cancel"
                 hx-target="#new-package-slot"
                 hx-swap="innerHTML"
@@ -116,23 +207,30 @@ templ NewPackageForm() {
 
 templ NewPackageError(name string, branch string, message string) {
     <form
-        class="list-group-item d-flex align-items-center justify-content-between gap-3"
+        class="d-flex flex-column gap-2 rounded-5 px-4 py-3"
+        style="background: #474747;"
         hx-post="/package/track"
         hx-target="#new-package-slot"
         hx-swap="innerHTML"
     >
-        <div class="d-flex flex-column gap-1 flex-grow-1">
-            <div class="d-flex gap-2 align-items-center">
+        <div class="d-flex align-items-center gap-3">
+            <!-- Package name input -->
+            <div style="flex: 1;">
                 <input
-                    class="form-control form-control-sm is-invalid"
+                    class="form-control form-control-sm rounded-5 border-0 text-white"
+                    style="background: #7E7E7E;"
                     type="text"
                     name="name"
                     value={name}
-                    placeholder="Package name (e.g. go)"
+                    placeholder="Package name (e.g. firefox)"
                     required
                 />
+            </div>
+            <!-- Package branch input -->
+            <div style="flex: 1;">
                 <input
-                    class="form-control form-control-sm is-invalid"
+                    class="form-control form-control-sm rounded-5 border-0 text-white"
+                    style="background: #7E7E7E;"
                     type="text"
                     name="branch"
                     value={branch}
@@ -140,60 +238,26 @@ templ NewPackageError(name string, branch string, message string) {
                     required
                 />
             </div>
-            <small class="text-danger">{message}</small>
+            <!-- Buttons -->
+            <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
+                <!-- Submit button -->
+                <button type="submit" class="btn btn-success btn-sm rounded-5 px-3">
+                    Submit
+                </button>
+                <!-- Cancel button -->
+                <button
+                    type="button"
+                    class="btn btn-sm rounded-5 px-3"
+                    style="background: #6C6C6C; color: white; border: none;"
+                    hx-get="/package/track/cancel"
+                    hx-target="#new-package-slot"
+                    hx-swap="innerHTML"
+                >
+                    Cancel
+                </button>
+            </div>
         </div>
-        <div class="d-flex gap-2 align-self-start mt-1">
-            <button
-                type="submit"
-                class="btn btn-primary btn-sm"
-            >
-                Submit
-            </button>
-            <button
-                type="button"
-                class="btn btn-outline-secondary btn-sm"
-                hx-get="/package/track/cancel"
-                hx-target="#new-package-slot"
-                hx-swap="innerHTML"
-            >
-                Cancel
-            </button>
-        </div>
+        <!-- Error message -->
+        <small class="text-danger px-2">{message}</small>
     </form>
-}
-
-templ TrackedPackageItem(pckg TrackedPackageVM) {
-    <div class="list-group-item d-flex align-items-center justify-content-between">
-        <div class="d-flex gap-3 align-items-center flex-wrap">
-            <strong>{pckg.Name}</strong>
-            <span class="text-muted small">{pckg.Branch}</span>
-        </div>
-        <div class="d-flex gap-2 align-items-center">
-            if !pckg.Verified {
-                <span class="badge text-bg-secondary border">v{pckg.LastNotifiedVersion}</span>
-            } else if pckg.VersionChanged {
-                <span class="badge text-bg-danger border border-danger">v{pckg.LastNotifiedVersion}</span>
-                <i class="bi bi-arrow-right"></i>
-                <span class="badge text-bg-success border border-success">v{pckg.CurrentVersion}</span>
-            } else {
-                <span class="badge text-bg-success border border-success">v{pckg.CurrentVersion}</span>
-            }
-            <button
-                class="btn btn-outline-secondary btn-sm"
-                hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
-                hx-target="closest .list-group-item"
-                hx-swap="outerHTML"
-            >
-                Check
-            </button>
-            <button
-                class="btn btn-danger btn-sm"
-                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
-                hx-target="closest .list-group-item"
-                hx-swap="outerHTML"
-            >
-                Untrack
-            </button>
-        </div>
-    </div>
 }

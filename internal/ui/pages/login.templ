@@ -7,24 +7,24 @@ templ LoginPage() {
 }
 
 templ LoginContent() {
-    <div class="min-vh-100 d-flex align-items-center justify-content-center">
-        <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
+    <div class="d-flex align-items-center justify-content-center" style="height: 85vh;">
+        <div class="card shadow-sm rounded-5" style="max-width: 420px; width: 100%; background: #252525; border: 1px solid #5A5A5A;">
             <div class="card-body p-4">
-                <h1 class="h4 mb-3 text-center">Sign in</h1>
+                <h1 class="h4 mb-3 text-center text-white">Sign in</h1>
 
                 <div class="d-grid gap-2">
-                    <a class="btn btn-primary btn-lg" href="/auth/login?provider=google">
+                    <a class="btn btn-lg rounded-5" style="background: #474747; border: none; color: white;" href="/auth/login?provider=google">
                         Login with Google
                     </a>
-                    <a class="btn btn-primary btn-lg" href="/auth/login?provider=X">
-                        Login with XXX
+                    <a class="btn btn-lg rounded-5" style="background: #474747; border: none; color: white;" href="/auth/login?provider=X">
+                        Login with Apple
                     </a>
-                    <a class="btn btn-primary btn-lg" href="/auth/login?provider=Y">
-                        Login with YYY
+                    <a class="btn btn-lg rounded-5" style="background: #474747; border: none; color: white;" href="/auth/login?provider=Y">
+                        Login with Microsoft
                     </a>
                 </div>
 
-                <p class="text-muted small mt-3 mb-0 text-center">
+                <p class="text-secondary small mt-3 mb-0 text-center">
                     You will be redirected to the provider's page to authanticate.
                 </p>
             </div>

@@ -30,83 +30,118 @@ templ DeliveryLogPage(vm DeliveryLogVM) {
 }
 
 templ DeliveryLogContent(vm DeliveryLogVM) {
-    <div class="min-vh-100 d-flex align-items-center justify-content-center">
-        <div class="card shadow-sm" style="max-width: 1100px; width: 100%;">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h1 class="h4 mb-0">Delivery Log</h1>
-                </div>
-                <div id="log-list">
-                    @NotificationLogList(vm.Notifications)
+    <div style="padding-top: 5rem; padding-bottom: 2rem;">
+        <div style="max-width: 1300px; width: 100%; margin: 0 auto;">
+
+            <div class="d-flex justify-content-between align-items-end mb-2">
+                <h1 class="h4 text-white mb-0">Notification history log</h1>
+            </div>
+
+            <div class="card shadow-sm rounded-5" style="background: #252525; border: 1px solid #5A5A5A;">
+                <div class="card-body p-4">
+
+                    <div class="d-flex ps-3 pe-2 align-items-end mb-1">
+                        <div style="flex: 6;">
+                            <span class="small" style="color: #AAAAAA;">Channel</span>
+                        </div>
+                        <div style="flex: 2;">
+                            <span class="small" style="color: #AAAAAA;">Detected at</span>
+                        </div>
+                        <div style="flex: 5;">
+                            <span class="small" style="color: #AAAAAA;">Package</span>
+                        </div>
+                        <div style="flex: 5;">
+                            <span class="small" style="color: #AAAAAA;">Version change</span>
+                        </div>
+                        <div style="flex: 1;">
+                            <span class="small" style="color: #AAAAAA;">Status</span>
+                        </div>
+                        <div style="flex: 1;">
+                            <span class="small" style="color: #AAAAAA;">Attempts</span>
+                        </div>
+                        <div style="flex: 2;">
+                            <span class="small" style="color: #AAAAAA;">Error</span>
+                        </div>
+                    </div>
+
+                    <div id="log-list"  style="max-height: 60vh; overflow-y: auto;">
+                        @NotificationLogList(vm.Notifications)
+                    </div>
                 </div>
             </div>
+
         </div>
     </div>
 }
 
 templ NotificationLogList(notifications []NotificationLogVM) {
-    <div class="list-group">
+    <div class="d-flex flex-column gap-2">
         for _, n := range notifications {
             @NotificationLogItem(n)
         }
     </div>
     if len(notifications) == 0 {
-        <p class="text-center text-muted mt-2">No notifications sent yet.</p>
+        <p class="text-center mt-2" style="color: #AAAAAA;">No notifications sent yet.</p>
     }
 }
 
 templ NotificationLogItem(n NotificationLogVM) {
-    <div class="list-group-item d-flex align-items-center gap-3 flex-wrap py-2">
-        <!-- Type badge -->
-        <div style="min-width: 70px;">
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;">
+
+        <!-- Channel (type icon + address -->
+        <div class="d-flex align-items-center gap-2" style="flex: 6;">
             if n.ChannelType == "Email" {
-                <span class="badge text-bg-primary">Email</span>
+                <i class="bi bi-envelope text-white"></i>
             } else {
-                <span class="badge text-bg-secondary">Webhook</span>
+                <i class="bi bi-link-45deg text-white"></i>
             }
+            <span class="small text-truncate" style="color: #AAAAAA; max-width: 220px;" title={n.Address}>{n.Address}</span>
         </div>
-        <!-- Address -->
-        <div class="text-muted small text-truncate" style="min-width: 120px; max-width: 180px;" title={n.Address}>
-            {n.Address}
-        </div>
+
         <!-- Detected at -->
-        <div class="text-muted small" style="min-width: 130px;">
-            {n.DetectedAt.Format("2006-01-02 15:04")}
+        <div style="flex: 2;">
+            <span class="small" style="color: #AAAAAA;">{n.DetectedAt.Format("02.01.2006")}</span>
         </div>
+
         <!-- Package -->
-        <div style="min-width: 130px;">
-            <strong class="small">{n.PackageName}</strong>
-            <span class="text-muted small ms-1">{n.PackageBranch}</span>
+        <div style="flex: 5;">
+            <span class="small text-white">{n.PackageName}</span>
+            <span class="small ms-1" style="color: #AAAAAA;">{n.PackageBranch}</span>
         </div>
+
         <!-- Version change -->
-        <div class="d-flex align-items-center gap-1" style="min-width: 140px;">
-            <span class="badge text-bg-secondary border">v{n.OldVersion}</span>
-            <i class="bi bi-arrow-right small"></i>
-            <span class="badge text-bg-secondary border">v{n.NewVersion}</span>
+        <div class="d-flex align-items-center gap-1" style="flex: 5;">
+            <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">v{n.OldVersion}</span>
+            <i class="bi bi-arrow-right" style="color: #AAAAAA;"></i>
+            <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">v{n.NewVersion}</span>
         </div>
+
         <!-- Status -->
-        <div style="min-width: 70px;">
+        <div style="flex: 1;">
             if n.Status == "sent" {
-                <span class="badge text-bg-success">sent</span>
+                <span class="small" style="color: #68FF90;">sent</span>
             } else if n.Status == "failed" {
-                <span class="badge text-bg-danger">failed</span>
+                <span class="small text-danger">failed</span>
             } else {
-                <span class="badge text-bg-warning text-dark">pending</span>
+                <span class="small text-warning">pending</span>
             }
         </div>
+
         <!-- Attempts -->
-        <div class="text-muted small" style="min-width: 40px;">
-            {fmt.Sprintf("%d/%d", n.AttemptCount, n.MaxRetries)}
+        <div style="flex: 1;">
+            <span class="small" style="color: #AAAAAA;">{fmt.Sprintf("%d/%d", n.AttemptCount, n.MaxRetries)}</span>
         </div>
-        <!-- Error message -->
-        <div class="text-muted small flex-grow-1">
+
+        <!-- Error -->
+        <div style="flex: 2;">
             if n.ErrorMessage == "" {
-                <span>—</span>
-            } else if len(n.ErrorMessage) > 20 {
-                <span title={n.ErrorMessage}>{n.ErrorMessage[:20]}...</span>
+                <span class="small" style="color: #AAAAAA;">-</span>
+            } else if len(n.ErrorMessage) > 15 {
+                <span class="small" style="color: #AAAAAA;" title={n.ErrorMessage}>{n.ErrorMessage[:15]}...</span>
             } else {
-                <span title={n.ErrorMessage}>{n.ErrorMessage}</span>
+                <span class="small" style="color: #AAAAAA;" title={n.ErrorMessage}>{n.ErrorMessage}</span>
             }
         </div>
+
     </div>
 }

@@ -186,8 +186,14 @@ func CheckAll(ctx context.Context, db *database.Store, sessionManager *session.S
 
 		versionChanged := currentVersion != pckg.LastNotifiedVersion
 		if versionChanged {
-			// version change detected -> fire async notification creation for all users tracking this package
+			// version change detected
+			// fire async notification creation for all users tracking this package
 			go notifications.CreatePendingNotifications(context.Background(), db, pckg.PackageID, pckg.Name, pckg.Branch, currentVersion, userID)
+			// update last_notified_version for triggering user
+			err := db.StoreTracking(ctx, userID, pckg.PackageID, currentVersion)
+			if err != nil {
+				log.Printf("[WARN] %s: update last_notified_version failed for %q/%q: %v", op, pckg.Name, pckg.Branch, err)
+			}
 		}
 
 		results = append(results, CheckResult{
@@ -257,9 +263,15 @@ func Check(ctx context.Context, db *database.Store, sessionManager *session.Sess
 	result.CurrentVersion = currentVersion
 	result.VersionChanged = currentVersion != pckg.LastNotifiedVersion
 
-	// version change detected -> fire async notification creation for all users tracking this package
 	if result.VersionChanged {
+		// version change detected
+		// fire async notification creation for all users tracking this package
 		go notifications.CreatePendingNotifications(context.Background(), db, packageID, pckg.Name, pckg.Branch, currentVersion, userID)
+		// update last_notified_version for triggering user
+		err := db.StoreTracking(ctx, userID, pckg.PackageID, currentVersion)
+		if err != nil {
+			log.Printf("[WARN] %s: update last_notified_version failed for %q/%q: %v", op, pckg.Name, pckg.Branch, err)
+		}
 	}
 
 	return result, nil

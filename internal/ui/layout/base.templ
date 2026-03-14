@@ -18,22 +18,62 @@ templ Base(title string, content templ.Component) {
             <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz" crossorigin="anonymous"></script>
         </head>
 
-        <body class="bg-light">
-            <nav class="navbar navbar-expand-sm navbar-light bg-white border-bottom mb-4 px-3">
-                <a class="navbar-brand fw-semibold" href="/">nixpkgs-notifier</a>
-                <div class="navbar-nav ms-auto d-flex flex-row gap-3">
-                    <a class="nav-link" href="/">Packages</a>
-                    <a class="nav-link" href="/channels">Channels</a>
-                    <a class="nav-link" href="/log">Delivery Log</a>
-                    <button
-                        class="btn btn-link nav-link text-danger p-0 border-0"
-                        hx-post="/auth/logout"
-                    >Logout</button>
+        <body class="bg-black">
+            <nav class="d-flex align-items-center rounded-5 mx-2 mt-3 px-2" style="background: #252525; height: 48px;">
+                <a class="fw-bold text-white text-decoration-none px-3 flex-shrink-0" href="/">nixpkgsNotifier</a>
+
+                <div class="d-flex flex-grow-1 justify-content-center align-items-stretch h-100 gap-5">
+                    <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/" id="nav-packages">Packages</a>
+                    <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/channels" id="nav-channels">Channels</a>
+                    <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/log" id="nav-log">Delivery Log</a>
                 </div>
+
+                <button class="d-flex align-items-center px-3 fw-bold text-white border-0 rounded-5 flex-shrink-0" style="background: transparent;" hx-post="/auth/logout">Logout</button>
             </nav>
+
+            <!-- Navbar script-->
+            <script>
+                (function() {
+                    var path = window.location.pathname;
+                    var active = null;
+                    if (path === '/' || path.startsWith('/package')) active = 'nav-packages';
+                    else if (path.startsWith('/channel')) active = 'nav-channels';
+                    else if (path.startsWith('/log')) active = 'nav-log';
+                    if (active) document.getElementById(active).style.background = '#009DE0';
+                })();
+            </script>
+
             @content
+
             <!-- Bootstrap JS Bundle -->
             <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+
+            <!--Script for message box popup in Channels page on '?' hover-->
+            <script>
+                document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+                    new bootstrap.Tooltip(el);
+                });
+            </script>
+
+            
+            <style>
+                .tooltip {
+                    --bs-tooltip-bg: #181818;
+                }
+                .tooltip-inner {
+                    border: 1px solid #5A5A5A;
+                }
+
+                .form-check-input[type="checkbox"] {
+                    width: 3.5em;
+                    height: 1.6em;
+                    cursor: pointer;
+                }
+                .form-check-input:checked {
+                    background-color: #009DE0;
+                    border-color: #009DE0;
+                }
+            </style>
         </body>
     </html>
 }
