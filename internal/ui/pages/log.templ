@@ -26,7 +26,7 @@ type DeliveryLogVM struct {
 }
 
 templ DeliveryLogPage(vm DeliveryLogVM) {
-    @layout.Base("Delivery Log", DeliveryLogContent(vm))
+    @layout.Base("Delivery Log", true, DeliveryLogContent(vm))
 }
 
 templ DeliveryLogContent(vm DeliveryLogVM) {

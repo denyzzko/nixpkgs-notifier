@@ -18,7 +18,7 @@ type ChannelsVM struct {
 }
 
 templ ChannelsPage(vm ChannelsVM) {
-    @layout.Base("Channels", ChannelsContent(vm))
+    @layout.Base("Channels", true, ChannelsContent(vm))
 }
 
 templ ChannelsContent(vm ChannelsVM) {

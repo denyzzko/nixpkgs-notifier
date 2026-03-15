@@ -53,8 +53,13 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 	}
 }
 
-func loginPage() http.HandlerFunc {
+func loginPage(sessionManager *session.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// if user already is logged in just redirect him to home page
+		if sessionManager.GetUserID(r.Context()) != 0 {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
 		// render response
 		renderHTML(w, r.Context(), pages.LoginPage())
 	}

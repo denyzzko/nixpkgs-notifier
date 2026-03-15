@@ -3,7 +3,7 @@ package pages
 import "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
 
 templ LoginPage() {
-    @layout.Base("Login", LoginContent())
+    @layout.Base("Login", false, LoginContent())
 }
 
 templ LoginContent() {

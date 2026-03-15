@@ -20,7 +20,7 @@ type IndexVM struct {
 }
 
 templ IndexPage(vm IndexVM) {
-    @layout.Base("Home", IndexContent(vm))
+    @layout.Base("Home", true, IndexContent(vm))
 }
 
 templ IndexContent(vm IndexVM) {

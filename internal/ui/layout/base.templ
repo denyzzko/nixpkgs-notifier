@@ -1,6 +1,6 @@
 package layout
 
-templ Base(title string, content templ.Component) {
+templ Base(title string, loggedIn bool, content templ.Component) {
     <!doctype html>
     <html lang="en">
         <head>
@@ -21,14 +21,16 @@ templ Base(title string, content templ.Component) {
         <body class="bg-black">
             <nav class="d-flex align-items-center rounded-5 mx-2 mt-3 px-2" style="background: #252525; height: 48px;">
                 <a class="fw-bold text-white text-decoration-none px-3 flex-shrink-0" href="/">nixpkgsNotifier</a>
+                
+                if loggedIn {
+                    <div class="d-flex flex-grow-1 justify-content-center align-items-stretch h-100 gap-5">
+                        <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/" id="nav-packages">Packages</a>
+                        <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/channels" id="nav-channels">Channels</a>
+                        <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/log" id="nav-log">Delivery Log</a>
+                    </div>
 
-                <div class="d-flex flex-grow-1 justify-content-center align-items-stretch h-100 gap-5">
-                    <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/" id="nav-packages">Packages</a>
-                    <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/channels" id="nav-channels">Channels</a>
-                    <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/log" id="nav-log">Delivery Log</a>
-                </div>
-
-                <button class="d-flex align-items-center px-3 fw-bold text-white border-0 rounded-5 flex-shrink-0" style="background: transparent;" hx-post="/auth/logout">Logout</button>
+                    <button class="d-flex align-items-center px-3 fw-bold text-white border-0 rounded-5 flex-shrink-0" style="background: transparent;" hx-post="/auth/logout">Logout</button>
+                }
             </nav>
 
             <!-- Navbar script-->

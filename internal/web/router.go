@@ -15,7 +15,7 @@ func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.Provid
 	mux.HandleFunc("GET /", requireAuth(sessionManager, indexPage(sessionManager, db)))
 
 	// login page and corresponding routes
-	mux.HandleFunc("GET /login", loginPage())
+	mux.HandleFunc("GET /login", loginPage(sessionManager))
 	mux.HandleFunc("GET /auth/login", login(provMap, sessionManager))
 	mux.HandleFunc("GET /auth/callback", callback(db, provMap, sessionManager))
 	mux.HandleFunc("POST /auth/logout", logout(sessionManager))
