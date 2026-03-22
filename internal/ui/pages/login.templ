@@ -1,31 +1,35 @@
 package pages
 
-import "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+import (
+    "github.com/denyzzko/nixpkgs-notifier/internal/auth"
+    "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+)
 
-templ LoginPage() {
-    @layout.Base("Login", false, LoginContent())
+// LoginPage is the login page wrapped in the base layout.
+templ LoginPage(provMap *auth.ProviderMap) {
+    @layout.Base("Login", false, LoginContent(provMap))
 }
 
-templ LoginContent() {
+// LoginContent renders a centered card with one login button per configured OIDC provider.
+// Providers are read from provMap at render time, so adding or removing a provider
+// in config is reflected here without any template changes.
+templ LoginContent(provMap *auth.ProviderMap) {
     <div class="d-flex align-items-center justify-content-center" style="height: 85vh;">
         <div class="card shadow-sm rounded-5" style="max-width: 420px; width: 100%; background: #252525; border: 1px solid #5A5A5A;">
             <div class="card-body p-4">
                 <h1 class="h4 mb-3 text-center text-white">Sign in</h1>
 
+                <!-- One button per provider - click redirects to /auth/login?provider={name} -->
                 <div class="d-grid gap-2">
-                    <a class="btn btn-lg rounded-5" style="background: #474747; border: none; color: white;" href="/auth/login?provider=google">
-                        Login with Google
-                    </a>
-                    <a class="btn btn-lg rounded-5" style="background: #474747; border: none; color: white;" href="/auth/login?provider=X">
-                        Login with Apple
-                    </a>
-                    <a class="btn btn-lg rounded-5" style="background: #474747; border: none; color: white;" href="/auth/login?provider=Y">
-                        Login with Microsoft
-                    </a>
+                    for _, provider := range provMap.Providers {
+                        <a class="btn btn-lg rounded-5" style="background: #474747; border: none; color: white;" href={ templ.SafeURL("/auth/login?provider=" + provider.Name) }>
+                            { "Login with " + provider.DisplayName }
+                        </a>
+                    }
                 </div>
 
                 <p class="text-secondary small mt-3 mb-0 text-center">
-                    You will be redirected to the provider's page to authanticate.
+                    You will be redirected to the provider's page to authenticate.
                 </p>
             </div>
         </div>

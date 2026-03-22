@@ -1,6 +1,15 @@
+// Package env handles loading and validation of application configuration from environment variables.
+//
+// Configuration can be read from two sources:
+//   - Optional .env file in the working directory (local dev)
+//   - Environment variables injected directly into the process (production)
+//
+// All required variables are validated at startup via validateEnvConfig.
+// Application will refuse to start if any required field is missing or invalid.
 package env
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -10,6 +19,26 @@ import (
 
 	"github.com/joho/godotenv"
 )
+
+// OIDCProviderConfig holds the configuration for a single OIDC identity provider.
+// Defined as entries in the OIDC_PROVIDERS JSON array environment variable.
+type OIDCProviderConfig struct {
+	// Name is a short unique identifier used in URLs, e.g. "google", "authentik".
+	// Must be URL-safe (no spaces or special characters).
+	Name string `json:"name"`
+	// DisplayName is human-readable label shown on the login button, e.g. "Google", "School SSO".
+	// Falls back to Name if empty.
+	DisplayName string `json:"display_name"`
+	// Issuer is the OIDC discovery URL, e.g. "https://accounts.google.com".
+	Issuer string `json:"issuer"`
+	// ClientID is OAuth2 client ID registered with the provider.
+	ClientID string `json:"client_id"`
+	// ClientSecret is OAuth2 client secret registered with the provider.
+	ClientSecret string `json:"client_secret"`
+	// Scopes is list of OAuth2 scopes to request.
+	// Defaults to ["openid", "email", "profile"] if empty.
+	Scopes []string `json:"scopes"`
+}
 
 // EnvConfig holds all configuration values loaded from environment variables.
 // Required variables are validated at startup via validateEnvConfig.
@@ -29,12 +58,8 @@ type EnvConfig struct {
 	dbSSLMode   string // "disable"/"require"/"verify-full"/"verify-ca"
 	DBSSLCACert string // optional path to CA cert for sslmode=verify-full
 
-	// OIDC
-	ClientIDGoogle     string
-	ClientSecretGoogle string
-	//ClientIDApple		string
-	//ClientSecretApple	string
-	//...
+	// OIDC - one entry per identity provider, parsed from OIDC_PROVIDERS JSON
+	OIDCProviders []OIDCProviderConfig
 
 	// SMTP Email
 	SMTPHost string
@@ -88,6 +113,14 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		RawQuery: dbQuery,
 	}
 
+	// parse OIDC providers from JSON
+	var oidcProviders []OIDCProviderConfig
+	if raw := os.Getenv("OIDC_PROVIDERS"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &oidcProviders); err != nil {
+			return nil, fmt.Errorf("env: OIDC_PROVIDERS is not valid JSON: %w", err)
+		}
+	}
+
 	dispatchInterval := parseDuration(os.Getenv("NOTIFICATION_DISPATCH_INTERVAL"), 5*time.Minute)
 	maxRetries := parseInt(os.Getenv("NOTIFICATION_MAX_RETRIES"), 3)
 	disableOnMaxRetries := parseBool(os.Getenv("NOTIFICATION_DISABLE_ON_MAX_RETRIES"), true)
@@ -97,19 +130,15 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	checkSkipInterval := parseDuration(os.Getenv("PACKAGE_CHECK_SKIP_THRESHOLD"), 5*time.Minute)
 
 	cfg := &EnvConfig{
-		ServerURL:          os.Getenv("SERVER_URL"),
-		ServerPort:         os.Getenv("SERVER_PORT"),
-		TLSMode:            os.Getenv("TLS_MODE"),
-		TLSCertFile:        os.Getenv("TLS_CERT_FILE"),
-		TLSKeyFile:         os.Getenv("TLS_KEY_FILE"),
-		DatabaseURL:        dbUrl.String(),
-		dbSSLMode:          dbSSLMode,
-		DBSSLCACert:        os.Getenv("DB_SSL_CA_CERT"),
-		ClientIDGoogle:     os.Getenv("GOOGLE_OAUTH2_CLIENT_ID"),
-		ClientSecretGoogle: os.Getenv("GOOGLE_OAUTH2_CLIENT_SECRET"),
-		//clientIDApple:	 os.Getenv("APPLE_OAUTH2_CLIENT_ID"),
-		//clientSecretApple: os.Getenv("APPLE_OAUTH2_CLIENT_SECRET"),
-		//...
+		ServerURL:                       os.Getenv("SERVER_URL"),
+		ServerPort:                      os.Getenv("SERVER_PORT"),
+		TLSMode:                         os.Getenv("TLS_MODE"),
+		TLSCertFile:                     os.Getenv("TLS_CERT_FILE"),
+		TLSKeyFile:                      os.Getenv("TLS_KEY_FILE"),
+		DatabaseURL:                     dbUrl.String(),
+		dbSSLMode:                       dbSSLMode,
+		DBSSLCACert:                     os.Getenv("DB_SSL_CA_CERT"),
+		OIDCProviders:                   oidcProviders,
 		EmailProvider:                   os.Getenv("EMAIL_PROVIDER"),
 		SMTPHost:                        os.Getenv("SMTP_HOST"),
 		SMTPPort:                        os.Getenv("SMTP_PORT"),
@@ -213,12 +242,36 @@ func validateEnvConfig(cfg *EnvConfig) error {
 		return fmt.Errorf("env: DB_SSL_CA_CERT is required when DB_SSLMODE=%s", cfg.dbSSLMode)
 	}
 
-	if cfg.ClientIDGoogle == "" {
-		return fmt.Errorf("env: GOOGLE_OAUTH2_CLIENT_ID is required")
+	// validate OIDC providers
+	if len(cfg.OIDCProviders) == 0 {
+		return fmt.Errorf("env: OIDC_PROVIDERS is required and must contain at least one provider")
 	}
-
-	if cfg.ClientSecretGoogle == "" {
-		return fmt.Errorf("env: GOOGLE_OAUTH2_CLIENT_SECRET is required")
+	seen := map[string]bool{}
+	for i, p := range cfg.OIDCProviders {
+		if p.Name == "" {
+			return fmt.Errorf("env: OIDC_PROVIDERS[%d]: \"name\" is required", i)
+		}
+		if seen[p.Name] {
+			return fmt.Errorf("env: OIDC_PROVIDERS: duplicate provider name %q", p.Name)
+		}
+		seen[p.Name] = true
+		if p.Issuer == "" {
+			return fmt.Errorf("env: OIDC_PROVIDERS[%d] (%q): \"issuer\" is required", i, p.Name)
+		}
+		if p.ClientID == "" {
+			return fmt.Errorf("env: OIDC_PROVIDERS[%d] (%q): \"client_id\" is required", i, p.Name)
+		}
+		if p.ClientSecret == "" {
+			return fmt.Errorf("env: OIDC_PROVIDERS[%d] (%q): \"client_secret\" is required", i, p.Name)
+		}
+		// default scopes if not specified
+		if len(p.Scopes) == 0 {
+			cfg.OIDCProviders[i].Scopes = []string{"openid", "email", "profile"}
+		}
+		// default display name to name if not specified
+		if p.DisplayName == "" {
+			cfg.OIDCProviders[i].DisplayName = p.Name
+		}
 	}
 
 	// validate email provider and its required fields
