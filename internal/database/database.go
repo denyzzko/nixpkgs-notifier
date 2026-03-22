@@ -41,6 +41,6 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 }
 
 func (db *Store) Close() {
-	log.Println("[INFO] Closing database conenction...")
+	log.Println("[INFO] Closing database connection...")
 	db.pool.Close()
 }

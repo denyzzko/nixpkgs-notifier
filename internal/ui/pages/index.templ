@@ -5,6 +5,11 @@ import (
 	"fmt"
 )
 
+// TrackedPackageVM is the view model for a single tracked package row.
+// LastNotifiedVersion holds version from before the most recent check.
+// CurrentVersion holds freshly resolved version (set only after a successful nix eval).
+// VersionChanged is true when CurrentVersion differs from LastNotifiedVersion.
+// Verified is true once a nix eval has confirmed the version (i.e. row is not in a loading/unresolved state).
 type TrackedPackageVM struct {
     PackageID           int64
     Name                string
@@ -15,14 +20,18 @@ type TrackedPackageVM struct {
 	Verified            bool
 }
 
+// IndexVM is the top level view model for the home page.
 type IndexVM struct {
     Packages []TrackedPackageVM
 }
 
+// IndexPage is the home page wrapped in the base layout.
 templ IndexPage(vm IndexVM) {
     @layout.Base("Home", true, IndexContent(vm))
 }
 
+// IndexContent renders the main content area of home page.
+// Header row with "Check All" and "+" buttons, followed by the tracked packages card.
 templ IndexContent(vm IndexVM) {
     <div style="padding-top: 5rem; padding-bottom: 2rem;">
         <div style="max-width: 900px; width: 100%; margin: 0 auto;">
@@ -37,9 +46,7 @@ templ IndexContent(vm IndexVM) {
                     <button
                         class="btn btn-sm rounded-5 px-3"
                         style="background: #009DE0; border: none; color: white;"
-                        hx-post="/package/check/all"
-                        hx-target="#tracked-list"
-                        hx-swap="innerHTML"
+                        onclick="htmx.trigger(document.getElementById('tracked-list'), 'checkAll')"
                     >
                         Check All
                     </button>
@@ -90,6 +97,9 @@ templ IndexContent(vm IndexVM) {
     </div>
 }
 
+// TrackedPackageList renders list of tracked package rows inside the card.
+// It includes #new-package-slot div where inline add form is injected by HTMX.
+// If the list is empty a message is shown.
 templ TrackedPackageList(packages []TrackedPackageVM) {
     <div class="d-flex flex-column gap-2">
         <div id="new-package-slot"></div>
@@ -102,8 +112,19 @@ templ TrackedPackageList(packages []TrackedPackageVM) {
     }
 }
 
+// TrackedPackageItem renders a single tracked package row in its normal (non-loading) state.
+// The version badge reflects three states:
+//  - not yet verified: neutral badge showing LastNotifiedVersion
+//  - version changed: warning(orange) badges showing LastNotifiedVersion -> CurrentVersion
+//  - up to date: green badge showing CurrentVersion
+//
+// The row also listens for "checkAll" event from #tracked-list so "Check All" triggers all rows at once.
 templ TrackedPackageItem(pckg TrackedPackageVM) {
-    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}
+        hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
+        hx-trigger="checkAll from:#tracked-list"
+        hx-swap="outerHTML"
+    >
         <!-- Package name -->
         <div style="flex: 2;">
             <strong class="text-white">{pckg.Name}</strong>
@@ -153,6 +174,115 @@ templ TrackedPackageItem(pckg TrackedPackageVM) {
     </div>
 }
 
+// TrackedPackageItemLoading is shown while a background nix eval is in progress (both tracking initialization and manual checks).
+// It displays a spinner and polls pollingURL every 3s.
+// Once the operation completes, status endpoint returns the real row.
+templ TrackedPackageItemLoading(pckg TrackedPackageVM, pollingURL string) {
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}
+        hx-get={pollingURL}
+        hx-trigger="every 3s"
+        hx-swap="outerHTML"
+    >
+        <div style="flex: 2;">
+            <strong class="text-white">{pckg.Name}</strong>
+        </div>
+        <div style="flex: 1;"></div>
+        <div style="flex: 2;">
+            <span class="small text-white">{pckg.Branch}</span>
+        </div>
+        <!-- Spinner while nix eval and baseline setup run -->
+        <div style="flex: 2;">
+            <span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
+        </div>
+        <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+            <!-- Check disabled until initialized -->
+            <button class="btn btn-sm rounded-5" style="border: 1px solid #009DE0; color: #009DE0;" disabled>
+                Check
+            </button>
+            <button
+                class="btn btn-sm rounded-5"
+                style="border: 1px solid #FF6F6F; color: #FF6F6F;"
+                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
+                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                hx-swap="outerHTML"
+            >
+                Untrack
+            </button>
+        </div>
+    </div>
+}
+
+// TrackedPackageItemInitError is shown when nix eval during initialization fails.
+// Nix eval error means package name or branch is likely invalid.
+// Only Untrack is available - retrying would produce the same error.
+templ TrackedPackageItemInitError(pckg TrackedPackageVM) {
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
+        <div style="flex: 2;">
+            <strong class="text-white">{pckg.Name}</strong>
+        </div>
+        <div style="flex: 1;"></div>
+        <div style="flex: 2;">
+            <span class="small text-white">{pckg.Branch}</span>
+        </div>
+        <!-- Error message in place of version -->
+        <div style="flex: 2;">
+            <span class="small text-danger">Failed to resolve - invalid name or branch?</span>
+        </div>
+        <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+            <button
+                class="btn btn-sm rounded-5"
+                style="border: 1px solid #FF6F6F; color: #FF6F6F;"
+                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
+                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                hx-swap="outerHTML"
+            >
+                Untrack
+            </button>
+        </div>
+    </div>
+}
+
+// TrackedPackageItemCheckError is shown when nix eval during a manual check fails
+// Unlike init errors, the package is already tracked with a known version, so Check is available to retry
+templ TrackedPackageItemCheckError(pckg TrackedPackageVM, errMsg string) {
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
+        <div style="flex: 2;">
+            <strong class="text-white">{pckg.Name}</strong>
+        </div>
+        <div style="flex: 1;"></div>
+        <div style="flex: 2;">
+            <span class="small text-white">{pckg.Branch}</span>
+        </div>
+        <!-- Error message in place of version -->
+        <div style="flex: 2;">
+            <span class="small text-danger">{errMsg}</span>
+        </div>
+        <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+            <!-- Check button changed to retry -->
+            <button
+                class="btn btn-sm rounded-5"
+                style="border: 1px solid #009DE0; color: #009DE0;"
+                hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
+                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                hx-swap="outerHTML"
+            >
+                Retry
+            </button>
+            <button
+                class="btn btn-sm rounded-5"
+                style="border: 1px solid #FF6F6F; color: #FF6F6F;"
+                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
+                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                hx-swap="outerHTML"
+            >
+                Untrack
+            </button>
+        </div>
+    </div>
+}
+
+// NewPackageForm renders the inline form for adding a new tracked package.
+// Submits via HTMX POST to /package/track and replaces the #new-package-slot with the result.
 templ NewPackageForm() {
     <form
         class="d-flex align-items-center rounded-5 ps-2 pe-2 py-2 gap-3"
@@ -205,6 +335,8 @@ templ NewPackageForm() {
     </form>
 }
 
+// NewPackageError re-renders the new-package form with the previously entered name and branch
+// pre-filled and an error message displayed below the inputs.
 templ NewPackageError(name string, branch string, message string) {
     <form
         class="d-flex flex-column gap-2 rounded-5 px-4 py-3"

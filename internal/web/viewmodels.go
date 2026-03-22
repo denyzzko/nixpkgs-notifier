@@ -2,7 +2,6 @@ package web
 
 import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/channels"
-	"github.com/denyzzko/nixpkgs-notifier/internal/app/packages"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/pages"
 )
@@ -14,18 +13,6 @@ func channelVM(ch channels.ChannelResult) pages.ChannelVM {
 		Address:              ch.Address,
 		IsEnabled:            ch.IsEnabled,
 		NotifyOnManualVerify: ch.NotifyOnManualVerify,
-	}
-}
-
-func trackedPackageVM(r packages.CheckResult) pages.TrackedPackageVM {
-	return pages.TrackedPackageVM{
-		PackageID:           r.PackageID,
-		Name:                r.Name,
-		Branch:              r.Branch,
-		LastNotifiedVersion: r.LastNotifiedVersion,
-		CurrentVersion:      r.CurrentVersion,
-		VersionChanged:      r.VersionChanged,
-		Verified:            true,
 	}
 }
 

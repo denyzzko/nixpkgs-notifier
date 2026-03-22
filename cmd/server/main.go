@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/denyzzko/nixpkgs-notifier/internal/app/packages"
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
@@ -85,6 +86,9 @@ func main() {
 		SkipInterval: cfg.PackageCheckSkipInterval,
 	})
 	chk.Start(appCtx)
+
+	// start cleanup goroutine for stale operation results (entries left behind when user closes browser mid-check)
+	packages.StartOperationResultCleanup(appCtx)
 
 	// new request multiplexer
 	mux := http.NewServeMux()

@@ -22,11 +22,12 @@ func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.Provid
 
 	// routes for package operations (package verifications, track/untrack)
 	mux.HandleFunc("POST /package/check/{id}", checkTrackedPackage(db, sessionManager, chk))
-	mux.HandleFunc("POST /package/check/all", checkAllTrackedPackages(db, sessionManager, chk))
 	mux.HandleFunc("POST /package/untrack/{id}", untrackPackage(db, sessionManager))
 	mux.HandleFunc("GET /package/track/form", trackPackageForm())
 	mux.HandleFunc("GET /package/track/cancel", trackPackageFormCancel())
 	mux.HandleFunc("POST /package/track", trackPackage(db, sessionManager, chk))
+	mux.HandleFunc("GET /package/status/track/{id}", packageTrackStatus(db, sessionManager))
+	mux.HandleFunc("GET /package/status/check/{id}", packageCheckStatus(db, sessionManager))
 
 	// notification channels page and corresponding routes for operations (add channel, delete channel, toggles, test)
 	mux.HandleFunc("GET /channels", requireAuth(sessionManager, channelsPage(sessionManager, db)))

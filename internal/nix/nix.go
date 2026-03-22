@@ -39,6 +39,9 @@ var (
 // all N callers receive the same result once it completes
 var nixEvalGroup singleflight.Group
 
+// validNixName matches allowed characters in nix package names and branch names
+var validNixName = regexp.MustCompile(`^[a-zA-Z0-9._\-]+$`)
+
 // Checks if nix binary is available by running nix --version (if not -> returns error)
 // This function is executed once on server startup
 func CheckNixAvailability() error {
@@ -73,7 +76,6 @@ func GetPackageVersionByNameAndBranch(ctx context.Context, name string, branch s
 // It is only called once per unique name+branch key at a time (enforced by nixEvalGroup)
 func evalNix(ctx context.Context, name string, branch string) (string, error) {
 	// validate name and branch to prevent undesired behavior
-	var validNixName = regexp.MustCompile(`^[a-zA-Z0-9._\-]+$`)
 	if !validNixName.MatchString(name) || !validNixName.MatchString(branch) {
 		return "", ErrAttrNotFound
 	}
