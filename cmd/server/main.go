@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -51,7 +52,9 @@ func main() {
 	}
 
 	// initialize session manager
-	sessionManager := session.NewManager()
+	// secure cookie must be true when app is served over HTTPS
+	secureCookie := strings.HasPrefix(cfg.ServerURL, "https://")
+	sessionManager := session.NewManager(secureCookie)
 
 	// app context
 	appCtx, cancelApp := context.WithCancel(ctx)
@@ -105,7 +108,6 @@ func main() {
 
 	// server
 	server := &http.Server{
-		Addr:              ":8080",
 		Handler:           chain(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -118,10 +120,17 @@ func main() {
 	// channel to listen for errors from the server
 	serverErrors := make(chan error, 1)
 
-	// start the server (goroutine)
+	// start the server (goroutine) in correct TLS mode
 	go func() {
-		log.Printf("[INFO] Server is listening on %s\n", cfg.ServerURL)
-		serverErrors <- server.ListenAndServe()
+		log.Printf("[INFO] Server is listening on %s port:%s\n", cfg.ServerURL, cfg.ServerPort)
+		switch cfg.TLSMode {
+		case "on":
+			server.Addr = ":" + cfg.ServerPort
+			serverErrors <- server.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+		default: // "off"
+			server.Addr = ":" + cfg.ServerPort
+			serverErrors <- server.ListenAndServe()
+		}
 	}()
 
 	// channel to listen for interrupt/terminate signals

@@ -11,9 +11,23 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// EnvConfig holds all configuration values loaded from environment variables.
+// Required variables are validated at startup via validateEnvConfig.
+// Optional variables fall back to defaults.
 type EnvConfig struct {
-	ServerURL   string
+	ServerURL string
+	// ServerPortis port the process binds to - may differ from the port in SERVER_URL when behind a reverse proxy
+	ServerPort string // default: "8080" for TLSMode=off, "443" for TLSMode=on
+
+	// TLS
+	TLSMode     string // "off"/"on"
+	TLSCertFile string // path to cert file (only for TLSMode=on)
+	TLSKeyFile  string // path to key file (only for TLSMode=on)
+
 	DatabaseURL string
+	// Database TLS
+	dbSSLMode   string // "disable"/"require"/"verify-full"/"verify-ca"
+	DBSSLCACert string // optional path to CA cert for sslmode=verify-full
 
 	// OIDC
 	ClientIDGoogle     string
@@ -48,21 +62,30 @@ type EnvConfig struct {
 	PackageCheckSkipInterval time.Duration // default: 5 minutes
 }
 
+// LoadEnvConfig loads configuration from environment variables.
+// Reads .env file from the working directory first (.env file is not required, variables can be injected directly into the process)
+// Returns an error if any required variable is missing or invalid.
 func LoadEnvConfig() (*EnvConfig, error) {
-
 	// load .env file from root of this project
+	// optional - env vars may be injected directly
 	err := godotenv.Load()
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 
 	// build db url
+	dbSSLMode := os.Getenv("DB_SSLMODE")
+	dbQuery := "sslmode=" + url.QueryEscape(dbSSLMode)
+	caCert := os.Getenv("DB_SSL_CA_CERT")
+	if caCert != "" {
+		dbQuery += "&sslrootcert=" + url.QueryEscape(caCert)
+	}
 	dbUrl := url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(os.Getenv("DB_USER"), os.Getenv("DB_PASS")),
 		Host:     net.JoinHostPort(os.Getenv("DB_HOST"), os.Getenv("DB_PORT")),
 		Path:     os.Getenv("DB_NAME"),
-		RawQuery: "sslmode=" + url.QueryEscape(os.Getenv("DB_SSLMODE")),
+		RawQuery: dbQuery,
 	}
 
 	dispatchInterval := parseDuration(os.Getenv("NOTIFICATION_DISPATCH_INTERVAL"), 5*time.Minute)
@@ -75,7 +98,13 @@ func LoadEnvConfig() (*EnvConfig, error) {
 
 	cfg := &EnvConfig{
 		ServerURL:          os.Getenv("SERVER_URL"),
+		ServerPort:         os.Getenv("SERVER_PORT"),
+		TLSMode:            os.Getenv("TLS_MODE"),
+		TLSCertFile:        os.Getenv("TLS_CERT_FILE"),
+		TLSKeyFile:         os.Getenv("TLS_KEY_FILE"),
 		DatabaseURL:        dbUrl.String(),
+		dbSSLMode:          dbSSLMode,
+		DBSSLCACert:        os.Getenv("DB_SSL_CA_CERT"),
 		ClientIDGoogle:     os.Getenv("GOOGLE_OAUTH2_CLIENT_ID"),
 		ClientSecretGoogle: os.Getenv("GOOGLE_OAUTH2_CLIENT_SECRET"),
 		//clientIDApple:	 os.Getenv("APPLE_OAUTH2_CLIENT_ID"),
@@ -107,6 +136,8 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	return cfg, nil
 }
 
+// parseDuration parses a duration string (e.g. "5m", "12h").
+// Returns fallback if the string is empty or cannot be parsed.
 func parseDuration(s string, fallback time.Duration) time.Duration {
 	if s == "" {
 		return fallback
@@ -118,6 +149,8 @@ func parseDuration(s string, fallback time.Duration) time.Duration {
 	return d
 }
 
+// parseInt parses a decimal integer string.
+// Returns fallback if the string is empty or cannot be parsed.
 func parseInt(s string, fallback int) int {
 	if s == "" {
 		return fallback
@@ -129,29 +162,61 @@ func parseInt(s string, fallback int) int {
 	return n
 }
 
-func parseBool(s string, defaultVal bool) bool {
+// parseBool parses a boolean string ("true"/"false", "1"/"0", etc.).
+// Returns fallback if the string is empty or cannot be parsed.
+func parseBool(s string, fallback bool) bool {
 	if s == "" {
-		return defaultVal
+		return fallback
 	}
 	b, err := strconv.ParseBool(s)
 	if err != nil {
-		return defaultVal
+		return fallback
 	}
 	return b
 }
 
-// Checks that all required environment variables are filled
+// validateEnvConfig checks that all required fields are correctly set.
+// It also fills in default ports that were left out.
 func validateEnvConfig(cfg *EnvConfig) error {
-	// required for all configs
 	if cfg.ServerURL == "" {
 		return fmt.Errorf("env: SERVER_URL is required")
 	}
+
+	if cfg.TLSMode == "" {
+		// TLS_MODE defaults to off if not set
+		cfg.TLSMode = "off"
+	}
+
+	switch cfg.TLSMode {
+	case "off":
+		if cfg.ServerPort == "" {
+			cfg.ServerPort = "8080"
+		}
+	case "on":
+		if cfg.ServerPort == "" {
+			cfg.ServerPort = "443"
+		}
+		if cfg.TLSCertFile == "" {
+			return fmt.Errorf("env: TLS_CERT_FILE is required when TLS_MODE=on")
+		}
+		if cfg.TLSKeyFile == "" {
+			return fmt.Errorf("env: TLS_KEY_FILE is required when TLS_MODE=on")
+		}
+	default:
+		return fmt.Errorf("env: TLS_MODE must be \"off\" or \"on\", got %q", cfg.TLSMode)
+	}
+
 	if cfg.DatabaseURL == "" {
 		return fmt.Errorf("env: DATABASE_URL is required")
 	}
+	if (cfg.dbSSLMode == "verify-full" || cfg.dbSSLMode == "verify-ca") && cfg.DBSSLCACert == "" {
+		return fmt.Errorf("env: DB_SSL_CA_CERT is required when DB_SSLMODE=%s", cfg.dbSSLMode)
+	}
+
 	if cfg.ClientIDGoogle == "" {
 		return fmt.Errorf("env: GOOGLE_OAUTH2_CLIENT_ID is required")
 	}
+
 	if cfg.ClientSecretGoogle == "" {
 		return fmt.Errorf("env: GOOGLE_OAUTH2_CLIENT_SECRET is required")
 	}
