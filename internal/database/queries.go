@@ -96,6 +96,40 @@ var sUpdateNotifyOnManualVerify string
 //go:embed sql/update_package_last_checked_at.sql
 var sUpdatePackageLastCheckedAt string
 
+func buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, priority *string, requestAck *bool) (*Email, *Webhook) {
+	var email *Email
+	var webhook *Webhook
+
+	if emailAddr != nil {
+		email = &Email{
+			Address: *emailAddr,
+		}
+	}
+
+	if webhookURL != nil {
+		webhook = &Webhook{
+			URL: *webhookURL,
+		}
+		if webhookType != nil {
+			webhook.Type = *webhookType
+		}
+		if username != nil {
+			webhook.Username = *username
+		}
+		if channel != nil {
+			webhook.Channel = *channel
+		}
+		if priority != nil {
+			webhook.Priority = *priority
+		}
+		if requestAck != nil {
+			webhook.RequestAck = *requestAck
+		}
+	}
+
+	return email, webhook
+}
+
 // Retrieves all packages from database that user tracks by his ID
 func (db *Store) QueryUsersTrackedPackages(ctx context.Context, userID int64) ([]TrackedPackage, error) {
 	rows, err := db.pool.Query(ctx, qGetUsersTrackedPackages, userID)
@@ -347,11 +381,17 @@ func (db *Store) QueryActiveChannelsByUserID(ctx context.Context, userID int64) 
 	var channels []ActiveChannel
 	for rows.Next() {
 		var c ActiveChannel
-		if err := rows.Scan(&c.ChannelID, &c.UserID, &c.EmailAddress, &c.WebhookURL, &c.NotifyOnManualVerify); err != nil {
+		var emailAddr, webhookURL, webhookType, username, channel, priority *string
+		var requestAck *bool
+
+		if err := rows.Scan(&c.ChannelID, &c.UserID, &emailAddr, &webhookURL, &webhookType, &username, &channel, &priority, &requestAck, &c.NotifyOnManualVerify); err != nil {
 			return nil, fmt.Errorf("database.QueryActiveChannelsByUserID: scan error: %w", err)
 		}
+
+		c.Email, c.Webhook = buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, priority, requestAck)
 		channels = append(channels, c)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("database.QueryActiveChannelsByUserID: incomplete results: %w", err)
 	}
@@ -369,11 +409,17 @@ func (db *Store) QueryChannelsByUserID(ctx context.Context, userID int64) ([]Use
 	var channels []UserChannel
 	for rows.Next() {
 		var c UserChannel
-		if err := rows.Scan(&c.ID, &c.IsEnabled, &c.EmailAddress, &c.WebhookURL, &c.NotifyOnManualVerify); err != nil {
+		var emailAddr, webhookURL, webhookType, username, channel, priority *string
+		var requestAck *bool
+
+		if err := rows.Scan(&c.ID, &c.IsEnabled, &emailAddr, &webhookURL, &webhookType, &username, &channel, &priority, &requestAck, &c.NotifyOnManualVerify); err != nil {
 			return nil, fmt.Errorf("database.QueryChannelsByUserID: scan error: %w", err)
 		}
+
+		c.Email, c.Webhook = buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, priority, requestAck)
 		channels = append(channels, c)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("database.QueryChannelsByUserID: incomplete results: %w", err)
 	}
@@ -383,13 +429,19 @@ func (db *Store) QueryChannelsByUserID(ctx context.Context, userID int64) ([]Use
 // Retrieves a single channel identified by id
 func (db *Store) QueryChannelByID(ctx context.Context, channelID int64, userID int64) (UserChannel, error) {
 	var c UserChannel
+	var emailAddr, webhookURL, webhookType, username, channel, priority *string
+	var requestAck *bool
+
 	row := db.pool.QueryRow(ctx, qGetChannelByID, channelID, userID)
-	if err := row.Scan(&c.ID, &c.IsEnabled, &c.EmailAddress, &c.WebhookURL, &c.NotifyOnManualVerify); err != nil {
+	if err := row.Scan(&c.ID, &c.IsEnabled, &emailAddr, &webhookURL, &webhookType, &username, &channel, &priority, &requestAck, &c.NotifyOnManualVerify); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return UserChannel{}, ErrNotFound
 		}
 		return UserChannel{}, fmt.Errorf("database.QueryChannelByID: error querying channel (id=%d, userID=%d): %w", channelID, userID, err)
 	}
+
+	c.Email, c.Webhook = buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, priority, requestAck)
+
 	return c, nil
 }
 
@@ -437,15 +489,18 @@ func (db *Store) QueryPendingFailedNotifications(ctx context.Context, maxRetries
 	var notifications []PendingFailedNotification
 	for rows.Next() {
 		var n PendingFailedNotification
+		var emailAddr, webhookURL, webhookType, username, channel, priority *string
+		var requestAck *bool
+
 		if err := rows.Scan(
-			&n.ID, &n.ChannelID, &n.PackageID,
-			&n.PackageName, &n.PackageBranch,
-			&n.OldVersion, &n.NewVersion, &n.DetectedAt,
-			&n.AttemptCount, &n.UserID,
-			&n.EmailAddress, &n.WebhookURL,
+			&n.ID, &n.ChannelID, &n.PackageID, &n.PackageName, &n.PackageBranch,
+			&n.OldVersion, &n.NewVersion, &n.DetectedAt, &n.AttemptCount, &n.UserID,
+			&emailAddr, &webhookURL, &webhookType, &username, &channel, &priority, &requestAck,
 		); err != nil {
 			return nil, fmt.Errorf("database.QueryPendingNotifications: scan error: %w", err)
 		}
+
+		n.Email, n.Webhook = buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, priority, requestAck)
 		notifications = append(notifications, n)
 	}
 	if err := rows.Err(); err != nil {
@@ -502,9 +557,9 @@ func (db *Store) CreateEmailChannel(ctx context.Context, userID int64, emailAddr
 }
 
 // Creates a new webhook notification channel for a user
-func (db *Store) CreateWebhookChannel(ctx context.Context, userID int64, webhookURL string, notifyOnManualVerify bool) (int64, error) {
+func (db *Store) CreateWebhookChannel(ctx context.Context, userID int64, webhookURL string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool) (int64, error) {
 	var id int64
-	if err := db.pool.QueryRow(ctx, sInsertWebhookChannel, userID, webhookURL, notifyOnManualVerify).Scan(&id); err != nil {
+	if err := db.pool.QueryRow(ctx, sInsertWebhookChannel, userID, webhookURL, webhookType, notifyOnManualVerify, username, channel, priority, requestAck).Scan(&id); err != nil {
 		return 0, fmt.Errorf("database.CreateWebhookChannel: error creating webhook channel (userID=%d): %w", userID, err)
 	}
 	return id, nil
@@ -552,18 +607,25 @@ func (db *Store) QueryNotificationsByUserID(ctx context.Context, userID int64) (
 	var notifications []UserNotification
 	for rows.Next() {
 		var n UserNotification
+		var emailAddr, webhookURL, webhookType *string
+
 		if err := rows.Scan(
 			&n.ID, &n.DetectedAt, &n.OldVersion, &n.NewVersion,
 			&n.Status, &n.AttemptCount, &n.ErrorMessage,
 			&n.PackageName, &n.PackageBranch,
-			&n.EmailAddress, &n.WebhookURL,
+			&emailAddr, &webhookURL, &webhookType,
 		); err != nil {
 			return nil, fmt.Errorf("database.QueryNotificationsByUserID: scan error: %w", err)
 		}
+
+		n.Email, n.Webhook = buildEmailWebhook(emailAddr, webhookURL, webhookType, nil, nil, nil, nil)
+
 		notifications = append(notifications, n)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("database.QueryNotificationsByUserID: incomplete results: %w", err)
 	}
+
 	return notifications, nil
 }

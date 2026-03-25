@@ -1,3 +1,6 @@
+// Package channels provides application-level logic for managing notification channels.
+// It handles creating, retrieving, toggling, and deleting email and webhook channels
+// for authenticated users, wrapping all database operations in typed appErrors.
 package channels
 
 import (
@@ -14,15 +17,21 @@ import (
 // user is not authenticated error
 var ErrNotAuthenticated = errors.New("not authenticated")
 
+// XXX
 type ChannelResult struct {
 	ID                   int64
 	Type                 string // "Email" or "Webhook"
+	WebhookType          string // "generic" or "mattermost" (empty for emails)
 	Address              string
 	IsEnabled            bool
 	NotifyOnManualVerify bool
+	WebhookUsername      string // mattermost only
+	WebhookChannel       string // mattermost only
+	WebhookPriority      string // mattermost only
+	WebhookRequestAck    bool   // mattermost only
 }
 
-// Returns all channels for a user with resolved type and address
+// GetChannels returns all channels for a user with resolved type and address.
 func GetChannels(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) ([]ChannelResult, error) {
 	const op = "channels.GetChannels"
 
@@ -38,7 +47,7 @@ func GetChannels(ctx context.Context, db *database.Store, sessionManager *sessio
 		return nil, appError.NewAppError(op, appError.Internal, "failed to load channels", err)
 	}
 
-	// resolve type (email/webhook) an fill array of struct
+	// resolve type (email/webhook) and fill array of structs
 	results := make([]ChannelResult, 0, len(rows))
 	for _, row := range rows {
 		results = append(results, channelResultFromRow(row))
@@ -46,7 +55,7 @@ func GetChannels(ctx context.Context, db *database.Store, sessionManager *sessio
 	return results, nil
 }
 
-// Returns a single channel by its ID
+// GetChannelByID returns a single channel by its ID.
 func GetChannelByID(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, channelID int64) (ChannelResult, error) {
 	const op = "channels.GetChannelByID"
 
@@ -68,25 +77,36 @@ func GetChannelByID(ctx context.Context, db *database.Store, sessionManager *ses
 	return channelResultFromRow(row), nil
 }
 
-// Helper to resolve channel type (email/webhook) and fill ChannelResult struct
+// channelResultFromRow maps a database.UserChannel row to a ChannelResult,
+// resolving channel type (email or webhook) and its address from the fields.
 func channelResultFromRow(row database.UserChannel) ChannelResult {
 	ch := ChannelResult{ID: row.ID, IsEnabled: row.IsEnabled}
-	if row.EmailAddress != nil {
+
+	// XXX
+	if row.Email != nil {
 		ch.Type = "Email"
-		ch.Address = *row.EmailAddress
-	} else if row.WebhookURL != nil {
+		ch.Address = row.Email.Address
+	} else if row.Webhook != nil {
 		ch.Type = "Webhook"
-		ch.Address = *row.WebhookURL
+		ch.Address = row.Webhook.URL
+		ch.WebhookType = row.Webhook.Type
+		ch.WebhookUsername = row.Webhook.Username
+		ch.WebhookChannel = row.Webhook.Channel
+		ch.WebhookPriority = row.Webhook.Priority
+		ch.WebhookRequestAck = row.Webhook.RequestAck
 	}
+
+	// XXX
 	if row.NotifyOnManualVerify != nil {
 		ch.NotifyOnManualVerify = *row.NotifyOnManualVerify
 	}
+
 	return ch
 }
 
-// Creates a new channel of specific type ("email" or "webhook") for the user
-// Returns the created channel ready to render
-func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionManager, chType string, address string, notifyOnManualVerify bool) (ChannelResult, error) {
+// AddChannel creates a new notification channel of the given type ("email" or "webhook") for current user.
+// Returns the newly created channel ready to render.
+func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionManager, chType string, address string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool) (ChannelResult, error) {
 	const op = "channels.Add"
 
 	// get user ID
@@ -98,11 +118,12 @@ func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionMana
 	var id int64
 	var err error
 
+	// XXX
 	switch chType {
 	case "email":
 		id, err = addEmailChannel(ctx, db, userID, address, notifyOnManualVerify)
 	case "webhook":
-		id, err = addWebhookChannel(ctx, db, userID, address, notifyOnManualVerify)
+		id, err = addWebhookChannel(ctx, db, userID, address, webhookType, notifyOnManualVerify, username, channel, priority, requestAck)
 	default:
 		return ChannelResult{}, appError.NewAppError(op, appError.Invalid, "invalid channel type", fmt.Errorf("unknown channel type %q", chType))
 	}
@@ -110,6 +131,7 @@ func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionMana
 		return ChannelResult{}, err
 	}
 
+	// XXX
 	typeName := "Email"
 	if chType == "webhook" {
 		typeName = "Webhook"
@@ -118,13 +140,18 @@ func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionMana
 	return ChannelResult{
 		ID:                   id,
 		Type:                 typeName,
+		WebhookType:          webhookType,
 		Address:              address,
 		IsEnabled:            true,
 		NotifyOnManualVerify: notifyOnManualVerify,
+		WebhookUsername:      username,
+		WebhookChannel:       channel,
+		WebhookPriority:      priority,
+		WebhookRequestAck:    requestAck,
 	}, nil
 }
 
-// Creates a new email channel for the user
+// addEmailChannel creates a new email channel for a user.
 func addEmailChannel(ctx context.Context, db *database.Store, userID int64, emailAddress string, notifyOnManualVerify bool) (int64, error) {
 	const op = "channels.AddEmailChannel"
 
@@ -136,19 +163,19 @@ func addEmailChannel(ctx context.Context, db *database.Store, userID int64, emai
 	return id, nil
 }
 
-// Creates a new webhook channel for the authenticated user
-func addWebhookChannel(ctx context.Context, db *database.Store, userID int64, webhookURL string, notifyOnManualVerify bool) (int64, error) {
+// addWebhookChannel creates a new webhook channel for a user.
+func addWebhookChannel(ctx context.Context, db *database.Store, userID int64, webhookURL string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool) (int64, error) {
 	const op = "channels.AddWebhookChannel"
 
 	// create webhook channel
-	id, err := db.CreateWebhookChannel(ctx, userID, webhookURL, notifyOnManualVerify)
+	id, err := db.CreateWebhookChannel(ctx, userID, webhookURL, webhookType, notifyOnManualVerify, username, channel, priority, requestAck)
 	if err != nil {
 		return 0, appError.NewAppError(op, appError.Internal, "failed to create webhook channel", err)
 	}
 	return id, nil
 }
 
-// Removes a channel owned by the user
+// DeleteChannel removes a channel owned by the current user.
 func DeleteChannel(ctx context.Context, db *database.Store, sm *session.SessionManager, channelIDStr string) error {
 	const op = "channels.DeleteChannel"
 
@@ -174,7 +201,7 @@ func DeleteChannel(ctx context.Context, db *database.Store, sm *session.SessionM
 	return nil
 }
 
-// Updates is_enabled flag for a channel
+// ToggleEnabled updates is_enabled flag on a channel and returns the updated channel.
 func ToggleEnabled(ctx context.Context, db *database.Store, sm *session.SessionManager, channelID int64, value bool) (ChannelResult, error) {
 	const op = "channels.ToggleEnabled"
 
@@ -192,7 +219,7 @@ func ToggleEnabled(ctx context.Context, db *database.Store, sm *session.SessionM
 	return GetChannelByID(ctx, db, sm, channelID)
 }
 
-// Updates notify_on_manual_verify flag for a channel
+// ToggleNotifyOnManualVerify updates notify_on_manual_verify flag on a channel and returns the updated channel.
 func ToggleNotifyOnManualVerify(ctx context.Context, db *database.Store, sm *session.SessionManager, channelID int64, value bool) (ChannelResult, error) {
 	const op = "channels.ToggleNotifyOnManualVerify"
 

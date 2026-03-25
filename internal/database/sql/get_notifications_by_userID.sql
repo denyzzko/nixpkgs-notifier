@@ -9,7 +9,8 @@ SELECT
     p.name      AS package_name,
     p.branch    AS package_branch,
     e.email_address,
-    w.webhook_url
+    w.webhook_url,
+    w.webhook_type
 FROM notifications n
 JOIN channels c      ON c.id = n.channel_id
 JOIN packages p      ON p.id = n.package_id

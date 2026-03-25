@@ -409,7 +409,7 @@ func addChannelFormCancel() http.HandlerFunc {
 }
 
 // addChannel creates a new notification channel (email or webhook) for the current user (POST /channel/add).
-// Reads type, address, and notify_on_manual_verify from the submitted form.
+// Reads type, address, notify_on_manual_verify and optional matermost webhook info from the submitted form.
 // On success renders new channel row.
 // On validation or application error re-renders form with an error message.
 func addChannel(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
@@ -418,26 +418,40 @@ func addChannel(db *database.Store, sessionManager *session.SessionManager) http
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
-		// extract channel type, adress and flag value from submitted form
-		chType := r.FormValue("type")
+		// extract channel type, adress, notify_on_manual_verify flag and mattermost webhook info value from submitted form
+		rawType := r.FormValue("type")
 		address := r.FormValue("address")
 		notifyOnManualVerify := r.FormValue("notify_on_manual_verify") == "on"
-		if chType != "email" && chType != "webhook" {
+		username := r.FormValue("username")
+		channel := r.FormValue("channel")
+		priority := r.FormValue("priority")
+		requestAck := r.FormValue("request_ack") == "true"
+
+		// decode type into chType + webhookType
+		var chType, webhookType string
+		switch rawType {
+		case "email":
+			chType, webhookType = "email", ""
+		case "webhook_generic":
+			chType, webhookType = "webhook", "generic"
+		case "webhook_mattermost":
+			chType, webhookType = "webhook", "mattermost"
+		default:
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_ = pages.NewChannelError(chType, address, "Invalid channel type.").Render(ctx, w)
+			_ = pages.NewChannelError(rawType, address, "Invalid channel type.").Render(ctx, w)
 			return
 		}
 		if address == "" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_ = pages.NewChannelError(chType, address, "Address is required.").Render(ctx, w)
+			_ = pages.NewChannelError(rawType, address, "Address is required.").Render(ctx, w)
 			return
 		}
 
 		// add channel
-		ch, err := channels.AddChannel(ctx, db, sessionManager, chType, address, notifyOnManualVerify)
+		ch, err := channels.AddChannel(ctx, db, sessionManager, chType, address, webhookType, notifyOnManualVerify, username, channel, priority, requestAck)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_ = pages.NewChannelError(chType, address, appError.PublicMessage(err)).Render(ctx, w)
+			_ = pages.NewChannelError(rawType, address, appError.PublicMessage(err)).Render(ctx, w)
 			return
 		}
 
@@ -572,16 +586,23 @@ func testChannel(db *database.Store, sessionManager *session.SessionManager, dis
 		}
 
 		// resolve address
-		var emailAddress *string
-		var webhookURL *string
-		if ch.Type == "Email" {
-			emailAddress = &ch.Address
-		} else {
-			webhookURL = &ch.Address
-		}
+		var email *database.Email
+		var webhook *database.Webhook
 
+		if ch.Type == "Email" {
+			email = &database.Email{Address: ch.Address}
+		} else {
+			webhook = &database.Webhook{
+				URL:        ch.Address,
+				Type:       ch.WebhookType,
+				Username:   ch.WebhookUsername,
+				Channel:    ch.WebhookChannel,
+				Priority:   ch.WebhookPriority,
+				RequestAck: ch.WebhookRequestAck,
+			}
+		}
 		// send test message (sync, no notifications table entry)
-		testErr := disp.Test(ctx, channelID, emailAddress, webhookURL)
+		testErr := disp.Test(ctx, channelID, email, webhook)
 
 		// render channel back with the result message
 		if testErr != nil {

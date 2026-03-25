@@ -33,6 +33,18 @@ type webhookPayload struct {
 	DetectedAt string `json:"detected_at"` // RFC3339 UTC timestamp
 }
 
+// mattermostPayload is the standardised JSON body for Mattermost webhook endpoints
+type mattermostPayload struct {
+	Text     string              `json:"text"`
+	Username string              `json:"username,omitempty"`
+	Channel  string              `json:"channel,omitempty"`
+	Priority *mattermostPriority `json:"priority,omitempty"`
+}
+type mattermostPriority struct {
+	Priority     string `json:"priority,omitempty"`
+	RequestedAck bool   `json:"requested_ack,omitempty"`
+}
+
 // JSON body sent during test ping
 // Receiving service should rely on this structure for test messages
 type testWebhookPayload struct {
@@ -42,14 +54,50 @@ type testWebhookPayload struct {
 
 // Send POST event as JSON to webhook URL
 func (s *WebhookSender) Send(ctx context.Context, event VersionChangeEvent) error {
-	// produce JSON payload
-	data, err := json.Marshal(webhookPayload{
-		Package:    event.PackageName,
-		Branch:     event.PackageBranch,
-		OldVersion: event.OldVersion,
-		NewVersion: event.NewVersion,
-		DetectedAt: event.DetectedAt.UTC().Format(time.RFC3339),
-	})
+	var data []byte
+	var err error
+
+	// produce JSON payload based on webhook type
+	switch event.WebhookType {
+	case "mattermost":
+		text := fmt.Sprintf(
+			"**Nixpkgs update:** `%s` on branch `%s` - `%s` -> `%s` (detected %s)",
+			event.PackageName,
+			event.PackageBranch,
+			event.OldVersion,
+			event.NewVersion,
+			event.DetectedAt.UTC().Format(time.RFC3339),
+		)
+
+		payload := mattermostPayload{
+			Text: text,
+		}
+
+		if event.WebhookUsername != "" {
+			payload.Username = event.WebhookUsername
+		}
+		if event.WebhookChannel != "" {
+			payload.Channel = event.WebhookChannel
+		}
+		if event.WebhookPriority != "" {
+			payload.Priority = &mattermostPriority{
+				Priority: event.WebhookPriority,
+			}
+			if event.WebhookRequestAck {
+				payload.Priority.RequestedAck = true
+			}
+		}
+
+		data, err = json.Marshal(payload)
+	default: // "generic"
+		data, err = json.Marshal(webhookPayload{
+			Package:    event.PackageName,
+			Branch:     event.PackageBranch,
+			OldVersion: event.OldVersion,
+			NewVersion: event.NewVersion,
+			DetectedAt: event.DetectedAt.UTC().Format(time.RFC3339),
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("notify.WebhookSender: marshal payload: %w", err)
 	}
@@ -61,11 +109,38 @@ func (s *WebhookSender) Send(ctx context.Context, event VersionChangeEvent) erro
 // Send POST event as minimal JSON to webhook URL for testing channel
 // Called by Dispatcher.Test when the user clicks "Test" in UI
 func (s *WebhookSender) SendTest(ctx context.Context, event VersionChangeEvent) error {
-	// produce JSON payload
-	data, err := json.Marshal(testWebhookPayload{
-		Type:    "test",
-		Message: "Congratulations! The webhook channel you have configured is working :)",
-	})
+	var data []byte
+	var err error
+
+	// produce JSON payload based on webhook type
+	switch event.WebhookType {
+	case "mattermost":
+		payload := mattermostPayload{
+			Text: "**Nixpkgs Notifier test:** The Mattermost webhook channel you have configured is working :white_check_mark:",
+		}
+
+		if event.WebhookUsername != "" {
+			payload.Username = event.WebhookUsername
+		}
+		if event.WebhookChannel != "" {
+			payload.Channel = event.WebhookChannel
+		}
+		if event.WebhookPriority != "" {
+			payload.Priority = &mattermostPriority{
+				Priority: event.WebhookPriority,
+			}
+			if event.WebhookRequestAck {
+				payload.Priority.RequestedAck = true
+			}
+		}
+
+		data, err = json.Marshal(payload)
+	default: // "generic"
+		data, err = json.Marshal(testWebhookPayload{
+			Type:    "test",
+			Message: "Congratulations! The webhook channel you have configured is working :)",
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("notify.WebhookSender: marshal payload: %w", err)
 	}

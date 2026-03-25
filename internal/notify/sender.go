@@ -17,12 +17,17 @@ import (
 // VersionChangeEvent carries all data a sender needs to compose and deliver a notification
 // It is assembled by Dispatcher.resolveSender() from PendingFailedNotification (db row) during delivery process
 type VersionChangeEvent struct {
-	PackageName      string
-	PackageBranch    string
-	OldVersion       string
-	NewVersion       string
-	DetectedAt       time.Time
-	RecipientAddress string // email address or webhook URL
+	PackageName       string
+	PackageBranch     string
+	OldVersion        string
+	NewVersion        string
+	DetectedAt        time.Time
+	RecipientAddress  string // email address or webhook URL
+	WebhookType       string // "generic" or "mattermost" - empty for emails
+	WebhookUsername   string // mattermost only
+	WebhookChannel    string // mattermost only
+	WebhookPriority   string // mattermost only
+	WebhookRequestAck bool   // mattermost only
 }
 
 // Sender is interface that Dispatcher uses for delivery mechanism

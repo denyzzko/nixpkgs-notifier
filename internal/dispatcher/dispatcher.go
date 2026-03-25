@@ -206,9 +206,9 @@ func (d *Dispatcher) resolveSender(n database.PendingFailedNotification) (notify
 
 	// decide email/webhook
 	switch {
-	case n.EmailAddress != nil:
+	case n.Email != nil:
 		// email channel
-		event.RecipientAddress = *n.EmailAddress
+		event.RecipientAddress = n.Email.Address
 		var sender notify.Sender
 		// based on emailProvider (env var) decide if SMTP or Resend is used
 		if d.emailProvider == "smtp" {
@@ -217,9 +217,14 @@ func (d *Dispatcher) resolveSender(n database.PendingFailedNotification) (notify
 			sender = d.resendSender
 		}
 		return sender, event, nil
-	case n.WebhookURL != nil:
+	case n.Webhook != nil:
 		// webhook channel
-		event.RecipientAddress = *n.WebhookURL
+		event.RecipientAddress = n.Webhook.URL
+		event.WebhookType = n.Webhook.Type
+		event.WebhookUsername = n.Webhook.Username
+		event.WebhookChannel = n.Webhook.Channel
+		event.WebhookPriority = n.Webhook.Priority
+		event.WebhookRequestAck = n.Webhook.RequestAck
 		return d.webhookSender, event, nil
 	// fallback
 	default:
@@ -230,7 +235,7 @@ func (d *Dispatcher) resolveSender(n database.PendingFailedNotification) (notify
 // Test sends a test message directly via the channel without creating a notification record
 // It is called when user clicks "Test" in UI
 // Returns an error if the send fails, nil on success
-func (d *Dispatcher) Test(ctx context.Context, channelID int64, emailAddress *string, webhookURL *string) error {
+func (d *Dispatcher) Test(ctx context.Context, channelID int64, email *database.Email, webhook *database.Webhook) error {
 	// build a fake notification record just to reuse resolveSender()
 	test := database.PendingFailedNotification{
 		PackageName:   "test",
@@ -238,8 +243,8 @@ func (d *Dispatcher) Test(ctx context.Context, channelID int64, emailAddress *st
 		OldVersion:    "0.0.0",
 		NewVersion:    "0.0.0",
 		DetectedAt:    time.Now().UTC(),
-		EmailAddress:  emailAddress,
-		WebhookURL:    webhookURL,
+		Email:         email,
+		Webhook:       webhook,
 	}
 
 	// resolve correct sender (resend/smtp/webhook)

@@ -69,7 +69,12 @@ CREATE TABLE emails (
 CREATE TABLE webhooks (
     channel_id  BIGINT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
     webhook_url TEXT NOT NULL,
-    notify_on_manual_verify BOOLEAN NOT NULL DEFAULT FALSE
+    webhook_type TEXT NOT NULL DEFAULT 'generic' CHECK (webhook_type IN ('generic', 'mattermost')),
+    notify_on_manual_verify BOOLEAN NOT NULL DEFAULT FALSE,
+    username    TEXT NOT NULL DEFAULT '',
+    channel     TEXT NOT NULL DEFAULT '',
+    priority    TEXT NOT NULL DEFAULT '',
+    request_ack BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Notification records tracking what notification was/will be send to users

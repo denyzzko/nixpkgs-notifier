@@ -64,7 +64,7 @@ type UserClaims struct {
 	Subject           string
 	Email             string
 	EmailVerified     bool
-	PreferredUsername string // may be empty if provider does not include this claim
+	PreferredUsername string // may be empty if provider does not include this claim (e.g. Google does not support it)
 }
 
 // SetupProviders initializes a ProviderMap from the given config.

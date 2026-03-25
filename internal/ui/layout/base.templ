@@ -1,5 +1,9 @@
 package layout
 
+// Base is the shared HTML layout used by all pages.
+// It renders the top navigation bar with links to Packages, Channels, and Delivery Log
+// (navigation links are only shown when loggedIn is true).
+// It also includes all shared scripts and styles (Bootstrap, HTMX, tooltips, channel expand/form logic).
 templ Base(title string, loggedIn bool, content templ.Component) {
     <!doctype html>
     <html lang="en">
@@ -33,7 +37,7 @@ templ Base(title string, loggedIn bool, content templ.Component) {
                 }
             </nav>
 
-            <!-- Navbar script-->
+            <!-- Navbar active link highlight - sets background on the nav link matching the current path -->
             <script>
                 (function() {
                     var path = window.location.pathname;
@@ -50,11 +54,88 @@ templ Base(title string, loggedIn bool, content templ.Component) {
             <!-- Bootstrap JS Bundle -->
             <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
 
-            <!--Script for message box popup in Channels page on '?' hover-->
+            <!-- Bootstrap tooltip initialisation - runs on page load and after every HTMX swap -->
             <script>
-                document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
-                    new bootstrap.Tooltip(el);
-                });
+                (function () {
+                    function initTooltips(root) {
+                        root.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+                            if (!bootstrap.Tooltip.getInstance(el)) {
+                                new bootstrap.Tooltip(el);
+                            }
+                        });
+                    }
+
+                    document.addEventListener("DOMContentLoaded", function () {
+                        initTooltips(document);
+                    });
+
+                    document.body.addEventListener("htmx:afterSwap", function (event) {
+                        initTooltips(event.target);
+                    });
+                })();
+            </script>
+
+            <!-- Mattermost details expand/collapse - toggles the details panel and chevron icon on click -->
+            <script>
+                (function () {
+                    document.addEventListener("click", function (event) {
+                        const btn = event.target.closest(".js-channel-expand");
+                        if (!btn) return;
+
+                        const detailsId = btn.dataset.detailsId;
+                        const details = document.getElementById(detailsId);
+                        if (!details) return;
+
+                        const isHidden = details.classList.contains("d-none");
+                        details.classList.toggle("d-none");
+
+                        const mainRow = btn.closest(".js-channel-main-row");
+                        if (mainRow) {
+                            mainRow.classList.toggle("expanded", isHidden);
+                        }
+
+                        const icon = btn.querySelector("i");
+                        if (!icon) return;
+                        icon.classList.toggle("bi-chevron-down");
+                        icon.classList.toggle("bi-chevron-up");
+                    });
+                })();
+            </script>
+
+            <!-- New channel form type selector - shows/hides Mattermost specific fields when the type dropdown changes -->
+            <script>
+                (function () {
+                    function handleTypeChange(select) {
+                        const mm = select.value === 'webhook_mattermost';
+                        const suffix = select.closest('form').dataset.formId;
+                        const form = select.closest('form');
+
+                        const username = document.getElementById('mm-username-' + suffix);
+                        const col2 = document.getElementById('mm-fields-col2-' + suffix);
+                        if (!username || !col2) return;
+
+                        username.classList.toggle('d-none', !mm);
+                        if (mm) {
+                            col2.classList.remove('d-none');
+                            col2.classList.add('d-flex');
+                            form.classList.remove('rounded-5');
+                            form.classList.add('rounded-4-5');
+                        } else {
+                            col2.classList.remove('d-flex');
+                            col2.classList.add('d-none');
+                            if (!form.dataset.errorForm) {
+                                form.classList.remove('rounded-4-5');
+                                form.classList.add('rounded-5');
+                            }
+                        }
+                    }
+
+                    document.body.addEventListener('change', function (e) {
+                        const select = e.target.closest('select[name="type"]');
+                        if (!select) return;
+                        handleTypeChange(select);
+                    });
+                })();
             </script>
 
             
@@ -74,6 +155,12 @@ templ Base(title string, loggedIn bool, content templ.Component) {
                 .form-check-input:checked {
                     background-color: #009DE0;
                     border-color: #009DE0;
+                }
+                .js-channel-main-row.expanded {
+                    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+                }
+                .rounded-4-5 {
+                    border-radius: 1.25rem !important;
                 }
             </style>
         </body>

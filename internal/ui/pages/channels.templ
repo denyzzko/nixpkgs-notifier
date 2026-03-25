@@ -5,22 +5,234 @@ import (
     "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
 )
 
+// ChannelVM is the view model for a single configured notification channel.
+// Webhook-specific fields (WebhookType, WebhookUsername, etc.) are empty for email channels.
 type ChannelVM struct {
     ID                   int64
     Type                 string // "Email" or "Webhook"
+    WebhookType          string // "generic" or "mattermost" (empty for emails)
     Address              string
     IsEnabled            bool
     NotifyOnManualVerify bool
+    WebhookUsername      string
+    WebhookChannel       string
+    WebhookPriority      string
+    WebhookRequestAck    bool
 }
 
+// ChannelsVM is top-level view model for the channels management page.
 type ChannelsVM struct {
     Channels []ChannelVM
 }
 
+// mmHiddenClass returns an empty string for Mattermost webhook forms (visible),
+// or " d-none" for all other types (hidden).
+func mmHiddenClass(chType string) string {
+    if chType == "webhook_mattermost" {
+        return ""
+    }
+    return " d-none"
+}
+
+// mmFlexClass returns " d-flex" for Mattermost webhook forms (visible as flex),
+// or " d-none" for all other types (hidden).
+func mmFlexClass(chType string) string {
+    if chType == "webhook_mattermost" {
+        return " d-flex"
+    }
+    return " d-none"
+}
+
+// boolStr converts a bool to its string representation ("true" / "false").
+func boolStr(v bool) string {
+    if v {
+        return "true"
+    }
+    return "false"
+}
+
+// ChannelsPage is the notification channels management page wrapped in base layout.
 templ ChannelsPage(vm ChannelsVM) {
     @layout.Base("Channels", true, ChannelsContent(vm))
 }
 
+// ChannelTypeCell renders the type column cell with an icon and label.
+// Email channels show an envelope icon, Mattermost webhooks show Mattermost logo and generic webhooks show a link icon.
+templ ChannelTypeCell(ch ChannelVM) {
+	<div class="d-flex align-items-center gap-2" style="flex: 2;">
+		if ch.Type == "Email" {
+			<i
+				class="bi bi-envelope text-white"
+				data-bs-toggle="tooltip"
+				data-bs-placement="top"
+				title="E-mail"
+			></i>
+			<span class="small text-white">Email</span>
+		} else if ch.WebhookType == "mattermost" {
+			<img
+				src="https://cdn.simpleicons.org/mattermost/white"
+				width="15"
+				height="15"
+				alt="Mattermost"
+				data-bs-toggle="tooltip"
+				data-bs-placement="top"
+				title="Mattermost webhook"
+			/>
+			<span class="small text-white">Webhook</span>
+		} else {
+			<i
+				class="bi bi-link-45deg text-white"
+				data-bs-toggle="tooltip"
+				data-bs-placement="top"
+				title="Generic webhook"
+			></i>
+			<span class="small text-white">Webhook</span>
+		}
+	</div>
+}
+
+// ChannelAddressCell renders the address column cell (email address or webhook URL).
+// Long addresses are truncated with full value available on hover.
+templ ChannelAddressCell(ch ChannelVM) {
+	<div style="flex: 5;">
+		<span
+            class="small text-truncate d-block"
+            style="color: #AAAAAA; max-width: 439px;"
+            title={ch.Address}
+        >
+			{ch.Address}
+		</span>
+	</div>
+}
+
+// ChannelEnabledToggle renders the enabled toggle switch.
+// Toggling it POSTs to /channel/toggle/enabled/{id} and swaps the channel row via HTMX.
+templ ChannelEnabledToggle(ch ChannelVM) {
+	<div class="d-flex justify-content-center" style="flex: 1;">
+		<div class="form-check form-switch mb-0">
+			<input
+				class="form-check-input"
+				type="checkbox"
+				checked?={ch.IsEnabled}
+				hx-post={fmt.Sprintf("/channel/toggle/enabled/%d", ch.ID)}
+				hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.IsEnabled)}
+				hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+				hx-swap="outerHTML"
+			/>
+		</div>
+	</div>
+}
+
+// ChannelManualToggle renders the notify_on_manual_verify toggle switch.
+// Toggling it POSTs to /channel/toggle/manual/{id} and swaps the channel row via HTMX.
+templ ChannelManualToggle(ch ChannelVM) {
+	<div class="d-flex justify-content-center" style="flex: 1;">
+		<div class="form-check form-switch mb-0">
+			<input
+				class="form-check-input"
+				type="checkbox"
+				checked?={ch.NotifyOnManualVerify}
+				hx-post={fmt.Sprintf("/channel/toggle/manual/%d", ch.ID)}
+				hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.NotifyOnManualVerify)}
+				hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+				hx-swap="outerHTML"
+			/>
+		</div>
+	</div>
+}
+
+// ChannelButtons renders the action buttons for a channel row.
+// Mattermost channels also get a expand button to show Mattermost details.
+// All channels have a Test button (POST /channel/test/{id}) and a Delete button (POST /channel/delete/{id}).
+templ ChannelButtons(ch ChannelVM) {
+	<div class="d-flex gap-2 justify-content-end align-items-center" style="flex: 2;">
+		if ch.WebhookType == "mattermost" {
+			<button
+				type="button"
+				class="btn btn-sm rounded-circle d-flex align-items-center justify-content-center js-channel-expand"
+				style="width: 24px; height: 24px; border: 1px solid #AAAAAA; color: #AAAAAA; padding: 0; font-size: 0.65rem;"
+				data-details-id={fmt.Sprintf("channel-details-%d", ch.ID)}
+			>
+				<i class="bi bi-chevron-down" style="display: block; margin-top: 3px;"></i>
+			</button>
+		}
+
+		<button
+			class="btn btn-sm rounded-5 px-3"
+			style="border: 1px solid #009DE0; color: #009DE0;"
+			hx-post={fmt.Sprintf("/channel/test/%d", ch.ID)}
+			hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+			hx-swap="outerHTML"
+		>
+			Test
+		</button>
+
+		<button
+			class="btn btn-sm rounded-5 px-3"
+			style="border: 1px solid #FF6F6F; color: #FF6F6F;"
+			hx-post={fmt.Sprintf("/channel/delete/%d", ch.ID)}
+			hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+			hx-swap="outerHTML"
+		>
+			<i class="bi bi-trash"></i>
+		</button>
+	</div>
+}
+
+// MattermostDetails renders the collapsable details panel below a Mattermost channel row.
+// It displays configured username, channel, priority, and request ack settings.
+templ MattermostDetails(ch ChannelVM) {
+	if ch.WebhookType == "mattermost" {
+		<div
+            id={fmt.Sprintf("channel-details-%d", ch.ID)}
+            class="ps-3 pe-2 pt-4 pb-2 d-none"
+            style="background: #3D3D3D; border-radius: 0 0 1.5rem 1.5rem; margin-top: -1.25rem;"
+        >
+			<div class="d-flex align-items-center gap-4">
+				<div>
+					<span class="small" style="color: #AAAAAA;">Username: </span>
+					<span class="small text-white">{ch.WebhookUsername}</span>
+				</div>
+				<div>
+					<span class="small" style="color: #AAAAAA;">Channel: </span>
+					<span class="small text-white">{ch.WebhookChannel}</span>
+				</div>
+				<div>
+					<span class="small" style="color: #AAAAAA;">Priority: </span>
+					<span class="small text-white">{ch.WebhookPriority}</span>
+				</div>
+				<div>
+					<span class="small" style="color: #AAAAAA;">Request Ack: </span>
+					<span class="small text-white">{boolStr(ch.WebhookRequestAck)}</span>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+// ChannelRow renders a full channel row including the main row cells, optional Mattermost details panel,
+// and an optional status message (e.g. after a test or error).
+templ ChannelRow(ch ChannelVM, msgClass string, msg string) {
+	<div id={fmt.Sprintf("channel-%d", ch.ID)} class="d-flex flex-column">
+        <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2 js-channel-main-row position-relative z-1" style="background: #474747;">
+			@ChannelTypeCell(ch)
+			@ChannelAddressCell(ch)
+			@ChannelEnabledToggle(ch)
+            <div style="flex: 1;"></div>
+			@ChannelManualToggle(ch)
+			@ChannelButtons(ch)
+		</div>
+
+		@MattermostDetails(ch)
+
+		if msg != "" {
+			<small class={msgClass + " ps-3"}>{msg}</small>
+		}
+	</div>
+}
+
+// ChannelsContent renders the main content area of channels page.
+// Includes the card header with the add-channel button and channel list.
 templ ChannelsContent(vm ChannelsVM) {
     <div style="padding-top: 5rem; padding-bottom: 2rem;">
         <div style="max-width: 1100px; width: 100%; margin: 0 auto;">
@@ -51,20 +263,22 @@ templ ChannelsContent(vm ChannelsVM) {
                     <!-- Column names -->
                     <div class="d-flex ps-3 pe-2 align-items-end">
                         <!-- Channel type (Email/Webhook) -->
-                        <div style="flex: 1;">
+                        <div style="flex: 2;">
                             <span class="small" style="color: #AAAAAA;">Type</span>
                         </div>
-                        <!-- Channel adress (Email adress/Webhook URL) name -->
-                        <div style="flex: 3;">
+                        <!-- Channel adress (Email adress/Webhook URL) -->
+                        <div style="flex: 5;">
                             <span class="small" style="color: #AAAAAA;">Address</span>
                         </div>
                         <!-- Channel Enabled -->
                         <div class="d-flex justify-content-center" style="flex: 1;">
                             <span class="small" style="color: #AAAAAA;">Enabled</span>
                         </div>
+                        <!-- - -->
+                        <div style="flex: 1;"></div>
                         <!-- Channel notify on manual verify -->
-                        <div class="d-flex justify-content-center" style="flex: 1;">
-                            <span class="small ms-4" style="color: #AAAAAA;">Notify on manual verify 
+                        <div class="d-flex justify-content-center" style="flex: 2;">
+                            <span class="small me-5" style="color: #AAAAAA;">Notify on manual verify 
                                 <i
                                     class="bi bi-question-circle small"
                                     style="color: #AAAAAA; cursor: pointer;"
@@ -90,6 +304,8 @@ templ ChannelsContent(vm ChannelsVM) {
     </div>
 }
 
+// ChannelList renders all channel rows, with an empty slot at the top for the add-channel form,
+// or a placeholder message when no channels are configured.
 templ ChannelList(channels []ChannelVM) {
     <div class="d-flex flex-column gap-2">
         <div id="new-channel-slot"></div>
@@ -102,173 +318,104 @@ templ ChannelList(channels []ChannelVM) {
     }
 }
 
+// ChannelItem renders a channel row with no status message.
 templ ChannelItem(ch ChannelVM) {
-    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("channel-%d", ch.ID)}>
-
-        <!-- Channel type (Email/Webhook) -->
-        <div class="d-flex align-items-center gap-2" style="flex: 1;">
-            if ch.Type == "Email" {
-                <i class="bi bi-envelope text-white"></i>
-                <span class="small text-white">Email</span>
-            } else {
-                <i class="bi bi-link-45deg text-white"></i>
-                <span class="small text-white">Webhook</span>
-            }
-        </div>
-        <!-- Channel address (Email address/Webhook URL) -->
-        <div style="flex: 3;">
-            <span class="small text-truncate" style="color: #AAAAAA; max-width: 439px; display: block;" title={ch.Address}>{ch.Address}</span>
-        </div>
-        <!-- Toggle enabled -->
-        <div class="d-flex justify-content-center" style="flex: 1;">
-            <div class="form-check form-switch mb-0">
-                <input
-                    class="form-check-input"
-                    type="checkbox"
-                    checked?={ch.IsEnabled}
-                    hx-post={fmt.Sprintf("/channel/toggle/enabled/%d", ch.ID)}
-                    hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.IsEnabled)}
-                    hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
-                    hx-swap="outerHTML"
-                />
-            </div>
-        </div>
-        <!-- Toggle notify on manual verify -->
-        <div class="d-flex justify-content-center" style="flex: 1;">
-            <div class="form-check form-switch mb-0">
-                <input
-                    class="form-check-input"
-                    type="checkbox"
-                    checked?={ch.NotifyOnManualVerify}
-                    hx-post={fmt.Sprintf("/channel/toggle/manual/%d", ch.ID)}
-                    hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.NotifyOnManualVerify)}
-                    hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
-                    hx-swap="outerHTML"
-                />
-            </div>
-        </div>
-        <!-- Buttons -->
-        <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
-            <!-- Test button -->
-            <button
-                class="btn btn-sm rounded-5 px-3"
-                style="border: 1px solid #009DE0; color: #009DE0;"
-                hx-post={fmt.Sprintf("/channel/test/%d", ch.ID)}
-                hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
-                hx-swap="outerHTML"
-            >
-                Test
-            </button>
-            <!-- Delete button -->
-            <button
-                class="btn btn-sm rounded-5 px-3"
-                style="border: 1px solid #FF6F6F; color: #FF6F6F;"
-                hx-post={fmt.Sprintf("/channel/delete/%d", ch.ID)}
-                hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
-                hx-swap="outerHTML"
-            >
-                <i class="bi bi-trash"></i>
-            </button>
-        </div>
-
-    </div>
+	@ChannelRow(ch, "", "")
 }
 
+// ChannelItemWithMessage renders a channel row with a status message below it (e.g. test result or error).
+templ ChannelItemWithMessage(ch ChannelVM, msgClass string, msg string) {
+	@ChannelRow(ch, msgClass, msg)
+}
+
+// NewChannelForm renders inline form for adding a new notification channel.
+// Selecting "Mattermost Webhook" in the type dropdown reveals extra Mattermost specific fields.
+// Submits via HTMX POST to /channel/add, replacing new-channel-slot with the result.
 templ NewChannelForm() {
     <form
-        class="d-flex align-items-center rounded-5 ps-2 pe-2 py-2 mt-2 gap-2"
+        class="rounded-5 p-2 ps-1 pe-1 mt-2"
         style="background: #474747;"
+        data-form-id="new"
         hx-post="/channel/add"
         hx-target="#new-channel-slot"
         hx-swap="innerHTML"
     >
-        <!-- Channel type select (Email/Webhook) -->
-        <div style="flex: 1;">
-            <select class="form-select form-select-sm rounded-5 border-0 text-white" style="background: #7E7E7E;" name="type" required>
-                <option value="email">Email</option>
-                <option value="webhook">Webhook</option>
-            </select>
-        </div>
-        <!-- Channel adress input -->
-        <div style="flex: 2;">
-            <input
-                class="form-control form-control-sm rounded-5 border-0 text-white"
-                style="background: #7E7E7E;"
-                type="text"
-                name="address"
-                placeholder="Enter email address or webhook URL..."
-                required
-                autofocus
-            />
-        </div>
-        <!-- Toggle notify on manual verify -->
-        <div class="d-flex justify-content-end" style="flex: 2;">
-            <div class="form-check form-switch mb-0" style="margin-right: 1rem;">
-                <input class="form-check-input" type="checkbox" name="notify_on_manual_verify" id="new-manual"/>
-            </div>
-        </div>
-        <!-- Buttons -->
-        <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
-            <!-- Button submit -->
-            <button type="submit" class="btn btn-sm rounded-5 px-4" style="border: 1px solid #68FF90; color: #68FF90;">
-                <i class="bi bi-check-lg"></i>
-            </button>
-            <!-- Button cancel -->
-            <button
-                type="button"
-                class="btn btn-sm rounded-5 px-3"
-                style="background: #6C6C6C; color: white; border: none;"
-                hx-get="/channel/add/cancel"
-                hx-target="#new-channel-slot"
-                hx-swap="innerHTML"
-            >
-                <i class="bi bi-x-lg"></i>
-            </button>
-        </div>
-    </form>
-}
+        <div class="row g-2 mx-0 align-items-stretch">
 
-templ NewChannelError(chType string, address string, message string) {
-    <form
-        class="d-flex flex-column gap-2 rounded-5 ps-3 pe-2 py-3"
-        style="background: #474747;"
-        hx-post="/channel/add"
-        hx-target="#new-channel-slot"
-        hx-swap="innerHTML"
-    >
-        <div class="d-flex align-items-center gap-3">
-            <!-- Channel type select (Email/Webhook) -->
-            <div style="flex: 1;">
-                <select class="form-select form-select-sm rounded-5 border-0 text-white" style="background: #7E7E7E;" name="type" required>
-                    <option value="email" selected?={chType == "email"}>Email</option>
-                    <option value="webhook" selected?={chType == "webhook"}>Webhook</option>
+            <!-- Column 1: Type (+ Username - Mattermost only) -->
+            <div class="col-2 d-flex flex-column gap-2">
+                <select
+                    class="form-select form-select-sm rounded-5 border-0 text-white"
+                    style="background: #7E7E7E; padding-right: .5rem;"
+                    name="type"
+                    required
+                >
+                    <option value="email">Email</option>
+                    <option value="webhook_generic">Generic Webhook</option>
+                    <option value="webhook_mattermost">Mattermost Webhook</option>
                 </select>
+                <input
+                    id="mm-username-new"
+                    class="form-control form-control-sm rounded-5 border-0 text-white d-none"
+                    style="background: #7E7E7E;"
+                    type="text" name="username" placeholder="Username"
+                />
             </div>
-            <!-- Channel adress input -->
-            <div style="flex: 2;">
+
+            <!-- Column 2: Address (+ Channel/Priority/Req.Ack - Mattermost only) -->
+            <div class="col-5 d-flex flex-column gap-2">
                 <input
                     class="form-control form-control-sm rounded-5 border-0 text-white"
                     style="background: #7E7E7E;"
                     type="text"
                     name="address"
-                    value={address}
-                    placeholder="Email address or webhook URL"
+                    placeholder="Enter email address or webhook URL..."
                     required
+                    autofocus
                 />
+                <div id="mm-fields-col2-new" class="d-none gap-2">
+                <input
+                    class="form-control form-control-sm rounded-5 border-0 text-white"
+                    style="background: #7E7E7E; flex: 1.5;"
+                    type="text" name="channel" placeholder="Channel"
+                />
+                <select
+                    class="form-select form-select-sm rounded-5 border-0 text-white pe-2"
+                    style="background: #7E7E7E; flex: 1.25;"
+                    name="priority"
+                >
+                    <option value="">Priority: None</option>
+                    <option value="important">Priority: Important</option>
+                    <option value="urgent">Priority: Urgent</option>
+                </select>
+                <select
+                    class="form-select form-select-sm rounded-5 border-0 text-white pe-2"
+                    style="background: #7E7E7E; flex: 1.25;"
+                    name="request_ack"
+                >
+                        <option value="false">Request Ack: false</option>
+                        <option value="true">Request Ack: true</option>
+                    </select>
+                </div>
             </div>
-            <!-- Toggle notify on manual verify -->
-            <div class="d-flex justify-content-center" style="flex: 1;">
-                <div class="form-check form-switch mb-0">
+            <!-- Column 3: empty (toggle enabled in normal item) -->
+            <div class="col-1"></div>
+
+            <!-- Column 4: empty (always empty also in normal item) -->
+            <div class="col-1"></div>
+            
+            <!-- Column 5: Notify on manual verify Toggle -->
+            <div class="col-1 d-flex align-items-center justify-content-center gap-2">
+                <div class="form-check form-switch mb-0 me-1">
                     <input class="form-check-input" type="checkbox" name="notify_on_manual_verify" id="new-manual"/>
                 </div>
             </div>
-            <!-- Buttons -->
-            <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
-                <!-- Button submit -->
-                <button type="submit" class="btn btn-success btn-sm rounded-5 px-3">
+
+            <!-- Column 6: Submit and Cancel Buttons -->
+            <div class="col-2 d-flex align-items-center justify-content-end gap-2">
+                <button type="submit" class="btn btn-sm rounded-5 px-4" style="border: 1px solid #68FF90; color: #68FF90;">
                     <i class="bi bi-check-lg"></i>
                 </button>
-                <!-- Button cancel -->
                 <button
                     type="button"
                     class="btn btn-sm rounded-5 px-3"
@@ -280,82 +427,114 @@ templ NewChannelError(chType string, address string, message string) {
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
+
+        </div>
+    </form>
+}
+
+// NewChannelError re-renders form pre-filled with the submitted values and shows an error message below it.
+// Used when server rejects the submission.
+templ NewChannelError(chType string, address string, message string) {
+    <form
+        class="rounded-4-5 p-2 ps-1 pe-1 mt-2 overflow-hidden"
+        style="background: #474747;"
+        data-form-id="error"
+        data-error-form="true"
+        hx-post="/channel/add"
+        hx-target="#new-channel-slot"
+        hx-swap="innerHTML"
+    >
+        <div class="row g-2 mx-0 align-items-stretch">
+
+            <!-- Column 1: Type (+ Username - Mattermost only) -->
+            <div class="col-2 d-flex flex-column gap-2">
+                <select
+                    class="form-select form-select-sm rounded-5 border-0 text-white"
+                    style="background: #7E7E7E; padding-right: .5rem;"
+                    name="type"
+                    required
+                >
+                    <option value="email" selected?={chType == "email"}>Email</option>
+                    <option value="webhook_generic" selected?={chType == "webhook_generic"}>Generic Webhook</option>
+                    <option value="webhook_mattermost" selected?={chType == "webhook_mattermost"}>Mattermost Webhook</option>
+                </select>
+                <input
+                    id="mm-username-error"
+                    class={"form-control form-control-sm rounded-5 border-0 text-white" + mmHiddenClass(chType)}
+                    style="background: #7E7E7E;"
+                    type="text" name="username" placeholder="Username"
+                />
+            </div>
+
+            <!-- Column 2: Address (+ Channel/Priority/Req.Ack - Mattermost only) -->
+            <div class="col-5 d-flex flex-column gap-2">
+                <input
+                    class="form-control form-control-sm rounded-5 border-0 text-white"
+                    style="background: #7E7E7E;"
+                    type="text"
+                    name="address"
+                    value={address}
+                    placeholder="Enter email address or webhook URL..."
+                    required
+                />
+                <div id="mm-fields-col2-error" class={"gap-2" + mmFlexClass(chType)}>
+                    <input
+                        class="form-control form-control-sm rounded-5 border-0 text-white"
+                        style="background: #7E7E7E; flex: 1.5;"
+                        type="text" name="channel" placeholder="Channel"
+                    />
+                    <select
+                        class="form-select form-select-sm rounded-5 border-0 text-white pe-2"
+                        style="background: #7E7E7E; flex: 1.25;"
+                        name="priority"
+                    >
+                        <option value="">Priority: None</option>
+                        <option value="important">Priority: Important</option>
+                        <option value="urgent">Priority: Urgent</option>
+                    </select>
+                    <select
+                        class="form-select form-select-sm rounded-5 border-0 text-white pe-2"
+                        style="background: #7E7E7E; flex: 1.25;"
+                        name="request_ack"
+                    >
+                        <option value="false">Req. Ack: false</option>
+                        <option value="true">Req. Ack: true</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Column 3: empty (toggle enabled in normal item) -->
+            <div class="col-1"></div>
+
+            <!-- Column 4: empty (always empty also in normal item) -->
+            <div class="col-1"></div>
+
+            <!-- Column 5: Notify on manual verify Toggle-->
+            <div class="col-1 d-flex align-items-center justify-content-center gap-2">
+                <div class="form-check form-switch mb-0 me-1">
+                    <input class="form-check-input" type="checkbox" name="notify_on_manual_verify" id="new-manual-error"/>
+                </div>
+            </div>
+
+            <!-- Column 6: Submit and Cancel Buttons -->
+            <div class="col-2 d-flex align-items-center justify-content-end gap-2">
+                <button type="submit" class="btn btn-sm rounded-5 px-4" style="border: 1px solid #68FF90; color: #68FF90;">
+                    <i class="bi bi-check-lg"></i>
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-sm rounded-5 px-3"
+                    style="background: #6C6C6C; color: white; border: none;"
+                    hx-get="/channel/add/cancel"
+                    hx-target="#new-channel-slot"
+                    hx-swap="innerHTML"
+                >
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
         </div>
         <!-- Error message -->
         <small class="text-danger px-2">{message}</small>
     </form>
-}
-
-templ ChannelItemWithMessage(ch ChannelVM, msgClass string, msg string) {
-    <div class="d-flex flex-column gap-1" id={fmt.Sprintf("channel-%d", ch.ID)}>
-        <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;">
-
-            <!-- Channel type (Email/Webhook) -->
-            <div class="d-flex align-items-center gap-2" style="flex: 1;">
-                if ch.Type == "Email" {
-                    <i class="bi bi-envelope text-white"></i>
-                    <span class="small text-white">Email</span>
-                } else {
-                    <i class="bi bi-link-45deg text-white"></i>
-                    <span class="small text-white">Webhook</span>
-                }
-            </div>
-            <!-- Channel address -->
-            <div style="flex: 3;">
-                <span class="small text-truncate" style="color: #AAAAAA; max-width: 439px; display: block;" title={ch.Address}>{ch.Address}</span>
-            </div>
-            <!-- Toggle enabled -->
-            <div class="d-flex justify-content-center" style="flex: 1;">
-                <div class="form-check form-switch mb-0">
-                    <input
-                        class="form-check-input"
-                        type="checkbox"
-                        checked?={ch.IsEnabled}
-                        hx-post={fmt.Sprintf("/channel/toggle/enabled/%d", ch.ID)}
-                        hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.IsEnabled)}
-                        hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
-                        hx-swap="outerHTML"
-                    />
-                </div>
-            </div>
-            <!-- Toggle notify on manual verify -->
-            <div class="d-flex justify-content-center" style="flex: 1;">
-                <div class="form-check form-switch mb-0">
-                    <input
-                        class="form-check-input"
-                        type="checkbox"
-                        checked?={ch.NotifyOnManualVerify}
-                        hx-post={fmt.Sprintf("/channel/toggle/manual/%d", ch.ID)}
-                        hx-vals={fmt.Sprintf(`{"value": "%t"}`, !ch.NotifyOnManualVerify)}
-                        hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
-                        hx-swap="outerHTML"
-                    />
-                </div>
-            </div>
-            <!-- Buttons -->
-            <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
-                <button
-                    class="btn btn-sm rounded-5 px-3"
-                    style="border: 1px solid #009DE0; color: #009DE0;"
-                    hx-post={fmt.Sprintf("/channel/test/%d", ch.ID)}
-                    hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
-                    hx-swap="outerHTML"
-                >
-                    Test
-                </button>
-                <button
-                    class="btn btn-sm rounded-5 px-3"
-                    style="border: 1px solid #FF6F6F; color: #FF6F6F;"
-                    hx-post={fmt.Sprintf("/channel/delete/%d", ch.ID)}
-                    hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
-                    hx-swap="outerHTML"
-                >
-                    <i class="bi bi-trash"></i>
-                </button>
-            </div>
-
-        </div>
-        <!-- Message (error/success) -->
-        <small class={msgClass} style="padding-left: 1rem;">{msg}</small>
-    </div>
 }

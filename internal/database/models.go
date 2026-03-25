@@ -62,13 +62,28 @@ type TrackedPackage struct {
 	CurrentVersion      string     // current version of package
 }
 
+// Email channel details
+type Email struct {
+	Address string
+}
+
+// Webhook channel details
+type Webhook struct {
+	URL        string
+	Type       string // "generic" or "mattermost"
+	Username   string // mattermost only (empty string for generic)
+	Channel    string // mattermost only (empty string for generic)
+	Priority   string // mattermost only (empty string for generic)
+	RequestAck bool   // mattermost only (false string for generic)
+}
+
 // An enabled channel belonging to a user (with email or webhook details)
 // used when sending notifications
 type ActiveChannel struct {
 	ChannelID            int64
 	UserID               int64
-	EmailAddress         *string
-	WebhookURL           *string
+	Email                *Email   // nil for webhook
+	Webhook              *Webhook // nil for email
 	NotifyOnManualVerify bool
 }
 
@@ -76,8 +91,8 @@ type ActiveChannel struct {
 type UserChannel struct {
 	ID                   int64
 	IsEnabled            bool
-	EmailAddress         *string
-	WebhookURL           *string
+	Email                *Email   // nil for webhook
+	Webhook              *Webhook // nil for email
 	NotifyOnManualVerify *bool
 }
 
@@ -97,8 +112,8 @@ type UserNotification struct {
 	ErrorMessage  *string
 	PackageName   string
 	PackageBranch string
-	EmailAddress  *string
-	WebhookURL    *string
+	Email         *Email   // nil for webhook
+	Webhook       *Webhook // nil for email
 }
 
 // Status of notification
@@ -122,6 +137,6 @@ type PendingFailedNotification struct {
 	DetectedAt    time.Time
 	AttemptCount  int
 	UserID        int64
-	EmailAddress  *string
-	WebhookURL    *string
+	Email         *Email   // nil for webhook
+	Webhook       *Webhook // nil for email
 }

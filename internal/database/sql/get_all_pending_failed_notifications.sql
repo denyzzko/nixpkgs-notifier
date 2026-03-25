@@ -9,7 +9,12 @@ SELECT n.id,
        n.attempt_count,
        c.user_id,
        e.email_address,
-       w.webhook_url
+       w.webhook_url,
+       w.webhook_type,
+       w.username,
+       w.channel,
+       w.priority,
+       w.request_ack
 FROM notifications n
 JOIN channels c    ON c.id = n.channel_id
 JOIN packages p    ON p.id = n.package_id
