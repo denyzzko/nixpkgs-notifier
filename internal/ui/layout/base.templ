@@ -33,7 +33,9 @@ templ Base(title string, loggedIn bool, content templ.Component) {
                         <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/log" id="nav-log">Delivery Log</a>
                     </div>
 
-                    <button class="d-flex align-items-center px-3 fw-bold text-white border-0 rounded-5 flex-shrink-0" style="background: transparent;" hx-post="/auth/logout">Logout</button>
+                    <form method="POST" action="/auth/logout" class="m-0 p-0">
+                        <button type="submit" class="d-flex align-items-center px-3 fw-bold text-white border-0 rounded-5 flex-shrink-0" style="background: transparent;">Logout</button>
+                    </form>
                 }
             </nav>
 

@@ -77,11 +77,14 @@ func (s *SMTPSender) buildMessage(to, subject, body string) string {
 		body
 }
 
-// Delivers email with smtp.SendMail
-// smtp.SendMail opens TCP connection to SMTP server, negotiates STARTTLS,
-// authenticates with PLAIN auth, delivers message and closes connection
+// sendMail delivers an email via smtp.SendMail.
+// Opens TCP connection to SMTP server and negotiates STARTTLS if the server supports it.
+// Authenticates with PLAIN auth (if credentials are configured), delivers message and closes connection.
 func (s *SMTPSender) sendMail(to, msg string) error {
-	auth := smtp.PlainAuth("", s.username, s.password, s.host)
+	var auth smtp.Auth
+	if s.username != "" || s.password != "" {
+		auth = smtp.PlainAuth("", s.username, s.password, s.host)
+	}
 	addr := s.host + ":" + s.port
 
 	err := smtp.SendMail(addr, auth, s.from, []string{to}, []byte(msg))
