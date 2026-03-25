@@ -81,6 +81,9 @@ var dRemoveTracking string
 //go:embed sql/remove_channel.sql
 var dRemoveChannel string
 
+//go:embed sql/remove_package.sql
+var dRemovePackage string
+
 //go:embed sql/update_notification_status_to_sent_by_ID.sql
 var sUpdateNotificationToSent string
 
@@ -366,6 +369,15 @@ func (db *Store) DeleteTracking(ctx context.Context, userID int64, packageID int
 	}
 	if result.RowsAffected() == 0 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// Deletes a package by ID (used to rollback a newly created package when nix eval fails)
+func (db *Store) DeletePackage(ctx context.Context, packageID int64) error {
+	_, err := db.pool.Exec(ctx, dRemovePackage, packageID)
+	if err != nil {
+		return fmt.Errorf("database.DeletePackage: error deleting package (id=%d): %w", packageID, err)
 	}
 	return nil
 }

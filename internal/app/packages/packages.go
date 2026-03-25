@@ -97,6 +97,7 @@ func Track(ctx context.Context, db *database.Store, sessionManager *session.Sess
 
 	// get or create package id by name and branch
 	var packageID int64
+	var newPackage bool
 	pckg, err := db.QueryPackageByNameAndBranch(ctx, packageName, packageBranch)
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
@@ -105,6 +106,7 @@ func Track(ctx context.Context, db *database.Store, sessionManager *session.Sess
 			if err != nil {
 				return trackedPackage, appError.NewAppError(op, appError.Internal, "failed to store package", err)
 			}
+			newPackage = true
 		} else {
 			return trackedPackage, appError.NewAppError(op, appError.Internal, "failed to query package", err)
 		}
@@ -114,12 +116,12 @@ func Track(ctx context.Context, db *database.Store, sessionManager *session.Sess
 	}
 
 	// guard: if user already tracks this package, return error message
-	existing, err := db.QueryTracking(ctx, userID, packageID)
+	_, err = db.QueryTracking(ctx, userID, packageID)
 	if err != nil && !errors.Is(err, database.ErrNotFound) {
 		return trackedPackage, appError.NewAppError(op, appError.Internal, "failed to query tracking", err)
 	}
-	if err == nil && existing.LastNotifiedVersion != "" {
-		// user is already tracking this package
+	if err == nil {
+		// tracking row exists (even with empty last_notified_version = still initializing)
 		return trackedPackage, appError.NewAppError(op, appError.Invalid, "You already track this package", err)
 	}
 
@@ -137,7 +139,7 @@ func Track(ctx context.Context, db *database.Store, sessionManager *session.Sess
 	}
 
 	// launch goroutine to run nix eval and set version baseline
-	go initializePackageBaseline(db, chk, userID, packageID, packageName, packageBranch)
+	go initializePackageBaseline(db, chk, userID, packageID, packageName, packageBranch, newPackage)
 
 	return trackedPackage, nil
 }
@@ -145,10 +147,12 @@ func Track(ctx context.Context, db *database.Store, sessionManager *session.Sess
 // Runs nix eval for a newly tracked package and sets the version baseline
 // Launched as a goroutine by Track
 //
-// # On completion (success or failure), stores result in operationResults map so the polling endpoint can detect it
+// On completion (success or failure), stores result in operationResults map so the polling endpoint can detect it
+// When nix eval fails the created tracking record and package record (if it was newly created) are deleted. This is
+// because they should not exist with failed nix eval. (e.g. user entered wrong package name or branch)
 //
 // If the user untracked while the goroutine was running and retreiving version, StoreTracking is skipped to avoid recreating it
-func initializePackageBaseline(db *database.Store, chk *checker.Checker, userID int64, packageID int64, packageName string, packageBranch string) {
+func initializePackageBaseline(db *database.Store, chk *checker.Checker, userID int64, packageID int64, packageName string, packageBranch string, newPackage bool) {
 	const op = "packages.initializePackageBaseline"
 	bgCtx := context.Background()
 	resultKey := fmt.Sprintf("%d:%d", userID, packageID)
@@ -165,6 +169,18 @@ func initializePackageBaseline(db *database.Store, chk *checker.Checker, userID 
 
 	if nixResult.Err != nil {
 		log.Printf("[WARN] %s: nix eval failed for %q/%q: %v", op, packageName, packageBranch, nixResult.Err)
+
+		// rollback: remove the tracking record that was created
+		if err := db.DeleteTracking(bgCtx, userID, packageID); err != nil && !errors.Is(err, database.ErrNotFound) {
+			log.Printf("[WARN] %s: rollback tracking delete failed (%q/%q): %v", op, packageName, packageBranch, err)
+		}
+		// if the package was newly created in the system by this Track call -> also remove it
+		if newPackage {
+			if err := db.DeletePackage(bgCtx, packageID); err != nil {
+				log.Printf("[WARN] %s: rollback package delete failed (%q/%q): %v", op, packageName, packageBranch, err)
+			}
+		}
+
 		// signal polling endpoint that operation failed
 		operationResults.Store(resultKey, operationResult{
 			failed:    true,
@@ -230,7 +246,24 @@ func GetTrackStatus(ctx context.Context, db *database.Store, sessionManager *ses
 		return TrackStatus{}, appError.NewAppError(op, appError.Invalid, "invalid package id", err)
 	}
 
-	// fetch users tracked package
+	// check operationResults map
+	resultKey := fmt.Sprintf("%d:%d", userID, packageID)
+	val, ok := operationResults.LoadAndDelete(resultKey)
+	if ok {
+		result := val.(operationResult)
+		if result.failed {
+			// goroutine finished with failure
+			return TrackStatus{Done: true, Failed: true}, nil
+		}
+		// goroutine finished with success - fetch package to get updated data
+		pckg, err := db.QueryUsersTrackedPackage(ctx, userID, packageID)
+		if err != nil {
+			return TrackStatus{}, appError.NewAppError(op, appError.Internal, "failed to query tracked package after completion", err)
+		}
+		return TrackStatus{Done: true, Failed: false, Package: pckg}, nil
+	}
+
+	// goroutine has not finished yet - fetch current package state for the loading row
 	pckg, err := db.QueryUsersTrackedPackage(ctx, userID, packageID)
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
@@ -239,27 +272,7 @@ func GetTrackStatus(ctx context.Context, db *database.Store, sessionManager *ses
 		return TrackStatus{}, appError.NewAppError(op, appError.Internal, "failed to query tracked package", err)
 	}
 
-	// check operationResults map for completion signal
-	resultKey := fmt.Sprintf("%d:%d", userID, packageID)
-	val, ok := operationResults.LoadAndDelete(resultKey)
-	if !ok {
-		// goroutine has not finished yet
-		return TrackStatus{Done: false, Package: pckg}, nil
-	}
-
-	result := val.(operationResult)
-	if result.failed {
-		// goroutine finished with failure
-		return TrackStatus{Done: true, Failed: true, Package: pckg}, nil
-	}
-
-	// goroutine finished with success — re-fetch package to get updated data
-	pckg, err = db.QueryUsersTrackedPackage(ctx, userID, packageID)
-	if err != nil {
-		return TrackStatus{}, appError.NewAppError(op, appError.Internal, "failed to query tracked package after completion", err)
-	}
-
-	return TrackStatus{Done: true, Failed: false, Package: pckg}, nil
+	return TrackStatus{Done: false, Package: pckg}, nil
 }
 
 // Untrack deletes a tracking record for a user
