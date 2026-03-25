@@ -82,7 +82,7 @@ func (s *SMTPSender) buildMessage(to, subject, body string) string {
 // Authenticates with PLAIN auth (if credentials are configured), delivers message and closes connection.
 func (s *SMTPSender) sendMail(to, msg string) error {
 	var auth smtp.Auth
-	if s.username != "" || s.password != "" {
+	if s.username != "" && s.password != "" {
 		auth = smtp.PlainAuth("", s.username, s.password, s.host)
 	}
 	addr := s.host + ":" + s.port
