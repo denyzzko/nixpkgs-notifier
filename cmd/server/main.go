@@ -45,6 +45,12 @@ func main() {
 	defer db.Close()
 	log.Println("[INFO] Connected to the database!")
 
+	// run db migration (create tables if not exist)
+	err = db.RunMigrations(ctx)
+	if err != nil {
+		log.Fatalf("[ERROR] DATABASE: running migration failed!: %v", err)
+	}
+
 	// setup OIDC for authentication
 	provMap, err := auth.SetupProviders(ctx, cfg)
 	if err != nil {

@@ -1,14 +1,5 @@
-DROP TABLE IF EXISTS notifications;
-DROP TABLE IF EXISTS webhooks;
-DROP TABLE IF EXISTS emails;
-DROP TABLE IF EXISTS channels;
-DROP TABLE IF EXISTS trackings;
-DROP TABLE IF EXISTS packages;
-DROP TABLE IF EXISTS accounts;
-DROP TABLE IF EXISTS users;
-
 -- Users who track packages
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     username   TEXT NOT NULL,
@@ -16,7 +7,7 @@ CREATE TABLE users (
 );
 
 -- External identity linked to a local user (identity provider, subject -> user)
-CREATE TABLE accounts (
+CREATE TABLE IF NOT EXISTS accounts (
   user_id        BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   provider       TEXT NOT NULL,          -- "google", "authentik", "apple", ...
@@ -28,7 +19,7 @@ CREATE TABLE accounts (
 );
 
 -- Nixpkgs packages that users track (unique by name + branch)
-CREATE TABLE packages (
+CREATE TABLE IF NOT EXISTS packages (
     id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -40,7 +31,7 @@ CREATE TABLE packages (
 );
 
 -- Which package is tracked by which user
-CREATE TABLE trackings (
+CREATE TABLE IF NOT EXISTS trackings (
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     user_id                 BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -50,7 +41,7 @@ CREATE TABLE trackings (
 );
 
 -- Notification channels configured by users
-CREATE TABLE channels (
+CREATE TABLE IF NOT EXISTS channels (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -59,14 +50,14 @@ CREATE TABLE channels (
 );
 
 -- Email notification channel (specialization of Channel)
-CREATE TABLE emails (
+CREATE TABLE IF NOT EXISTS emails (
     channel_id      BIGINT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
     email_address   TEXT NOT NULL,
     notify_on_manual_verify BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Webhook notification channel (specialization of Channel)
-CREATE TABLE webhooks (
+CREATE TABLE IF NOT EXISTS webhooks (
     channel_id  BIGINT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
     webhook_url TEXT NOT NULL,
     webhook_type TEXT NOT NULL DEFAULT 'generic' CHECK (webhook_type IN ('generic', 'mattermost')),
@@ -78,7 +69,7 @@ CREATE TABLE webhooks (
 );
 
 -- Notification records tracking what notification was/will be send to users
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     channel_id      BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -92,14 +83,14 @@ CREATE TABLE notifications (
 );
 
 -- Indexes for query performance
-CREATE INDEX idx_accounts_user_id ON accounts(user_id);
-CREATE INDEX idx_trackings_user_id ON trackings(user_id);
-CREATE INDEX idx_trackings_package__id ON trackings(package_id);
-CREATE INDEX idx_channels_user_id ON channels(user_id);
-CREATE INDEX idx_notifications_channel_id ON notifications(channel_id);
-CREATE INDEX idx_notifications_package_id ON notifications(package_id);
-CREATE INDEX idx_notifications_status ON notifications(status);
-CREATE INDEX idx_packages_name_branch ON packages(name, branch);
+CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_trackings_user_id ON trackings(user_id);
+CREATE INDEX IF NOT EXISTS idx_trackings_package__id ON trackings(package_id);
+CREATE INDEX IF NOT EXISTS idx_channels_user_id ON channels(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_channel_id ON notifications(channel_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_package_id ON notifications(package_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
+CREATE INDEX IF NOT EXISTS idx_packages_name_branch ON packages(name, branch);
 
 -- Triggers for updated_at
 CREATE OR REPLACE FUNCTION update_updated_at()
@@ -110,16 +101,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS packages_updated_at_trigger ON packages;
 CREATE TRIGGER packages_updated_at_trigger
     BEFORE UPDATE ON packages
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 
+DROP TRIGGER IF EXISTS trackings_updated_at_trigger ON trackings;
 CREATE TRIGGER trackings_updated_at_trigger
     BEFORE UPDATE ON trackings
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 
+DROP TRIGGER IF EXISTS channels_updated_at_trigger ON channels;
 CREATE TRIGGER channels_updated_at_trigger
     BEFORE UPDATE ON channels
     FOR EACH ROW
@@ -141,6 +135,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS users_set_default_username_trigger ON users;
 CREATE TRIGGER users_set_default_username_trigger
     BEFORE INSERT ON users
     FOR EACH ROW
