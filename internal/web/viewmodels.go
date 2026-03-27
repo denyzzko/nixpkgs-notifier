@@ -1,8 +1,12 @@
 package web
 
 import (
+	"time"
+
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/channels"
+	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
+	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/pages"
 )
 
@@ -66,5 +70,40 @@ func notificationLogVM(n database.UserNotification, maxRetries int) pages.Notifi
 		AttemptCount:  n.AttemptCount,
 		MaxRetries:    maxRetries,
 		ErrorMessage:  errMsg,
+	}
+}
+
+// durationToUIValue converts duration (nanoseconds) to human-friendly value (number + unit)
+// Picks the largest unit that divides evenly (falling back to seconds).
+func durationToUIValue(d time.Duration) (float64, string) {
+	if d == 0 {
+		return 0, "seconds"
+	}
+	if d%time.Hour == 0 {
+		return float64(d / time.Hour), "hours"
+	}
+	if d%time.Minute == 0 {
+		return float64(d / time.Minute), "minutes"
+	}
+	return float64(d / time.Second), "seconds"
+}
+
+// systemConfigVM builds the view model for the admin system configuration page.
+func systemConfigVM(dispCfg dispatcher.Config, checkCfg checker.Config) pages.SystemConfigVM {
+	dispIntVal, dispIntUnit := durationToUIValue(dispCfg.Interval)
+	checkIntVal, checkIntUnit := durationToUIValue(checkCfg.Interval)
+	checkSkipIntVal, checkSkipIntUnit := durationToUIValue(checkCfg.SkipInterval)
+
+	return pages.SystemConfigVM{
+		NotificationDispatchIntervalVal:  dispIntVal,
+		NotificationDispatchIntervalUnit: dispIntUnit,
+		NotificationMaxRetries:           dispCfg.MaxRetries,
+		NotificationDisableOnMaxRetries:  dispCfg.DisableOnMaxRetries,
+		NotificationWorkerCount:          dispCfg.WorkerCount,
+		PackageCheckIntervalVal:          checkIntVal,
+		PackageCheckIntervalUnit:         checkIntUnit,
+		PackageCheckSkipIntervalVal:      checkSkipIntVal,
+		PackageCheckSkipIntervalUnit:     checkSkipIntUnit,
+		PackageCheckWorkerCount:          checkCfg.WorkerCount,
 	}
 }

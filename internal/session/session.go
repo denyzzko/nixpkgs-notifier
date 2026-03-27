@@ -80,6 +80,16 @@ func (sm *SessionManager) GetUserID(ctx context.Context) int64 {
 	return sm.manager.GetInt64(ctx, "userID")
 }
 
+// PutUserRole stores role of authenticated user in session.
+func (sm *SessionManager) PutUserRole(ctx context.Context, role string) {
+	sm.manager.Put(ctx, "userRole", role)
+}
+
+// GetUserRole returns role of authenticated user from session (empty string if not set).
+func (sm *SessionManager) GetUserRole(ctx context.Context) string {
+	return sm.manager.GetString(ctx, "userRole")
+}
+
 // Destroy deletes the entire session (used on logout).
 func (sm *SessionManager) Destroy(ctx context.Context) error {
 	return sm.manager.Destroy(ctx)

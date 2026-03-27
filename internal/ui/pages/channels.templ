@@ -23,6 +23,12 @@ type ChannelVM struct {
 // ChannelsVM is top-level view model for the channels management page.
 type ChannelsVM struct {
     Channels []ChannelVM
+    IsAdmin  bool
+}
+
+// ChannelsPage is the notification channels management page wrapped in base layout.
+templ ChannelsPage(vm ChannelsVM) {
+    @layout.Base("Channels", true, vm.IsAdmin, ChannelsContent(vm))
 }
 
 // mmHiddenClass returns an empty string for Mattermost webhook forms (visible),
@@ -49,11 +55,6 @@ func boolStr(v bool) string {
         return "true"
     }
     return "false"
-}
-
-// ChannelsPage is the notification channels management page wrapped in base layout.
-templ ChannelsPage(vm ChannelsVM) {
-    @layout.Base("Channels", true, ChannelsContent(vm))
 }
 
 // ChannelTypeCell renders the type column cell with an icon and label.
@@ -333,7 +334,7 @@ templ ChannelItemWithMessage(ch ChannelVM, msgClass string, msg string) {
 // Submits via HTMX POST to /channel/add, replacing new-channel-slot with the result.
 templ NewChannelForm() {
     <form
-        class="rounded-5 p-2 ps-1 pe-1 mt-2"
+        class="rounded-5 p-2 ps-1 pe-1 mt-2 new-channel-form"
         style="background: #474747;"
         data-form-id="new"
         hx-post="/channel/add"
@@ -345,7 +346,7 @@ templ NewChannelForm() {
             <!-- Column 1: Type (+ Username - Mattermost only) -->
             <div class="col-2 d-flex flex-column gap-2">
                 <select
-                    class="form-select form-select-sm rounded-5 border-0 text-white"
+                    class="form-select form-select-sm rounded-5 text-white"
                     style="background: #7E7E7E; padding-right: .5rem;"
                     name="type"
                     required
@@ -356,7 +357,7 @@ templ NewChannelForm() {
                 </select>
                 <input
                     id="mm-username-new"
-                    class="form-control form-control-sm rounded-5 border-0 text-white d-none"
+                    class="form-control form-control-sm rounded-5 text-white d-none"
                     style="background: #7E7E7E;"
                     type="text" name="username" placeholder="Username"
                 />
@@ -365,7 +366,7 @@ templ NewChannelForm() {
             <!-- Column 2: Address (+ Channel/Priority/Req.Ack - Mattermost only) -->
             <div class="col-5 d-flex flex-column gap-2">
                 <input
-                    class="form-control form-control-sm rounded-5 border-0 text-white"
+                    class="form-control form-control-sm rounded-5 text-white"
                     style="background: #7E7E7E;"
                     type="text"
                     name="address"
@@ -375,12 +376,12 @@ templ NewChannelForm() {
                 />
                 <div id="mm-fields-col2-new" class="d-none gap-2">
                 <input
-                    class="form-control form-control-sm rounded-5 border-0 text-white"
+                    class="form-control form-control-sm rounded-5 text-white"
                     style="background: #7E7E7E; flex: 1.5;"
                     type="text" name="channel" placeholder="Channel"
                 />
                 <select
-                    class="form-select form-select-sm rounded-5 border-0 text-white pe-2"
+                    class="form-select form-select-sm rounded-5 text-white pe-2"
                     style="background: #7E7E7E; flex: 1.25;"
                     name="priority"
                 >
@@ -389,7 +390,7 @@ templ NewChannelForm() {
                     <option value="urgent">Priority: Urgent</option>
                 </select>
                 <select
-                    class="form-select form-select-sm rounded-5 border-0 text-white pe-2"
+                    class="form-select form-select-sm rounded-5 text-white pe-2"
                     style="background: #7E7E7E; flex: 1.25;"
                     name="request_ack"
                 >
@@ -436,7 +437,7 @@ templ NewChannelForm() {
 // Used when server rejects the submission.
 templ NewChannelError(chType string, address string, message string) {
     <form
-        class="rounded-4-5 p-2 ps-1 pe-1 mt-2 overflow-hidden"
+        class="rounded-4-5 p-2 ps-1 pe-1 mt-2 overflow-hidden new-channel-form"
         style="background: #474747;"
         data-form-id="error"
         data-error-form="true"
@@ -449,7 +450,7 @@ templ NewChannelError(chType string, address string, message string) {
             <!-- Column 1: Type (+ Username - Mattermost only) -->
             <div class="col-2 d-flex flex-column gap-2">
                 <select
-                    class="form-select form-select-sm rounded-5 border-0 text-white"
+                    class="form-select form-select-sm rounded-5 text-white"
                     style="background: #7E7E7E; padding-right: .5rem;"
                     name="type"
                     required
@@ -460,7 +461,7 @@ templ NewChannelError(chType string, address string, message string) {
                 </select>
                 <input
                     id="mm-username-error"
-                    class={"form-control form-control-sm rounded-5 border-0 text-white" + mmHiddenClass(chType)}
+                    class={"form-control form-control-sm rounded-5 text-white" + mmHiddenClass(chType)}
                     style="background: #7E7E7E;"
                     type="text" name="username" placeholder="Username"
                 />
@@ -469,7 +470,7 @@ templ NewChannelError(chType string, address string, message string) {
             <!-- Column 2: Address (+ Channel/Priority/Req.Ack - Mattermost only) -->
             <div class="col-5 d-flex flex-column gap-2">
                 <input
-                    class="form-control form-control-sm rounded-5 border-0 text-white"
+                    class="form-control form-control-sm rounded-5 text-white"
                     style="background: #7E7E7E;"
                     type="text"
                     name="address"
@@ -479,12 +480,12 @@ templ NewChannelError(chType string, address string, message string) {
                 />
                 <div id="mm-fields-col2-error" class={"gap-2" + mmFlexClass(chType)}>
                     <input
-                        class="form-control form-control-sm rounded-5 border-0 text-white"
+                        class="form-control form-control-sm rounded-5 text-white"
                         style="background: #7E7E7E; flex: 1.5;"
                         type="text" name="channel" placeholder="Channel"
                     />
                     <select
-                        class="form-select form-select-sm rounded-5 border-0 text-white pe-2"
+                        class="form-select form-select-sm rounded-5 text-white pe-2"
                         style="background: #7E7E7E; flex: 1.25;"
                         name="priority"
                     >
@@ -493,7 +494,7 @@ templ NewChannelError(chType string, address string, message string) {
                         <option value="urgent">Priority: Urgent</option>
                     </select>
                     <select
-                        class="form-select form-select-sm rounded-5 border-0 text-white pe-2"
+                        class="form-select form-select-sm rounded-5 text-white pe-2"
                         style="background: #7E7E7E; flex: 1.25;"
                         name="request_ack"
                     >

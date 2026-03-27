@@ -1,10 +1,11 @@
 package layout
 
 // Base is the shared HTML layout used by all pages.
-// It renders the top navigation bar with links to Packages, Channels, and Delivery Log
-// (navigation links are only shown when loggedIn is true).
-// It also includes all shared scripts and styles (Bootstrap, HTMX, tooltips, channel expand/form logic).
-templ Base(title string, loggedIn bool, content templ.Component) {
+// It renders the top navigation bar with links to Packages, Channels, Delivery Log and logout button.
+// Navigation links and Logout button are only shown when loggedIn is true. 
+// System Config link is showed only when isAdmin is true.
+// It also includes all shared scripts and styles.
+templ Base(title string, loggedIn bool, isAdmin bool, content templ.Component) {
     <!doctype html>
     <html lang="en">
         <head>
@@ -31,6 +32,9 @@ templ Base(title string, loggedIn bool, content templ.Component) {
                         <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/" id="nav-packages">Packages</a>
                         <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/channels" id="nav-channels">Channels</a>
                         <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/log" id="nav-log">Delivery Log</a>
+                        if isAdmin {
+                            <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/admin/config" id="nav-sysconfig">System config</a>
+                        }
                     </div>
 
                     <form method="POST" action="/auth/logout" class="m-0 p-0">
@@ -42,12 +46,16 @@ templ Base(title string, loggedIn bool, content templ.Component) {
             <!-- Navbar active link highlight - sets background on the nav link matching the current path -->
             <script>
                 (function() {
-                    var path = window.location.pathname;
-                    var active = null;
+                    const path = window.location.pathname;
+                    let active = null;
                     if (path === '/' || path.startsWith('/package')) active = 'nav-packages';
                     else if (path.startsWith('/channel')) active = 'nav-channels';
                     else if (path.startsWith('/log')) active = 'nav-log';
-                    if (active) document.getElementById(active).style.background = '#009DE0';
+                    else if (path.startsWith('/admin/config')) active = 'nav-sysconfig';
+                    if (active) {
+                        var el = document.getElementById(active);
+                        if (el) el.style.background = '#009DE0';
+                    }
                 })();
             </script>
 
@@ -109,8 +117,8 @@ templ Base(title string, loggedIn bool, content templ.Component) {
                 (function () {
                     function handleTypeChange(select) {
                         const mm = select.value === 'webhook_mattermost';
-                        const suffix = select.closest('form').dataset.formId;
                         const form = select.closest('form');
+                        const suffix = form.dataset.formId;
 
                         const username = document.getElementById('mm-username-' + suffix);
                         const col2 = document.getElementById('mm-fields-col2-' + suffix);
@@ -142,13 +150,14 @@ templ Base(title string, loggedIn bool, content templ.Component) {
 
             
             <style>
+                /* Tooltip */
                 .tooltip {
                     --bs-tooltip-bg: #181818;
                 }
                 .tooltip-inner {
                     border: 1px solid #5A5A5A;
                 }
-
+                /* Toggle switches */
                 .form-check-input[type="checkbox"] {
                     width: 3.5em;
                     height: 1.6em;
@@ -158,11 +167,50 @@ templ Base(title string, loggedIn bool, content templ.Component) {
                     background-color: #009DE0;
                     border-color: #009DE0;
                 }
+                /* Shadow on channel row when Mattermost details are expanded */
                 .js-channel-main-row.expanded {
                     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
                 }
+                /* Custom border radius between Bootstrap rounded-4 and rounded-5 */
                 .rounded-4-5 {
                     border-radius: 1.25rem !important;
+                }
+                /* Remove number input spinners */
+                input[type="number"]::-webkit-outer-spin-button,
+                input[type="number"]::-webkit-inner-spin-button {
+                    -webkit-appearance: none;
+                    margin: 0;
+                }
+                input[type="number"] {
+                    -moz-appearance: textfield;
+                }
+                /* Remove box-shadow on all form controls */
+                .form-control,
+                .form-select,
+                input[type="number"] {
+                    box-shadow: none !important;
+                }
+                /* form-select border at rest: #5A5A5A */
+                .form-select {
+                    border-color: #5A5A5A !important;
+                }
+                /* Blue border on focus everywhere */
+                .form-control:focus,
+                .form-select:focus,
+                input[type="number"]:focus {
+                    outline: none;
+                    border-color: #009DE0 !important;
+                }
+                /* Channel and package forms: no border at rest, blue on focus */
+                .new-channel-form .form-control,
+                .new-channel-form .form-select,
+                .new-package-form .form-control {
+                    border-color: transparent !important;
+                }
+                .new-channel-form .form-control:focus,
+                .new-channel-form .form-select:focus,
+                .new-package-form .form-control:focus {
+                    border-color: #009DE0 !important;
                 }
             </style>
         </body>

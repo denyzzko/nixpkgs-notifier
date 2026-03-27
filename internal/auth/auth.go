@@ -18,7 +18,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
-	"github.com/denyzzko/nixpkgs-notifier/internal/env"
+	"github.com/denyzzko/nixpkgs-notifier/internal/config"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"golang.org/x/oauth2"
 )
@@ -71,7 +71,7 @@ type UserClaims struct {
 // For each configured provider it fetches OIDC discovery document,
 // builds a token verifier and an OAuth2 client config.
 // Returns an error if any provider's discovery document cannot be fetched.
-func SetupProviders(ctx context.Context, cfg *env.EnvConfig) (*ProviderMap, error) {
+func SetupProviders(ctx context.Context, cfg *config.Config) (*ProviderMap, error) {
 	provMap := &ProviderMap{Providers: map[string]*Provider{}}
 
 	provCfgs := setupProvidersConfigs(cfg)
@@ -113,7 +113,7 @@ func SetupProviders(ctx context.Context, cfg *env.EnvConfig) (*ProviderMap, erro
 
 // setupProvidersConfigs converts raw env config entries into ProviderConfig structs,
 // appending the server's callback URL as redirect URL for each provider.
-func setupProvidersConfigs(cfg *env.EnvConfig) []ProviderConfig {
+func setupProvidersConfigs(cfg *config.Config) []ProviderConfig {
 	provCfgs := make([]ProviderConfig, 0, len(cfg.OIDCProviders))
 	for _, p := range cfg.OIDCProviders {
 		provCfgs = append(provCfgs, ProviderConfig{

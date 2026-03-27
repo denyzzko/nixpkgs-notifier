@@ -79,6 +79,12 @@ func (d *Dispatcher) config() Config {
 	return d.cfg
 }
 
+// GetConfig returns the current dispatcher configuration.
+// Used to get access to dispatcher config from other packages (config Manager).
+func (d *Dispatcher) GetConfig() Config {
+	return d.config()
+}
+
 // Config helper that returns the currently configured maximum delivery attempts
 func (d *Dispatcher) MaxRetries() int {
 	return d.config().MaxRetries

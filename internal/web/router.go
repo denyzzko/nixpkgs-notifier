@@ -10,6 +10,8 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 )
 
+// RegisterRoutes registers all HTTP routes on mux.
+// Each handler receives only the dependencies it needs.
 func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager, disp *dispatcher.Dispatcher, chk *checker.Checker) {
 	// home page (displays all tracked packages)
 	mux.HandleFunc("GET /", requireAuth(sessionManager, indexPage(sessionManager, db)))
@@ -41,12 +43,32 @@ func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.Provid
 
 	// notification delivery log page
 	mux.HandleFunc("GET /log", requireAuth(sessionManager, notificationsPage(sessionManager, db, disp)))
+
+	// admin config
+	mux.HandleFunc("GET /admin/config", requireAdmin(sessionManager, systemConfigPage(db, disp, chk)))
+	mux.HandleFunc("POST /admin/config", requireAdmin(sessionManager, updateSystemConfig(db, disp, chk)))
 }
 
+// requireAuth redirects unauthenticated requests to /login.
 func requireAuth(sessionManager *session.SessionManager, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if sessionManager.GetUserID(r.Context()) == 0 {
 			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// requireAdmin redirects unauthenticated requests to /login and rejects non-admin users with 403 Forbidden.
+func requireAdmin(sessionManager *session.SessionManager, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if sessionManager.GetUserID(r.Context()) == 0 {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		if sessionManager.GetUserRole(r.Context()) != "admin" {
+			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 		next(w, r)

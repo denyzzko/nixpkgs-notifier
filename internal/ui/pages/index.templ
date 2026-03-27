@@ -23,11 +23,12 @@ type TrackedPackageVM struct {
 // IndexVM is the top level view model for the home page.
 type IndexVM struct {
     Packages []TrackedPackageVM
+    IsAdmin  bool
 }
 
 // IndexPage is the home page wrapped in the base layout.
 templ IndexPage(vm IndexVM) {
-    @layout.Base("Home", true, IndexContent(vm))
+    @layout.Base("Home", true, vm.IsAdmin, IndexContent(vm))
 }
 
 // IndexContent renders the main content area of home page.
@@ -285,7 +286,7 @@ templ TrackedPackageItemCheckError(pckg TrackedPackageVM, errMsg string) {
 // Submits via HTMX POST to /package/track and replaces the #new-package-slot with the result.
 templ NewPackageForm() {
     <form
-        class="d-flex align-items-center rounded-5 ps-2 pe-2 py-2 gap-3"
+        class="d-flex align-items-center rounded-5 ps-2 pe-2 py-2 gap-3 new-package-form"
         style="background: #474747;"
         hx-post="/package/track"
         hx-target="#new-package-slot"
@@ -294,7 +295,7 @@ templ NewPackageForm() {
         <!-- Package name input -->
         <div style="flex: 1;">
             <input
-                class="form-control form-control-sm rounded-5 border-0 text-white"
+                class="form-control form-control-sm rounded-5 text-white"
                 style="background: #7E7E7E;"
                 type="text"
                 name="name"
@@ -306,7 +307,7 @@ templ NewPackageForm() {
         <!-- Package branch input -->
         <div style="flex: 1;">
             <input
-                class="form-control form-control-sm rounded-5 border-0 text-white"
+                class="form-control form-control-sm rounded-5 text-white"
                 style="background: #7E7E7E;"
                 type="text"
                 name="branch"
@@ -339,7 +340,7 @@ templ NewPackageForm() {
 // pre-filled and an error message displayed below the inputs.
 templ NewPackageError(name string, branch string, message string) {
     <form
-        class="d-flex flex-column gap-2 rounded-5 px-4 py-3"
+        class="d-flex flex-column gap-2 rounded-5 px-4 py-3 new-package-form"
         style="background: #474747;"
         hx-post="/package/track"
         hx-target="#new-package-slot"
@@ -349,7 +350,7 @@ templ NewPackageError(name string, branch string, message string) {
             <!-- Package name input -->
             <div style="flex: 1;">
                 <input
-                    class="form-control form-control-sm rounded-5 border-0 text-white"
+                    class="form-control form-control-sm rounded-5 text-white"
                     style="background: #7E7E7E;"
                     type="text"
                     name="name"
@@ -361,7 +362,7 @@ templ NewPackageError(name string, branch string, message string) {
             <!-- Package branch input -->
             <div style="flex: 1;">
                 <input
-                    class="form-control form-control-sm rounded-5 border-0 text-white"
+                    class="form-control form-control-sm rounded-5 text-white"
                     style="background: #7E7E7E;"
                     type="text"
                     name="branch"

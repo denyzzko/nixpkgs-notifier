@@ -1,0 +1,10 @@
+SELECT
+    notification_dispatch_interval,
+    notification_max_retries,
+    notification_disable_on_max_retries,
+    notification_worker_count,
+    package_check_interval,
+    package_check_worker_count,
+    package_check_skip_interval
+FROM system_config
+WHERE id = 1;

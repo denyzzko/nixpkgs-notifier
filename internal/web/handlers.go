@@ -17,6 +17,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
+	"github.com/denyzzko/nixpkgs-notifier/internal/config"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/notify"
@@ -50,7 +51,10 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 			pkgVMs = append(pkgVMs, trackedPackageVMFromTracked(t))
 		}
 
-		vm := pages.IndexVM{Packages: pkgVMs}
+		vm := pages.IndexVM{
+			Packages: pkgVMs,
+			IsAdmin:  sessionManager.GetUserRole(r.Context()) == "admin",
+		}
 
 		renderHTML(w, ctx, pages.IndexPage(vm))
 	}
@@ -135,6 +139,12 @@ func callback(db *database.Store, provMap *auth.ProviderMap, sessionManager *ses
 
 		// store user id in session
 		sessionManager.Put(ctx, "userID", userID)
+
+		// fetch user to get their role and store it in session
+		user, err := db.QueryUserByID(ctx, userID)
+		if err == nil {
+			sessionManager.PutUserRole(ctx, user.Role)
+		}
 
 		// redirect user to the home page
 		http.Redirect(w, r, "/", http.StatusFound)
@@ -385,7 +395,11 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store) ht
 		for _, ch := range chnls {
 			chVMs = append(chVMs, channelVM(ch))
 		}
-		vm := pages.ChannelsVM{Channels: chVMs}
+
+		vm := pages.ChannelsVM{
+			Channels: chVMs,
+			IsAdmin:  sessionManager.GetUserRole(r.Context()) == "admin",
+		}
 
 		renderHTML(w, ctx, pages.ChannelsPage(vm))
 	}
@@ -636,8 +650,53 @@ func notificationsPage(sessionManager *session.SessionManager, db *database.Stor
 			vms = append(vms, notificationLogVM(n, maxRetries))
 		}
 
-		vm := pages.DeliveryLogVM{Notifications: vms}
+		vm := pages.DeliveryLogVM{
+			Notifications: vms,
+			IsAdmin:       sessionManager.GetUserRole(r.Context()) == "admin",
+		}
 
 		renderHTML(w, ctx, pages.DeliveryLogPage(vm))
+	}
+}
+
+// systemConfigPage renders the admin system configuration page with current runtime values.
+func systemConfigPage(db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// get current runtime config
+		rc := config.GetRuntimeConfig(ctx, db, disp, chk)
+
+		// render response
+		vm := systemConfigVM(rc.Dispatcher, rc.Checker)
+		vm.Saved = r.URL.Query().Get("saved") == "1"
+		renderHTML(w, ctx, pages.SystemConfigPage(vm))
+	}
+}
+
+// updateSystemConfig handles POST from the admin system config form.
+// Parses, persists, and applies the new runtime configuration.
+func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// parse and validate runtime config from the submitted form
+		rcfg, err := config.RuntimeConfigFromForm(r)
+		if err != nil {
+			writeGenericErr(w, "web.updateSystemConfig", err.Error(), err, http.StatusBadRequest)
+			return
+		}
+
+		// store config to database and apply dispatcher and checker
+		if err := config.SaveRuntimeConfig(ctx, db, rcfg, disp, chk); err != nil {
+			writeAppErr(w, "web.updateSystemConfig", err)
+			return
+		}
+
+		http.Redirect(w, r, "/admin/config?saved=1", http.StatusSeeOther)
 	}
 }

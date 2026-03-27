@@ -133,9 +133,9 @@ internal/
   appError/         - typed app errors (used across packages to distinguish error kinds)
   auth/             - OIDC authentication setup
   checker/          - background package version checker
+  config/            - configuration loading, validation and management
   database/         - PostgreSQL connection, queries, migrations
   dispatcher/       - background notification delivery loop
-  env/              - configuration loading and validation
   middleware/       - HTTP middleware
   nix/              - Nix CLI integration
   notify/           - email and webhook senders (SMTP, Resend, webhook)
@@ -156,9 +156,9 @@ The core functionality is complete and ready for deployment.
 - Sending webhook notifications (generic JSON and Mattermost)
 - Notification log with delivery status
 - Background periodic package version check by the system 
+- Admin panel for configuration in UI
 
 **Not yet implemented:**
-- Admin panel for configuration in UI - dispatcher/checker intervals and limits are configurable via env vars at startup but cannot be changed at runtime
 - Admin user management in UI
 - Notification history auto-cleanup
 - Dropdown with common package branches when tracking a new package

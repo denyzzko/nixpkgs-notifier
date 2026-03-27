@@ -101,6 +101,12 @@ func (ch *Checker) config() Config {
 	return ch.cfg
 }
 
+// GetConfig returns the current checker configuration.
+// Used to get access to config from other packages (config Manager).
+func (ch *Checker) GetConfig() Config {
+	return ch.config()
+}
+
 // Launches N worker goroutines (where N is WorkerCount) and the schedule loop
 // All goroutines run until ctx is cancelled (SIGTERM/SIGINT)
 func (ch *Checker) Start(ctx context.Context) {

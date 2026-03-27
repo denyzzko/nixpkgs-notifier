@@ -13,9 +13,9 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/packages"
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
+	"github.com/denyzzko/nixpkgs-notifier/internal/config"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
-	"github.com/denyzzko/nixpkgs-notifier/internal/env"
 	"github.com/denyzzko/nixpkgs-notifier/internal/middleware"
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
@@ -25,10 +25,10 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// load configuration
-	cfg, err := env.LoadEnvConfig()
+	// load configuration from env variables
+	cfg, err := config.LoadEnvConfig()
 	if err != nil {
-		log.Fatalf("[ERROR] ENV: Could not read .env file!: %v", err)
+		log.Fatalf("[ERROR] CONFIG: Could not load config from environment variables!: %v", err)
 	}
 
 	// check nix availability
@@ -50,6 +50,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("[ERROR] DATABASE: running migration failed!: %v", err)
 	}
+
+	// apply runtime overrides from the database (if present) to the config
+	cfg.LoadRuntimeOverrides(ctx, db)
 
 	// setup OIDC for authentication
 	provMap, err := auth.SetupProviders(ctx, cfg)

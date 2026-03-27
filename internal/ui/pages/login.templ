@@ -7,7 +7,7 @@ import (
 
 // LoginPage is the login page wrapped in the base layout.
 templ LoginPage(provMap *auth.ProviderMap) {
-    @layout.Base("Login", false, LoginContent(provMap))
+    @layout.Base("Login", false, false, LoginContent(provMap))
 }
 
 // LoginContent renders a centered card with one login button per configured OIDC provider.

@@ -1,0 +1,180 @@
+package pages
+
+import (
+    "fmt"
+    "github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+)
+
+// SystemConfigVM is the view model for the admin system configuration page.
+type SystemConfigVM struct {
+    // Notification dispatcher
+    NotificationDispatchIntervalVal  float64
+    NotificationDispatchIntervalUnit string
+    NotificationMaxRetries           int
+    NotificationDisableOnMaxRetries  bool
+    NotificationWorkerCount          int
+    // Package version checker
+    PackageCheckIntervalVal          float64
+    PackageCheckIntervalUnit         string
+    PackageCheckSkipIntervalVal      float64
+    PackageCheckSkipIntervalUnit     string
+    PackageCheckWorkerCount          int
+    // Whether config was just saved (to show success message)
+    Saved bool
+}
+
+// SystemConfigPage is the admin system configuration page wrapped in base layout.
+templ SystemConfigPage(vm SystemConfigVM) {
+    @layout.Base("System config", true, true, SystemConfigContent(vm))
+}
+
+// SystemConfigContent renders the two-section system configuration form.
+templ SystemConfigContent(vm SystemConfigVM) {
+    <div style="padding-top: 5rem; padding-bottom: 2rem;">
+        <div style="max-width: 900px; width: 100%; margin: 0 auto;">
+
+            <!-- Above card -->
+            <div class="d-flex justify-content-between align-items-end mb-2">
+                <!-- Card heading -->
+                <h1 class="h4 text-white mb-0">System Configuration</h1>
+            </div>
+
+            <!-- Card -->
+            <form method="POST" action="/admin/config">
+                <div class="rounded-5 p-4 mb-2" style="background: #252525; border: 1px solid #5A5A5A;">
+
+                    <!-- Notification Dispatcher section -->
+                    <div class="rounded-4 p-4 mb-2" style="background: #474747;">
+                        <h2 class="h6 fw-bold text-white mb-3">Notification dispatcher</h2>
+
+                        <div class="row g-3">
+                            <!-- Left column (dispatch interval, worker count) -->
+                            <div class="col-6 d-flex flex-column gap-3 px-2">
+                                @configRow("Dispatch interval", "How often the dispatcher polls for pending notifications.") {
+                                    <div class="d-flex align-items-center gap-1">
+                                        @numInput("notification_dispatch_interval_val", fmt.Sprintf("%g", vm.NotificationDispatchIntervalVal), "50px")
+                                        @unitSelect("notification_dispatch_interval_unit", vm.NotificationDispatchIntervalUnit)
+                                    </div>
+                                }
+                                @configRow("Worker count", "Max concurrent notification deliveries.") {
+                                    @numInput("notification_worker_count", fmt.Sprintf("%d", vm.NotificationWorkerCount), "50px")
+                                }
+                            </div>
+                            <!-- Right column (max retries, disable on max retries toggle) -->
+                            <div class="col-6 d-flex flex-column gap-3 px-2">
+                                @configRow("Max retries", "Max delivery attempts before giving up.") {
+                                    @numInput("notification_max_retries", fmt.Sprintf("%d", vm.NotificationMaxRetries), "50px")
+                                }
+                                @configRow("Disable on max retries", "System will automatically disable channel after reaching max retries.") {
+                                    <div class="form-check form-switch m-0 p-0">
+                                        if vm.NotificationDisableOnMaxRetries {
+                                            <input class="form-check-input m-0" type="checkbox" role="switch" name="notification_disable_on_max_retries" checked/>
+                                        } else {
+                                            <input class="form-check-input m-0" type="checkbox" role="switch" name="notification_disable_on_max_retries"/>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Version Checker section -->
+                    <div class="rounded-4 p-4" style="background: #474747;">
+                        <h2 class="h6 fw-bold text-white mb-3">Version checker</h2>
+
+                        <div class="row g-3">
+                            <!-- Left column (check interval, worker count) -->
+                            <div class="col-6 d-flex flex-column gap-3 px-2">
+                                @configRow("Check interval", "How often all tracked packages are queued for automatic version check.") {
+                                    <div class="d-flex align-items-center gap-1">
+                                        @numInput("package_check_interval_val", fmt.Sprintf("%g", vm.PackageCheckIntervalVal), "50px")
+                                        @unitSelect("package_check_interval_unit", vm.PackageCheckIntervalUnit)
+                                    </div>
+                                }
+                                @configRow("Worker count", "Max concurrent nix eval processes.") {
+                                    @numInput("package_check_worker_count", fmt.Sprintf("%d", vm.PackageCheckWorkerCount), "50px")
+                                }
+                            </div>
+                            <!-- Right column (skip iterval) -->
+                            <div class="col-6 d-flex flex-column gap-3 px-2">
+                                @configRow("Skip interval", "Minimum time between real nix evals for specific package (cache).") {
+                                    <div class="d-flex align-items-center gap-1">
+                                        @numInput("package_check_skip_interval_val", fmt.Sprintf("%g", vm.PackageCheckSkipIntervalVal), "50px")
+                                        @unitSelect("package_check_skip_interval_unit", vm.PackageCheckSkipIntervalUnit)
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Submit -->
+                <div class="d-flex justify-content-end">
+                    <button
+                        type="submit"
+                        class="btn fw-bold rounded-5 px-4"
+                        style="background: transparent; border: 1px solid #009DE0; color: #009DE0;"
+                    >
+                        Save &amp; apply
+                    </button>
+                </div>
+
+            </form>
+
+            <!-- Success message -->
+            if vm.Saved {
+                <div class="d-flex align-items-center gap-2 rounded-5 px-4 py-2 mt-3" style="background: #1a3a1a; border: 1px solid #2d6a2d;">
+                    <i class="bi bi-check-circle" style="color: #68FF90;"></i>
+                    <span class="small" style="color: #68FF90;">Configuration saved and applied successfully.</span>
+                </div>
+            }
+
+        </div>
+    </div>
+}
+
+// numInput renders a number input.
+templ numInput(name string, value string, width string) {
+    <input
+        type="number"
+        name={ name }
+        value={ value }
+        min="1"
+        max="99"
+        required
+        class="rounded-5 text-center fw-bold text-white py-1 px-2"
+        style={ "background: transparent; width: " + width + "; font-size: 0.9rem; border: 1px solid #5A5A5A;" }
+    />
+}
+
+// unitSelect renders a unit dropdown.
+templ unitSelect(name string, selected string) {
+    <select
+        name={ name }
+        class="form-select form-select-sm rounded-5 fw-bold text-white pe-2"
+        style="background: #474747; font-size: 0.9rem; cursor: pointer; width: auto;"
+    >
+        <option value="seconds" selected?={ selected == "seconds" } style="background: #252525; color: white;">seconds</option>
+        <option value="minutes" selected?={ selected == "minutes" } style="background: #252525; color: white;">minutes</option>
+        <option value="hours"   selected?={ selected == "hours"   } style="background: #252525; color: white;">hours</option>
+    </select>
+}
+
+// configRow renders a single config field as label (with tooltip) and input side by side.
+templ configRow(label string, tooltip string) {
+    <div class="row align-items-center">
+        <div class="col-6 text-end">
+            <span
+                class="small"
+                style="color: #ffffff; cursor: default;"
+                data-bs-toggle="tooltip"
+                data-bs-placement="top"
+                title={ tooltip }
+            >{ label }</span>
+        </div>
+        <div class="col-6 text-start">
+            { children... }
+        </div>
+    </div>
+}

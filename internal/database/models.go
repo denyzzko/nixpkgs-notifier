@@ -140,3 +140,14 @@ type PendingFailedNotification struct {
 	Email         *Email   // nil for webhook
 	Webhook       *Webhook // nil for email
 }
+
+// SystemConfig holds admin-configurable (from UI) runtime settings for notification dispatcher and package checker.
+type SystemConfig struct {
+	NotificationDispatchInterval    time.Duration
+	NotificationMaxRetries          int
+	NotificationDisableOnMaxRetries bool
+	NotificationWorkerCount         int
+	PackageCheckInterval            time.Duration
+	PackageCheckWorkerCount         int
+	PackageCheckSkipInterval        time.Duration
+}

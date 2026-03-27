@@ -82,6 +82,20 @@ CREATE TABLE IF NOT EXISTS notifications (
     error_message   TEXT
 );
 
+-- Single-row table that persists admin-configured runtime settings
+CREATE TABLE IF NOT EXISTS system_config (
+    id                                  INT PRIMARY KEY DEFAULT 1,
+    updated_at                          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notification_dispatch_interval      BIGINT NOT NULL,
+    notification_max_retries            INT NOT NULL,
+    notification_disable_on_max_retries BOOLEAN NOT NULL,
+    notification_worker_count           INT NOT NULL,
+    package_check_interval              BIGINT NOT NULL,
+    package_check_worker_count          INT NOT NULL,
+    package_check_skip_interval         BIGINT NOT NULL,
+    CONSTRAINT system_config_single_row CHECK (id = 1)
+);
+
 -- Indexes for query performance
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_trackings_user_id ON trackings(user_id);
