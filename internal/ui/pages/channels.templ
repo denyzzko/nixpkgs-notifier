@@ -13,6 +13,8 @@ type ChannelVM struct {
     WebhookType          string // "generic" or "mattermost" (empty for emails)
     Address              string
     IsEnabled            bool
+    DisabledByServer     bool
+	MaxRetries           int
     NotifyOnManualVerify bool
     WebhookUsername      string
     WebhookChannel       string
@@ -211,11 +213,21 @@ templ MattermostDetails(ch ChannelVM) {
 	}
 }
 
+// channelStyleByDisabledServer returns style for the channel row's main div.
+// Adds a red border when the channel was disabled by the server.
+func channelStyleByDisabledServer(disabled bool) string {
+    if disabled {
+        return "background: #474747; border: 1px solid #FF6F6F;"
+    }
+    return "background: #474747;"
+}
+
 // ChannelRow renders a full channel row including the main row cells, optional Mattermost details panel,
-// and an optional status message (e.g. after a test or error).
+// server-disabled warning  with Ok button (when DisabledByServer is true), and status message (e.g. after a test or error).
 templ ChannelRow(ch ChannelVM, msgClass string, msg string) {
 	<div id={fmt.Sprintf("channel-%d", ch.ID)} class="d-flex flex-column">
-        <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2 js-channel-main-row position-relative z-1" style="background: #474747;">
+        <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2 js-channel-main-row position-relative z-1" 
+            style={channelStyleByDisabledServer(ch.DisabledByServer)}>
 			@ChannelTypeCell(ch)
 			@ChannelAddressCell(ch)
 			@ChannelEnabledToggle(ch)
@@ -225,6 +237,21 @@ templ ChannelRow(ch ChannelVM, msgClass string, msg string) {
 		</div>
 
 		@MattermostDetails(ch)
+
+        if ch.DisabledByServer {
+			<div class="d-flex align-items-center gap-2 ps-3 pt-1">
+				<small class="text-danger">{fmt.Sprintf("This channel was automatically disabled by the server after reaching the maximum retry limit (%d attempts).", ch.MaxRetries)}</small>
+				<button
+					class="btn btn-sm rounded-5 px-3"
+					style="border: 1px solid #AAAAAA; color: #AAAAAA;"
+					hx-post={fmt.Sprintf("/channel/ack-disabled/%d", ch.ID)}
+					hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+					hx-swap="outerHTML"
+				>
+					Ok
+				</button>
+			</div>
+		}
 
 		if msg != "" {
 			<small class={msgClass + " ps-3"}>{msg}</small>

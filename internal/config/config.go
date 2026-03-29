@@ -382,7 +382,7 @@ func SaveRuntimeConfig(ctx context.Context, db *database.Store, rcfg RuntimeConf
 		PackageCheckSkipInterval:        rcfg.Checker.SkipInterval,
 	}
 	// store config to database
-	if err := db.UpsertSystemConfig(ctx, dbCfg); err != nil {
+	if err := db.UpdateSystemConfig(ctx, dbCfg); err != nil {
 		return err
 	}
 

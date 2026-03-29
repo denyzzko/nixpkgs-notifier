@@ -1,5 +1,6 @@
 SELECT c.id,
        c.is_enabled,
+       c.disabled_by_server,
        e.email_address,
        w.webhook_url,
        w.webhook_type,

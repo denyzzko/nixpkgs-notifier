@@ -321,7 +321,7 @@ func (ch *Checker) processSystemJob(ctx context.Context, job CheckJob) {
 		return // no change
 	}
 
-	log.Printf("[INFO] checker: version change detected %q/%q: %s → %s",
+	log.Printf("[INFO] checker: version change detected %q/%q: %s -> %s",
 		job.Name, job.Branch, job.CurrentVersion, version)
 
 	// all users tracking this package are notified about version change

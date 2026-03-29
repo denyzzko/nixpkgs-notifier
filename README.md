@@ -133,7 +133,7 @@ internal/
   appError/         - typed app errors (used across packages to distinguish error kinds)
   auth/             - OIDC authentication setup
   checker/          - background package version checker
-  config/            - configuration loading, validation and management
+  config/           - configuration loading, validation and management
   database/         - PostgreSQL connection, queries, migrations
   dispatcher/       - background notification delivery loop
   middleware/       - HTTP middleware
@@ -162,5 +162,4 @@ The core functionality is complete and ready for deployment.
 - Admin user management in UI
 - Notification history auto-cleanup
 - Dropdown with common package branches when tracking a new package
-- Highligh channel in Channels page when system automatically deactivates it because system failed to send notification to it in MaxRetries attempts
 - Visual and other details

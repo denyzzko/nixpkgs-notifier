@@ -17,13 +17,15 @@ import (
 // user is not authenticated error
 var ErrNotAuthenticated = errors.New("not authenticated")
 
-// XXX
+// ChannelResult holds the resolved data for a notification channel.
 type ChannelResult struct {
 	ID                   int64
 	Type                 string // "Email" or "Webhook"
 	WebhookType          string // "generic" or "mattermost" (empty for emails)
 	Address              string
 	IsEnabled            bool
+	DisabledByServer     bool
+	MaxRetries           int
 	NotifyOnManualVerify bool
 	WebhookUsername      string // mattermost only
 	WebhookChannel       string // mattermost only
@@ -80,9 +82,14 @@ func GetChannelByID(ctx context.Context, db *database.Store, sessionManager *ses
 // channelResultFromRow maps a database.UserChannel row to a ChannelResult,
 // resolving channel type (email or webhook) and its address from the fields.
 func channelResultFromRow(row database.UserChannel) ChannelResult {
-	ch := ChannelResult{ID: row.ID, IsEnabled: row.IsEnabled}
+	ch := ChannelResult{
+		ID:                   row.ID,
+		IsEnabled:            row.IsEnabled,
+		DisabledByServer:     row.DisabledByServer,
+		NotifyOnManualVerify: row.NotifyOnManualVerify,
+	}
 
-	// XXX
+	// resolve channel type and address (email or webhook)
 	if row.Email != nil {
 		ch.Type = "Email"
 		ch.Address = row.Email.Address
@@ -94,11 +101,6 @@ func channelResultFromRow(row database.UserChannel) ChannelResult {
 		ch.WebhookChannel = row.Webhook.Channel
 		ch.WebhookPriority = row.Webhook.Priority
 		ch.WebhookRequestAck = row.Webhook.RequestAck
-	}
-
-	// XXX
-	if row.NotifyOnManualVerify != nil {
-		ch.NotifyOnManualVerify = *row.NotifyOnManualVerify
 	}
 
 	return ch
@@ -118,7 +120,7 @@ func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionMana
 	var id int64
 	var err error
 
-	// XXX
+	// delegate to appropriate creator based on channel type
 	switch chType {
 	case "email":
 		id, err = addEmailChannel(ctx, db, userID, address, notifyOnManualVerify)
@@ -131,7 +133,7 @@ func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionMana
 		return ChannelResult{}, err
 	}
 
-	// XXX
+	// resolve the display type name
 	typeName := "Email"
 	if chType == "webhook" {
 		typeName = "Webhook"
@@ -234,5 +236,24 @@ func ToggleNotifyOnManualVerify(ctx context.Context, db *database.Store, sm *ses
 		return ChannelResult{}, appError.NewAppError(op, appError.Internal, "failed to update channel", err)
 	}
 
+	return GetChannelByID(ctx, db, sm, channelID)
+}
+
+// AcknowledgeDisabled clears disabled_by_server flag for channel (channel remains disabled).
+func AcknowledgeDisabled(ctx context.Context, db *database.Store, sm *session.SessionManager, channelID int64) (ChannelResult, error) {
+	const op = "channels.AcknowledgeDisabled"
+
+	// get user ID
+	userID := sm.GetUserID(ctx)
+	if userID == 0 {
+		return ChannelResult{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
+	}
+
+	// clear "disabled by server" flag
+	if err := db.AcknowledgeChannelDisabled(ctx, channelID, userID); err != nil {
+		return ChannelResult{}, appError.NewAppError(op, appError.Internal, "failed to acknowledge channel", err)
+	}
+
+	// return updated channel
 	return GetChannelByID(ctx, db, sm, channelID)
 }

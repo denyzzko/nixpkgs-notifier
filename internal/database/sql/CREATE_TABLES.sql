@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS channels (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    is_enabled  BOOLEAN NOT NULL DEFAULT TRUE
+    is_enabled  BOOLEAN NOT NULL DEFAULT TRUE,
+    disabled_by_server BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Email notification channel (specialization of Channel)

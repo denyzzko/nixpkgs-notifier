@@ -11,13 +11,15 @@ import (
 )
 
 // channelVM maps a channels.ChannelResult to the pages.ChannelVM used by channel templates.
-func channelVM(ch channels.ChannelResult) pages.ChannelVM {
+func channelVM(ch channels.ChannelResult, maxRetries int) pages.ChannelVM {
 	return pages.ChannelVM{
 		ID:                   ch.ID,
 		Type:                 ch.Type,
 		WebhookType:          ch.WebhookType,
 		Address:              ch.Address,
 		IsEnabled:            ch.IsEnabled,
+		DisabledByServer:     ch.DisabledByServer,
+		MaxRetries:           maxRetries,
 		NotifyOnManualVerify: ch.NotifyOnManualVerify,
 		WebhookUsername:      ch.WebhookUsername,
 		WebhookChannel:       ch.WebhookChannel,

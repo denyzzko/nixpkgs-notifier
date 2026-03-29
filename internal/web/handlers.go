@@ -377,7 +377,7 @@ func packageCheckStatus(db *database.Store, sessionManager *session.SessionManag
 }
 
 // channelsPage renders the notification channels page with all channels current user has configured.
-func channelsPage(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
+func channelsPage(sessionManager *session.SessionManager, db *database.Store, disp *dispatcher.Dispatcher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -390,10 +390,13 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store) ht
 			return
 		}
 
+		// get value of MaxRetries
+		maxRetries := disp.MaxRetries()
+
 		// render response
 		chVMs := make([]pages.ChannelVM, 0, len(chnls))
 		for _, ch := range chnls {
-			chVMs = append(chVMs, channelVM(ch))
+			chVMs = append(chVMs, channelVM(ch, maxRetries))
 		}
 
 		vm := pages.ChannelsVM{
@@ -470,7 +473,7 @@ func addChannel(db *database.Store, sessionManager *session.SessionManager) http
 		}
 
 		// render response
-		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch)))
+		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch, 0)))
 	}
 }
 
@@ -531,7 +534,7 @@ func toggleChannelEnabled(db *database.Store, sessionManager *session.SessionMan
 		}
 
 		// render response
-		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch)))
+		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch, 0)))
 	}
 }
 
@@ -567,7 +570,41 @@ func toggleNotifyOnManualVerify(db *database.Store, sessionManager *session.Sess
 		}
 
 		// render response
-		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch)))
+		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch, 0)))
+	}
+}
+
+// acknowledgeChannelDisabled clears "disabled by server" warning for channel (POST /channel/ack-disabled/{id}).
+// Channel remains disabled, warning banner is removed and row renders normally.
+func acknowledgeChannelDisabled(db *database.Store, sessionManager *session.SessionManager, disp *dispatcher.Dispatcher) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// extract channel ID from request
+		channelIDStr := r.PathValue("id")
+		if channelIDStr == "" {
+			writeGenericErr(w, "web.acknowledgeChannelDisabled", "missing channel id", errors.New("missing path param id"), http.StatusBadRequest)
+			return
+		}
+
+		// convert channel ID string to int64
+		channelID, err := strconv.ParseInt(channelIDStr, 10, 64)
+		if err != nil {
+			writeGenericErr(w, "web.acknowledgeChannelDisabled", "invalid channel id", err, http.StatusBadRequest)
+			return
+		}
+
+		// clear "disabled by server" flag
+		ch, err := channels.AcknowledgeDisabled(ctx, db, sessionManager, channelID)
+		if err != nil {
+			writeAppErr(w, "web.acknowledgeChannelDisabled", err)
+			return
+		}
+
+		// render response
+		renderHTML(w, ctx, pages.ChannelItem(channelVM(ch, disp.MaxRetries())))
 	}
 }
 
@@ -586,6 +623,8 @@ func testChannel(db *database.Store, sessionManager *session.SessionManager, dis
 			writeGenericErr(w, "web.testChannel", "missing channel id", errors.New("missing path param id"), http.StatusBadRequest)
 			return
 		}
+
+		// convert channel ID string to int64
 		channelID, err := strconv.ParseInt(channelIDStr, 10, 64)
 		if err != nil {
 			writeGenericErr(w, "web.testChannel", "invalid channel id", err, http.StatusBadRequest)
@@ -620,9 +659,9 @@ func testChannel(db *database.Store, sessionManager *session.SessionManager, dis
 
 		// render channel back with the result message
 		if testErr != nil {
-			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(ch), "text-danger small", "Test failed: "+notify.PublicMessage(testErr)))
+			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(ch, 0), "text-danger small", "Test failed: "+notify.PublicMessage(testErr)))
 		} else {
-			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(ch), "text-success small", "Test message sent successfully."))
+			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(ch, 0), "text-success small", "Test message sent successfully."))
 		}
 	}
 }

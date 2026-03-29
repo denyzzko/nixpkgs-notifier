@@ -46,7 +46,7 @@ func buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, pr
 	return email, webhook
 }
 
-// Retrieves all packages from database that user tracks by his ID
+// QueryUsersTrackedPackages retrieves all packages from database that user tracks by his ID.
 func (db *Store) QueryUsersTrackedPackages(ctx context.Context, userID int64) ([]TrackedPackage, error) {
 	rows, err := db.pool.Query(ctx, qGetUsersTrackedPackages, userID)
 	if err != nil {
@@ -72,7 +72,7 @@ func (db *Store) QueryUsersTrackedPackages(ctx context.Context, userID int64) ([
 	return trackedPackages, nil
 }
 
-// Retrieves a single package from database that user tracks identified by userID and packageID
+// QueryUsersTrackedPackage retrieves a single package from database that user tracks identified by userID and packageID.
 func (db *Store) QueryUsersTrackedPackage(ctx context.Context, userID int64, packageID int64) (TrackedPackage, error) {
 	var p TrackedPackage
 
@@ -87,7 +87,7 @@ func (db *Store) QueryUsersTrackedPackage(ctx context.Context, userID int64, pac
 	return p, nil
 }
 
-// Retrieves all packages from database
+// QueryAllPackages retrieves all packages from database.
 func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	rows, err := db.pool.Query(ctx, qGetAllPackages)
 	if err != nil {
@@ -113,7 +113,7 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	return packages, nil
 }
 
-// Retrieves package identified by id
+// QueryPackage retrieves package identified by id.
 func (db *Store) QueryPackage(ctx context.Context, packageID int64) (Package, error) {
 	var pckg Package
 	row := db.pool.QueryRow(ctx, qGetPackage, packageID)
@@ -127,7 +127,7 @@ func (db *Store) QueryPackage(ctx context.Context, packageID int64) (Package, er
 	return pckg, nil
 }
 
-// Retrieves package identified by its name and branch
+// QueryPackageByNameAndBranch retrieves package identified by its name and branch.
 func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, branch string) (Package, error) {
 	var pckg Package
 	row := db.pool.QueryRow(ctx, qGetPackageByNameAndBranch, name, branch)
@@ -141,8 +141,8 @@ func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, b
 	return pckg, nil
 }
 
-// Updates last_checked_at timestamp for a package
-// Called after every nix eval (regardless of whether the version changed)
+// UpdatePackageLastCheckedAt updates last_checked_at timestamp for a package.
+// Called after every nix eval (regardless of whether the version changed).
 func (db *Store) UpdatePackageLastCheckedAt(ctx context.Context, packageID int64) error {
 	_, err := db.pool.Exec(ctx, sUpdatePackageLastCheckedAt, packageID)
 	if err != nil {
@@ -151,7 +151,7 @@ func (db *Store) UpdatePackageLastCheckedAt(ctx context.Context, packageID int64
 	return nil
 }
 
-// Retrieves tracking record identified by user ID and tracked package ID
+// QueryTracking retrieves tracking record identified by user ID and tracked package ID.
 func (db *Store) QueryTracking(ctx context.Context, userID int64, packageID int64) (Tracking, error) {
 	var tracking Tracking
 	row := db.pool.QueryRow(ctx, qGetTracking, userID, packageID)
@@ -165,7 +165,7 @@ func (db *Store) QueryTracking(ctx context.Context, userID int64, packageID int6
 	return tracking, nil
 }
 
-// Retrieves all trackings rows for a specific package
+// QueryTrackingsByPackageID retrieves all trackings rows for a specific package.
 func (db *Store) QueryTrackingsByPackageID(ctx context.Context, packageID int64) ([]Tracking, error) {
 	rows, err := db.pool.Query(ctx, qGetTrackingsByPackageID, packageID)
 	if err != nil {
@@ -187,8 +187,8 @@ func (db *Store) QueryTrackingsByPackageID(ctx context.Context, packageID int64)
 	return trackings, nil
 }
 
-// Inserts or updates package in database
-// Returns ID of the created/updated package (updated if version changed)
+// StorePackage inserts or updates package in database.
+// Returns ID of the created/updated package (updated if version changed).
 func (db *Store) StorePackage(ctx context.Context, name string, branch string, version string) (int64, error) {
 	var id int64
 	if err := db.pool.QueryRow(ctx, sInsertPackage, name, branch, version).Scan(&id); err != nil {
@@ -198,7 +198,7 @@ func (db *Store) StorePackage(ctx context.Context, name string, branch string, v
 	return id, nil
 }
 
-// Inserts or updates tracking record (updated if version changed)
+// StoreTracking inserts or updates tracking record (updated if version changed).
 func (db *Store) StoreTracking(ctx context.Context, userID int64, packageID int64, lastNotifiedVersion string) error {
 	_, err := db.pool.Exec(ctx, sInsertTracking, userID, packageID, lastNotifiedVersion)
 	if err != nil {
@@ -208,7 +208,7 @@ func (db *Store) StoreTracking(ctx context.Context, userID int64, packageID int6
 	return nil
 }
 
-// Retrieves account by issuer and subject
+// QueryAccountByIssuerSub retrieves account by issuer and subject.
 func (db *Store) QueryAccountByIssuerSub(ctx context.Context, issuer string, subject string) (Account, error) {
 	var acc Account
 	row := db.pool.QueryRow(ctx, qGetAccountByIssuerSub, issuer, subject)
@@ -222,7 +222,7 @@ func (db *Store) QueryAccountByIssuerSub(ctx context.Context, issuer string, sub
 	return acc, nil
 }
 
-// Creates internal user with external identity (account) mapped to it
+// CreateUserWithAccount creates internal user with external identity (account) mapped to it.
 func (db *Store) CreateUserWithAccount(ctx context.Context, info UserInfo) (int64, error) {
 	// begin transaction
 	tx, err := db.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -260,7 +260,7 @@ func (db *Store) CreateUserWithAccount(ctx context.Context, info UserInfo) (int6
 	return id, nil
 }
 
-// Retrieves user by id
+// QueryUserByID retrieves user by id.
 func (db *Store) QueryUserByID(ctx context.Context, id int64) (User, error) {
 	var usr User
 	row := db.pool.QueryRow(ctx, qGetUser, id)
@@ -274,7 +274,7 @@ func (db *Store) QueryUserByID(ctx context.Context, id int64) (User, error) {
 	return usr, nil
 }
 
-// Deletes tracking identified by user ID and tracked package ID
+// DeleteTracking deletes tracking identified by user ID and tracked package ID.
 func (db *Store) DeleteTracking(ctx context.Context, userID int64, packageID int64) error {
 	result, err := db.pool.Exec(ctx, dRemoveTracking, packageID, userID)
 	if err != nil {
@@ -286,7 +286,7 @@ func (db *Store) DeleteTracking(ctx context.Context, userID int64, packageID int
 	return nil
 }
 
-// Deletes a package by ID (used to rollback a newly created package when nix eval fails)
+// DeletePackage deletes a package by ID (used to rollback a newly created package when nix eval fails).
 func (db *Store) DeletePackage(ctx context.Context, packageID int64) error {
 	_, err := db.pool.Exec(ctx, dRemovePackage, packageID)
 	if err != nil {
@@ -295,7 +295,7 @@ func (db *Store) DeletePackage(ctx context.Context, packageID int64) error {
 	return nil
 }
 
-// Retrives all enabled (active) channels for a specific user
+// QueryActiveChannelsByUserID retrives all enabled (active) channels for a specific user.
 func (db *Store) QueryActiveChannelsByUserID(ctx context.Context, userID int64) ([]ActiveChannel, error) {
 	rows, err := db.pool.Query(ctx, qGetActiveChannelsByUserID, userID)
 	if err != nil {
@@ -323,7 +323,7 @@ func (db *Store) QueryActiveChannelsByUserID(ctx context.Context, userID int64) 
 	return channels, nil
 }
 
-// Retrieves all channels for a specific user (both emails and webhooks, enabled or not)
+// QueryChannelsByUserID retrieves all channels for a specific user (both emails and webhooks, enabled or not).
 func (db *Store) QueryChannelsByUserID(ctx context.Context, userID int64) ([]UserChannel, error) {
 	rows, err := db.pool.Query(ctx, qGetChannelsByUserID, userID)
 	if err != nil {
@@ -337,7 +337,7 @@ func (db *Store) QueryChannelsByUserID(ctx context.Context, userID int64) ([]Use
 		var emailAddr, webhookURL, webhookType, username, channel, priority *string
 		var requestAck *bool
 
-		if err := rows.Scan(&c.ID, &c.IsEnabled, &emailAddr, &webhookURL, &webhookType, &username, &channel, &priority, &requestAck, &c.NotifyOnManualVerify); err != nil {
+		if err := rows.Scan(&c.ID, &c.IsEnabled, &c.DisabledByServer, &emailAddr, &webhookURL, &webhookType, &username, &channel, &priority, &requestAck, &c.NotifyOnManualVerify); err != nil {
 			return nil, fmt.Errorf("database.QueryChannelsByUserID: scan error: %w", err)
 		}
 
@@ -351,14 +351,14 @@ func (db *Store) QueryChannelsByUserID(ctx context.Context, userID int64) ([]Use
 	return channels, nil
 }
 
-// Retrieves a single channel identified by id
+// QueryChannelByID retrieves a single channel identified by id.
 func (db *Store) QueryChannelByID(ctx context.Context, channelID int64, userID int64) (UserChannel, error) {
 	var c UserChannel
 	var emailAddr, webhookURL, webhookType, username, channel, priority *string
 	var requestAck *bool
 
 	row := db.pool.QueryRow(ctx, qGetChannelByID, channelID, userID)
-	if err := row.Scan(&c.ID, &c.IsEnabled, &emailAddr, &webhookURL, &webhookType, &username, &channel, &priority, &requestAck, &c.NotifyOnManualVerify); err != nil {
+	if err := row.Scan(&c.ID, &c.IsEnabled, &c.DisabledByServer, &emailAddr, &webhookURL, &webhookType, &username, &channel, &priority, &requestAck, &c.NotifyOnManualVerify); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return UserChannel{}, ErrNotFound
 		}
@@ -402,8 +402,8 @@ func (db *Store) CreateNotificationsForVersionChange(ctx context.Context, packag
 	return nil
 }
 
-// Retrieves all pending and failed (if retry count < max retries) notifications
-// Includes package and channel details that are needed by the sender
+// QueryPendingFailedNotifications retrieves all pending and failed (if retry count < max retries) notifications.
+// Includes package and channel details that are needed by the sender.
 func (db *Store) QueryPendingFailedNotifications(ctx context.Context, maxRetries int) ([]PendingFailedNotification, error) {
 	rows, err := db.pool.Query(ctx, qGetAllPendingFailedNotifications, maxRetries)
 	if err != nil {
@@ -462,8 +462,8 @@ func (db *Store) MarkNotificationSent(ctx context.Context, notificationID int64,
 	return nil
 }
 
-// Marks notifiation as "failed"
-// Increments attempt_count and stores the error message
+// MarkNotificationFailed marks notifiation as "failed".
+// Increments attempt_count and stores the error message.
 func (db *Store) MarkNotificationFailed(ctx context.Context, notificationID int64, errMsg string) error {
 	_, err := db.pool.Exec(ctx, sUpdateNotificationToFailed, notificationID, errMsg)
 	if err != nil {
@@ -472,7 +472,7 @@ func (db *Store) MarkNotificationFailed(ctx context.Context, notificationID int6
 	return nil
 }
 
-// Creates a new email notification channel for a user
+// CreateEmailChannel creates a new email notification channel for a user.
 func (db *Store) CreateEmailChannel(ctx context.Context, userID int64, emailAddress string, notifyOnManualVerify bool) (int64, error) {
 	var id int64
 	if err := db.pool.QueryRow(ctx, sInsertEmailChannel, userID, emailAddress, notifyOnManualVerify).Scan(&id); err != nil {
@@ -481,7 +481,7 @@ func (db *Store) CreateEmailChannel(ctx context.Context, userID int64, emailAddr
 	return id, nil
 }
 
-// Creates a new webhook notification channel for a user
+// CreateWebhookChannel creates a new webhook notification channel for a user.
 func (db *Store) CreateWebhookChannel(ctx context.Context, userID int64, webhookURL string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool) (int64, error) {
 	var id int64
 	if err := db.pool.QueryRow(ctx, sInsertWebhookChannel, userID, webhookURL, webhookType, notifyOnManualVerify, username, channel, priority, requestAck).Scan(&id); err != nil {
@@ -490,7 +490,7 @@ func (db *Store) CreateWebhookChannel(ctx context.Context, userID int64, webhook
 	return id, nil
 }
 
-// Deletes user channel identified by id
+// DeleteChannel deletes user channel identified by id.
 func (db *Store) DeleteChannel(ctx context.Context, channelID int64, userID int64) error {
 	result, err := db.pool.Exec(ctx, dRemoveChannel, channelID, userID)
 	if err != nil {
@@ -502,7 +502,7 @@ func (db *Store) DeleteChannel(ctx context.Context, channelID int64, userID int6
 	return nil
 }
 
-// Updates the is_enabled flag of a user channel
+// UpdateChannelEnabled updates the is_enabled flag of a user channel.
 func (db *Store) UpdateChannelEnabled(ctx context.Context, channelID int64, userID int64, isEnabled bool) error {
 	_, err := db.pool.Exec(ctx, sUpdateChannelIsEnabled, channelID, isEnabled, userID)
 	if err != nil {
@@ -511,7 +511,27 @@ func (db *Store) UpdateChannelEnabled(ctx context.Context, channelID int64, user
 	return nil
 }
 
-// Updates notify_on_manual_verify for a channel (email or webhook — only one row will match)
+// DisableChannelByServer sets is_enabled = false and disabled_by_server = true for a channel.
+// Called by dispatcher when max retries are reached.
+func (db *Store) DisableChannelByServer(ctx context.Context, channelID int64, userID int64) error {
+	_, err := db.pool.Exec(ctx, sUpdateChannelDisableByServer, channelID, userID)
+	if err != nil {
+		return fmt.Errorf("database.DisableChannelByServer: error updating channel (channelID=%d): %w", channelID, err)
+	}
+	return nil
+}
+
+// AcknowledgeChannelDisabled clears disabled_by_server flag without changing is_enabled.
+// Called when user clicks "Ok" on the "disabled by server" warning.
+func (db *Store) AcknowledgeChannelDisabled(ctx context.Context, channelID int64, userID int64) error {
+	_, err := db.pool.Exec(ctx, sUpdateChannelAckDisabled, channelID, userID)
+	if err != nil {
+		return fmt.Errorf("database.AcknowledgeChannelDisabled: error updating channel (channelID=%d): %w", channelID, err)
+	}
+	return nil
+}
+
+// UpdateChannelNotifyOnManualVerify updates notify_on_manual_verify for a channel (email or webhook - only one row will match).
 func (db *Store) UpdateChannelNotifyOnManualVerify(ctx context.Context, channelID int64, userID int64, value bool) error {
 	_, err := db.pool.Exec(ctx, sUpdateNotifyOnManualVerify, channelID, value, userID)
 	if err != nil {
@@ -520,8 +540,8 @@ func (db *Store) UpdateChannelNotifyOnManualVerify(ctx context.Context, channelI
 	return nil
 }
 
-// Retrieves all notifications for a specific user
-// Ordered by detected_at (descending)
+// QueryNotificationsByUserID retrieves all notifications for a specific user.
+// Ordered by detected_at (descending).
 func (db *Store) QueryNotificationsByUserID(ctx context.Context, userID int64) ([]UserNotification, error) {
 	rows, err := db.pool.Query(ctx, qGetNotificationsByUserID, userID)
 	if err != nil {
@@ -586,8 +606,8 @@ func (db *Store) QuerySystemConfig(ctx context.Context) (SystemConfig, error) {
 
 // UpdateSystemConfig saves admin runtime settings to the database.
 // Inserts on first call, updates on all next calls (its a single row table).
-func (db *Store) UpsertSystemConfig(ctx context.Context, cfg SystemConfig) error {
-	_, err := db.pool.Exec(ctx, qUpdateSystemConfig,
+func (db *Store) UpdateSystemConfig(ctx context.Context, cfg SystemConfig) error {
+	_, err := db.pool.Exec(ctx, sUpdateSystemConfig,
 		int64(cfg.NotificationDispatchInterval),
 		cfg.NotificationMaxRetries,
 		cfg.NotificationDisableOnMaxRetries,

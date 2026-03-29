@@ -95,4 +95,10 @@ var sUpdateNotifyOnManualVerify string
 var sUpdatePackageLastCheckedAt string
 
 //go:embed sql/update_system_config.sql
-var qUpdateSystemConfig string
+var sUpdateSystemConfig string
+
+//go:embed sql/update_channel_disable_by_server.sql
+var sUpdateChannelDisableByServer string
+
+//go:embed sql/update_channel_ack_disabled.sql
+var sUpdateChannelAckDisabled string

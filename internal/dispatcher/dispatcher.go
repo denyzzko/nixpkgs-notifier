@@ -178,10 +178,10 @@ func (d *Dispatcher) deliver(ctx context.Context, n database.PendingFailedNotifi
 		// if returned error is SenderError use its public version, otherwise fallback to just "internal server error"
 		dbMsg := notify.PublicMessage(err)
 		_ = d.db.MarkNotificationFailed(ctx, n.ID, dbMsg)
-		// if DisableOnMaxRetries is on -> disable channel (is_enabled = false)
+		// if DisableOnMaxRetries is on -> disable channel (is_enabled = false, disabled_by_server = true)
 		if cfg.DisableOnMaxRetries && n.AttemptCount+1 >= cfg.MaxRetries {
 			log.Printf("[WARN] dispatcher: disabling channel %d after %d failed attempts", n.ChannelID, n.AttemptCount+1)
-			_ = d.db.UpdateChannelEnabled(ctx, n.ChannelID, n.UserID, false)
+			_ = d.db.DisableChannelByServer(ctx, n.ChannelID, n.UserID)
 		}
 		return
 	}
@@ -193,7 +193,7 @@ func (d *Dispatcher) deliver(ctx context.Context, n database.PendingFailedNotifi
 		return
 	}
 
-	log.Printf("[INFO] dispatcher: sent notification %d (%s %s→%s)", n.ID, n.PackageName, n.OldVersion, n.NewVersion)
+	log.Printf("[INFO] dispatcher: sent notification %d (%s %s -> %s)", n.ID, n.PackageName, n.OldVersion, n.NewVersion)
 }
 
 // Decides which delivery mechanism to use based on notification and picks appropriate notify.Sender

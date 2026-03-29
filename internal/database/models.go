@@ -91,9 +91,10 @@ type ActiveChannel struct {
 type UserChannel struct {
 	ID                   int64
 	IsEnabled            bool
+	DisabledByServer     bool
 	Email                *Email   // nil for webhook
 	Webhook              *Webhook // nil for email
-	NotifyOnManualVerify *bool
+	NotifyOnManualVerify bool
 }
 
 // Pairs active channel and version that is specific for that user package tracking (used when creating notifications)

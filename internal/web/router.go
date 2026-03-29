@@ -31,8 +31,8 @@ func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.Provid
 	mux.HandleFunc("GET /package/status/track/{id}", packageTrackStatus(db, sessionManager))
 	mux.HandleFunc("GET /package/status/check/{id}", packageCheckStatus(db, sessionManager))
 
-	// notification channels page and corresponding routes for operations (add channel, delete channel, toggles, test)
-	mux.HandleFunc("GET /channels", requireAuth(sessionManager, channelsPage(sessionManager, db)))
+	// notification channels page and corresponding routes for operations (add channel, delete channel, toggles, test, ack disabled by server)
+	mux.HandleFunc("GET /channels", requireAuth(sessionManager, channelsPage(sessionManager, db, disp)))
 	mux.HandleFunc("GET /channel/add/form", addChannelForm())
 	mux.HandleFunc("GET /channel/add/cancel", addChannelFormCancel())
 	mux.HandleFunc("POST /channel/add", addChannel(db, sessionManager))
@@ -40,6 +40,7 @@ func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.Provid
 	mux.HandleFunc("POST /channel/toggle/enabled/{id}", toggleChannelEnabled(db, sessionManager))
 	mux.HandleFunc("POST /channel/toggle/manual/{id}", toggleNotifyOnManualVerify(db, sessionManager))
 	mux.HandleFunc("POST /channel/test/{id}", testChannel(db, sessionManager, disp))
+	mux.HandleFunc("POST /channel/ack-disabled/{id}", requireAuth(sessionManager, acknowledgeChannelDisabled(db, sessionManager, disp)))
 
 	// notification delivery log page
 	mux.HandleFunc("GET /log", requireAuth(sessionManager, notificationsPage(sessionManager, db, disp)))
