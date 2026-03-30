@@ -44,13 +44,17 @@
                 ];
 
                 # Enable nixpkgs-notifier with dummy credentials so systemd
-                # generates and enables the unit correctly. The service will
-                # fail at runtime (no real DB / OIDC), which is expected —
-                # the test only validates the module structure.
+                # generates and enables the unit correctly. We use a public
+                # OIDC issuer only for discovery/bootstrap; login itself is
+                # not expected to work with dummy client credentials.
                 services.nixpkgs-notifier = {
                   enable = true;
                   package = config.packages.nixpkgs-notifier;
                   port = 8080;
+                  database.postgresql = {
+                    enable = true;
+                    password = "test";
+                  };
                   settings = {
                     SERVER_URL = "http://localhost:8080";
                     DB_HOST = "127.0.0.1";
@@ -59,7 +63,7 @@
                     DB_USER = "nixpkgs_notifier";
                     DB_PASS = "test";
                     DB_SSLMODE = "disable";
-                    OIDC_PROVIDERS = "[{\"name\":\"test\",\"issuer\":\"https://example.com\",\"client_id\":\"test\",\"client_secret\":\"test\"}]";
+                    OIDC_PROVIDERS = "[{\"name\":\"test\",\"issuer\":\"https://accounts.google.com\",\"client_id\":\"test\",\"client_secret\":\"test\"}]";
                     EMAIL_PROVIDER = "smtp";
                     SMTP_HOST = "localhost";
                     SMTP_PORT = "25";
@@ -78,7 +82,7 @@
           '';
         in
         pkgs.dockerTools.buildImage {
-          name = "dev-container";
+          name = "nixpkgs-notifier-dev-container";
           tag = "latest";
 
           config = {
@@ -92,7 +96,7 @@
           };
 
           copyToRoot = pkgs.symlinkJoin {
-            name = "dev-container-root";
+            name = "nixpkgs-notifier-dev-container-root";
             paths = [
               testNixos.config.system.build.toplevel
               initFix
