@@ -132,7 +132,7 @@
             ];
 
             systemd.services.postgresql.postStart = lib.mkAfter (lib.optionalString (cfg.database.postgresql.password != "") ''
-              psql -tAc "ALTER ROLE \"${cfg.database.postgresql.user}\" WITH LOGIN PASSWORD '${sqlEsc cfg.database.postgresql.password}'" -d postgres
+              psql -tAc "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${sqlEsc cfg.database.postgresql.user}') THEN CREATE ROLE \"${cfg.database.postgresql.user}\" LOGIN; END IF; ALTER ROLE \"${cfg.database.postgresql.user}\" WITH LOGIN PASSWORD '${sqlEsc cfg.database.postgresql.password}'; END \$\$;" -d postgres
             '');
           })
 
