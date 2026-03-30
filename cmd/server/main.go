@@ -99,6 +99,9 @@ func main() {
 	})
 	chk.Start(appCtx)
 
+	// start branch fetcher goroutine that refreshes branch list every 24h
+	nix.StartBranchFetcher(appCtx)
+
 	// start cleanup goroutine for stale operation results (entries left behind when user closes browser mid-check)
 	packages.StartOperationResultCleanup(appCtx)
 

@@ -2,6 +2,7 @@ package pages
 
 import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+    "github.com/denyzzko/nixpkgs-notifier/internal/nix"
 	"fmt"
 )
 
@@ -310,10 +311,17 @@ templ NewPackageForm() {
                 class="form-control form-control-sm rounded-5 text-white"
                 style="background: #7E7E7E;"
                 type="text"
+                list="branch-suggestions"
                 name="branch"
-                placeholder="Branch (e.g. nixpkgs-unstable)"
+                placeholder="Branch (e.g. nixos-unstable)"
+                autocomplete="off"
                 required
             />
+            <datalist id="branch-suggestions">
+                for _, b := range nix.GetCommonBranches() {
+                    <option value={b}/>
+                }
+            </datalist>
         </div>
         <!-- Buttons -->
         <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
@@ -365,11 +373,18 @@ templ NewPackageError(name string, branch string, message string) {
                     class="form-control form-control-sm rounded-5 text-white"
                     style="background: #7E7E7E;"
                     type="text"
+                    list="branch-suggestions"
                     name="branch"
                     value={branch}
-                    placeholder="Branch (e.g. nixpkgs-unstable)"
+                    placeholder="Branch (e.g. nixos-unstable)"
+                    autocomplete="off"
                     required
                 />
+                <datalist id="branch-suggestions">
+                    for _, b := range nix.GetCommonBranches() {
+                        <option value={b}/>
+                    }
+                </datalist>
             </div>
             <!-- Buttons -->
             <div class="d-flex gap-2 justify-content-end" style="flex: 1;">

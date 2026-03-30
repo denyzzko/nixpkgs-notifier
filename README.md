@@ -161,5 +161,4 @@ The core functionality is complete and ready for deployment.
 **Not yet implemented:**
 - Admin user management in UI
 - Notification history auto-cleanup
-- Dropdown with common package branches when tracking a new package
 - Visual and other details
