@@ -21,10 +21,10 @@
                 lines = lib.strings.split "\n" content;
                 matching = builtins.filter (line: lib.strings.hasPrefix "${name}=" line) lines;
               in
-                if lib.lists.length matching > 0 then
-                  lib.strings.removePrefix "${name}=" (builtins.head matching)
-                else
-                  defaultValue
+              if lib.lists.length matching > 0 then
+                lib.strings.removePrefix "${name}=" (builtins.head matching)
+              else
+                defaultValue
             else
               defaultValue;
 
@@ -79,19 +79,16 @@
                     enable = true;
                     password = "test";
                   };
+                  email = {
+                    enable = true;
+                    provider = "smtp";
+                    host = "kazi.fit.vutbr.cz";
+                    port = 25;
+                    from = "nixpkgs-notifier@nesad.fit.vutbr.cz";
+                  };
                   settings = {
                     SERVER_URL = serverUrl;
-                    DB_HOST = "127.0.0.1";
-                    DB_PORT = "5432";
-                    DB_NAME = "nixpkgs_notifier";
-                    DB_USER = "nixpkgs_notifier";
-                    DB_PASS = "test";
-                    DB_SSLMODE = "disable";
                     OIDC_PROVIDERS = oidcProvidersJson;
-                    EMAIL_PROVIDER = "smtp";
-                    SMTP_HOST = "localhost";
-                    SMTP_PORT = "25";
-                    SMTP_FROM = "noreply@example.com";
                   };
                 };
 

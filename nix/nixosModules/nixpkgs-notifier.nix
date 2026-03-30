@@ -13,6 +13,17 @@
           DB_PASS = cfg.database.postgresql.password;
           DB_SSLMODE = "disable";
         };
+        emailDefaults = lib.optionalAttrs cfg.email.enable (
+          {
+            EMAIL_PROVIDER = cfg.email.provider;
+            SMTP_HOST = cfg.email.host;
+            SMTP_PORT = toString cfg.email.port;
+            SMTP_FROM = cfg.email.from;
+          } // lib.optionalAttrs cfg.email.auth.enable {
+            SMTP_USERNAME = cfg.email.auth.username;
+            SMTP_PASSWORD = cfg.email.auth.password;
+          }
+        );
         sqlEsc = s: builtins.replaceStrings [ "'" ] [ "''" ] s;
       in
       with lib;
@@ -94,6 +105,60 @@
             };
           };
 
+          email = {
+            enable = mkOption {
+              type = types.bool;
+              default = false;
+              description = "Enable email notifications via SMTP.";
+            };
+
+            provider = mkOption {
+              type = types.str;
+              default = "smtp";
+              description = "Email provider (currently only 'smtp' is supported).";
+            };
+
+            host = mkOption {
+              type = types.str;
+              default = "";
+              description = "SMTP server hostname.";
+              example = "kazi.fit.vutbr.cz";
+            };
+
+            port = mkOption {
+              type = types.port;
+              default = 25;
+              description = "SMTP server port.";
+            };
+
+            from = mkOption {
+              type = types.str;
+              default = "";
+              description = "Email address to use as 'From' header in notifications.";
+              example = "nixpkgs-notifier@nesad.fit.vutbr.cz";
+            };
+
+            auth = {
+              enable = mkOption {
+                type = types.bool;
+                default = false;
+                description = "Enable SMTP authentication (username/password).";
+              };
+
+              username = mkOption {
+                type = types.str;
+                default = "";
+                description = "SMTP username. Prefer setting via environmentFile in production.";
+              };
+
+              password = mkOption {
+                type = types.str;
+                default = "";
+                description = "SMTP password. Prefer setting via environmentFile in production.";
+              };
+            };
+          };
+
           environmentFile = mkOption {
             type = types.nullOr types.str;
             default = null;
@@ -154,7 +219,7 @@
 
               path = [ pkgs.nix ];
 
-              environment = dbDefaults // envSettings // {
+              environment = dbDefaults // emailDefaults // envSettings // {
                 SERVER_PORT = toString cfg.port;
               };
 
