@@ -15,6 +15,107 @@ A web application that tracks Nixpkgs packages and sends notifications when a ne
 go build ./cmd/server
 ```
 
+## Nix
+
+This repository includes a flake-based Nix setup using `flake-parts` and `haumea`.
+
+### Flake outputs
+
+| Output | Description |
+|---|---|
+| `packages.nixpkgs-notifier` | Default server binary package |
+| `apps.run` / `apps.default` | Run the server binary directly |
+| `apps.devContainer` | Docker-based NixOS module smoke test |
+| `devShells.default` | Development shell with Go, gopls, templ |
+| `nixosModules.nixpkgs-notifier` | NixOS module for deployment |
+
+### Development shell
+
+```bash
+nix develop
+```
+
+### Build and run
+
+```bash
+# build
+nix build .#nixpkgs-notifier
+
+# run (requires env vars – see Configuration)
+nix run .#run
+```
+
+### Dev container (NixOS module smoke test)
+
+The `devContainer` app builds a Docker image with a full NixOS system that
+runs `nixpkgs-notifier` as a managed systemd service, then tests that the
+module is correctly configured.
+
+```bash
+# build image, start container, run module tests
+nix run .#devContainer -- up
+
+# open shell inside the running container
+nix run .#devContainer -- exec
+
+# check container and module status
+nix run .#devContainer -- status
+
+# stop and optionally remove the image
+nix run .#devContainer -- down
+```
+
+The test verifies:
+1. `nixpkgs-notifier.service` is enabled by systemd
+2. `ExecStart` points to the correct binary
+3. The service runs under the dedicated `nixpkgs-notifier` system user
+
+### NixOS module
+
+Minimal example with locally managed PostgreSQL:
+
+```nix
+{
+  imports = [ inputs.nixpkgs-notifier.nixosModules.nixpkgs-notifier ];
+
+  services.nixpkgs-notifier = {
+    enable = true;
+
+    # optional: let the module provision a local PostgreSQL DB/user
+    database.postgresql = {
+      enable   = true;
+      name     = "nixpkgs_notifier";
+      user     = "nixpkgs_notifier";
+      password = "change-me";          # prefer environmentFile in production
+    };
+
+    settings = {
+      SERVER_URL = "https://notifier.example.com";
+
+      OIDC_PROVIDERS = ''[{"name":"authentik","display_name":"School SSO","issuer":"https://auth.example.com/application/o/notifier/","client_id":"id","client_secret":"secret"}]'';
+
+      EMAIL_PROVIDER = "smtp";
+      SMTP_HOST      = "localhost";
+      SMTP_PORT      = "25";
+      SMTP_FROM      = "noreply@example.com";
+    };
+
+    # for secrets – overrides settings above; file contains KEY=value lines
+    # environmentFile = "/run/secrets/nixpkgs-notifier.env";
+
+    openFirewall = true;
+  };
+}
+```
+
+When `database.postgresql.enable = true` the module:
+- starts `services.postgresql`
+- provisions the configured database via `ensureDatabases`
+- provisions the configured role via `ensureUsers` with `ensureDBOwnership = true`
+- sets the role password in `postgresql.postStart`
+- adds `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASS`/`DB_SSLMODE` to the service environment automatically (individual `settings` keys still take precedence if set)
+- orders the service after `postgresql.service`
+
 ## Database setup
  
 Application connects to existing PostgreSQL database. It does not create the database or the user - only tables. On first startup it runs `internal/database/sql/CREATE_TABLES.sql` automatically and logs the result. On next startups it detects that tables already exist and skips migration.
