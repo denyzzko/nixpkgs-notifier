@@ -207,6 +207,12 @@
             services.postgresql.package = cfg.database.postgresql.package;
             services.postgresql.dataDir = cfg.database.postgresql.dataDir;
             services.postgresql.settings.port = cfg.database.postgresql.port;
+
+            # Create the data directory (and any missing parents) with correct
+            # ownership before PostgreSQL initialises its cluster.
+            systemd.tmpfiles.rules = [
+              "d ${cfg.database.postgresql.dataDir} 0700 postgres postgres - -"
+            ];
             services.postgresql.ensureDatabases = [ cfg.database.postgresql.name ];
             services.postgresql.ensureUsers = [
               {
