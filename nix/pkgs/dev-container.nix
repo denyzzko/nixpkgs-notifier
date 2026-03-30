@@ -6,6 +6,13 @@
       mkDevContainer =
         targetSystem:
         let
+          localOidcProvidersFile = ../../.oidc-providers.local.json;
+          oidcProvidersJson =
+            if builtins.pathExists localOidcProvidersFile then
+              lib.strings.removeSuffix "\n" (builtins.readFile localOidcProvidersFile)
+            else
+              "[{\"name\":\"test\",\"issuer\":\"https://accounts.google.com\",\"client_id\":\"test\",\"client_secret\":\"test\"}]";
+
           testNixos = inputs.nixpkgs.lib.nixosSystem {
             system = targetSystem;
             modules = [
@@ -63,7 +70,7 @@
                     DB_USER = "nixpkgs_notifier";
                     DB_PASS = "test";
                     DB_SSLMODE = "disable";
-                    OIDC_PROVIDERS = "[{\"name\":\"test\",\"issuer\":\"https://accounts.google.com\",\"client_id\":\"test\",\"client_secret\":\"test\"}]";
+                    OIDC_PROVIDERS = oidcProvidersJson;
                     EMAIL_PROVIDER = "smtp";
                     SMTP_HOST = "localhost";
                     SMTP_PORT = "25";

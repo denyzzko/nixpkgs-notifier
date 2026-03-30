@@ -3,3 +3,4 @@
 *.zip
 *.sh
 *.pem
+.oidc-providers.local.json

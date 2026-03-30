@@ -51,6 +51,18 @@ The `devContainer` app builds a Docker image with a full NixOS system that
 runs `nixpkgs-notifier` as a managed systemd service, then tests that the
 module is correctly configured.
 
+For local OIDC credentials in this dev container, use a repository-local file
+that is intentionally not committed:
+
+```bash
+cp .oidc-providers.local.json.example .oidc-providers.local.json
+# edit issuer/client_id/client_secret in .oidc-providers.local.json
+```
+
+- `.oidc-providers.local.json` is ignored by git
+- `.oidc-providers.local.json.example` is safe to commit and share
+- when the local file exists, `devContainer` uses it for `OIDC_PROVIDERS`
+
 ```bash
 # build image, start container, run module tests
 nix run .#devContainer -- up
