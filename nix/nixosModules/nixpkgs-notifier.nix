@@ -25,6 +25,7 @@
           }
         );
         sqlEsc = s: builtins.replaceStrings [ "'" ] [ "''" ] s;
+        sqlEscIdent = s: builtins.replaceStrings [ "\"" ] [ "\"\"" ] s;
       in
       with lib;
       {
@@ -87,15 +88,15 @@
             };
 
             name = mkOption {
-              type = types.str;
+              type = types.strMatching "[a-zA-Z_][a-zA-Z0-9_]*";
               default = "nixpkgs_notifier";
-              description = "Name of the PostgreSQL database to create.";
+              description = "Name of the PostgreSQL database to create. Must be a safe SQL identifier (letters, digits, underscores; must start with a letter or underscore).";
             };
 
             user = mkOption {
-              type = types.str;
+              type = types.strMatching "[a-zA-Z_][a-zA-Z0-9_]*";
               default = "nixpkgs_notifier";
-              description = "PostgreSQL role name used by nixpkgs-notifier.";
+              description = "PostgreSQL role name used by nixpkgs-notifier. Must be a safe SQL identifier (letters, digits, underscores; must start with a letter or underscore).";
             };
 
             password = mkOption {
@@ -197,7 +198,7 @@
             ];
 
             systemd.services.postgresql.postStart = lib.mkAfter (lib.optionalString (cfg.database.postgresql.password != "") ''
-              psql -tAc "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${sqlEsc cfg.database.postgresql.user}') THEN CREATE ROLE \"${cfg.database.postgresql.user}\" LOGIN; END IF; ALTER ROLE \"${cfg.database.postgresql.user}\" WITH LOGIN PASSWORD '${sqlEsc cfg.database.postgresql.password}'; END \$\$;" -d postgres
+              psql -tAc "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${sqlEsc cfg.database.postgresql.user}') THEN CREATE ROLE \"${sqlEscIdent cfg.database.postgresql.user}\" LOGIN; END IF; ALTER ROLE \"${sqlEscIdent cfg.database.postgresql.user}\" WITH LOGIN PASSWORD '${sqlEsc cfg.database.postgresql.password}'; END \$\$;" -d postgres
             '');
           })
 
