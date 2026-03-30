@@ -109,12 +109,13 @@ func login(cfg *config.Config, provMap *auth.ProviderMap, sessionManager *sessio
 			return
 		}
 
-		// Dynamically determine server URL and update callback URL for this request
+		// Dynamically determine server URL and set callback URL on a per-request provider copy
 		serverBaseURL := getServerBaseURL(r, cfg)
-		provider.Config.RedirectURL = serverBaseURL + "/auth/callback"
+		providerCopy := *provider
+		providerCopy.Config.RedirectURL = serverBaseURL + "/auth/callback"
 
 		// init
-		authURL, err := auth.AuthCodeFlowInitLogin(r.Context(), sessionManager, provider, providerName)
+		authURL, err := auth.AuthCodeFlowInitLogin(r.Context(), sessionManager, &providerCopy, providerName)
 		if err != nil {
 			writeAppErr(w, "web.login", err)
 			return
