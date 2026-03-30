@@ -105,12 +105,20 @@
               description = "Password for managed PostgreSQL role. Prefer setting via environmentFile in production.";
             };
 
+            package = mkOption {
+              type = types.package;
+              default = pkgs.postgresql_18;
+              defaultText = literalExpression "pkgs.postgresql_18";
+              description = "PostgreSQL package to use. The psqlSchema attribute of the package determines the versioned suffix in dataDir.";
+              example = literalExpression "pkgs.postgresql_17";
+            };
+
             dataDir = mkOption {
               type = types.str;
               default = "/mnt/db/data/${config.services.postgresql.package.psqlSchema}";
-              defaultText = literalExpression "\"/mnt/db/data/\${config.services.postgresql.package.psqlSchema} (e.g. /mnt/db/data/17)\"";
+              defaultText = literalExpression "\"/mnt/db/data/\${config.services.postgresql.package.psqlSchema} (e.g. /mnt/db/data/18)\"";
               description = "PostgreSQL data directory. Defaults to /mnt/db/data/<psqlSchema> — the same versioning NixOS uses internally — so the path is schema-versioned and survives pg_upgrade.";
-              example = "/mnt/db/data/17";
+              example = "/mnt/db/data/18";
             };
           };
 
@@ -196,6 +204,7 @@
         config = mkIf cfg.enable (mkMerge [
           (mkIf cfg.database.postgresql.enable {
             services.postgresql.enable = true;
+            services.postgresql.package = cfg.database.postgresql.package;
             services.postgresql.dataDir = cfg.database.postgresql.dataDir;
             services.postgresql.settings.port = cfg.database.postgresql.port;
             services.postgresql.ensureDatabases = [ cfg.database.postgresql.name ];
