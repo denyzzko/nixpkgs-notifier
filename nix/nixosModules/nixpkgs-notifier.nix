@@ -205,6 +205,8 @@
             users.users.${cfg.user} = {
               isSystemUser = true;
               group = cfg.group;
+              home = "/var/lib/nixpkgs-notifier";
+              createHome = true;
             };
 
             users.groups.${cfg.group} = { };
@@ -221,6 +223,8 @@
 
               environment = dbDefaults // emailDefaults // envSettings // {
                 SERVER_PORT = toString cfg.port;
+                HOME = "/var/lib/nixpkgs-notifier";
+                XDG_CACHE_HOME = "/var/lib/nixpkgs-notifier/.cache";
               };
 
               serviceConfig = {
