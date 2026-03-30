@@ -18,6 +18,7 @@
         text = ''
       set -euo pipefail
 
+      package_attr="dev-container"
       image_name="nixpkgs-notifier-dev-container"
       container_name="nixpkgs-notifier-dev-container-instance"
       target_system="''${TARGET_SYSTEM:-x86_64-linux}"
@@ -36,7 +37,6 @@
         down    Stop and remove the dev container
         ps      List dev containers
         status  Show detailed container status
-        ssh     Connect to container via SSH (legacy behavior)
 
       Examples:
         dev-container up
@@ -48,17 +48,17 @@
       EOF
       }
 
-      wait_for_ssh() {
-        echo ">>> Waiting for SSH to become available..."
+      wait_for_container_ready() {
+        echo ">>> Waiting for container init/systemd to become available..."
         for i in $(seq 1 60); do
-          if ssh -o ConnectTimeout=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null nixos@localhost -p 3333 'echo ok' >/dev/null 2>&1; then
+          if docker exec "$container_name" /run/current-system/sw/bin/systemctl list-units >/dev/null 2>&1; then
             return 0
           fi
-          echo "Attempt $i: waiting for SSH..."
+          echo "Attempt $i: waiting for systemd..."
           sleep 1
         done
 
-        echo ">>> SSH is not available after timeout"
+        echo ">>> Container is not ready after timeout"
         return 1
       }
 
@@ -66,28 +66,28 @@
         echo ">>> Testing nixpkgs-notifier NixOS module..."
 
         # 1. Unit must be enabled (created by the module)
-        if ! docker exec "$container_name" systemctl is-enabled nixpkgs-notifier >/dev/null 2>&1; then
+        if ! docker exec "$container_name" /run/current-system/sw/bin/systemctl is-enabled nixpkgs-notifier >/dev/null 2>&1; then
           echo ">>> FAIL: nixpkgs-notifier service is not enabled"
-          docker exec "$container_name" systemctl status nixpkgs-notifier --no-pager || true
+          docker exec "$container_name" /run/current-system/sw/bin/systemctl status nixpkgs-notifier --no-pager || true
           return 1
         fi
         echo ">>> PASS: service is enabled"
 
         # 2. ExecStart must point to the correct binary
-        if ! docker exec "$container_name" systemctl cat nixpkgs-notifier \
+        if ! docker exec "$container_name" /run/current-system/sw/bin/systemctl cat nixpkgs-notifier \
              | grep -q "ExecStart=.*bin/nixpkgs-notifier"; then
           echo ">>> FAIL: unit does not contain expected ExecStart"
-          docker exec "$container_name" systemctl cat nixpkgs-notifier || true
+          docker exec "$container_name" /run/current-system/sw/bin/systemctl cat nixpkgs-notifier || true
           return 1
         fi
         echo ">>> PASS: ExecStart is correct"
 
         # 3. Service must run as the dedicated system user
         if ! docker exec "$container_name" \
-             systemctl show nixpkgs-notifier --property=User \
+             /run/current-system/sw/bin/systemctl show nixpkgs-notifier --property=User \
              | grep -q "User=nixpkgs-notifier"; then
           echo ">>> FAIL: service does not run as expected user 'nixpkgs-notifier'"
-          docker exec "$container_name" systemctl show nixpkgs-notifier \
+          docker exec "$container_name" /run/current-system/sw/bin/systemctl show nixpkgs-notifier \
             --property=User --property=Group || true
           return 1
         fi
@@ -135,9 +135,9 @@
            [ "$current_version" != "$last_version" ]; then
           echo ">>> Building container image: $image_name"
           if [ "$no_cache" = true ]; then
-            nix build "$flake_ref#packages.$target_system.$image_name" --option substitute false
+            nix build "$flake_ref#packages.$target_system.$package_attr" --option substitute false
           else
-            nix build "$flake_ref#packages.$target_system.$image_name"
+            nix build "$flake_ref#packages.$target_system.$package_attr"
           fi
           echo ">>> Loading image into Docker..."
           docker load < result
@@ -154,7 +154,7 @@
           "$image_name":latest >/dev/null
 
         echo ">>> Container '$container_name' started successfully"
-        wait_for_ssh
+        wait_for_container_ready
         test_nixos_module
         echo ">>> Use 'dev-container exec' to enter the container"
       }
@@ -169,12 +169,12 @@
           exit 1
         fi
 
-        local exec_cmd="/bin/bash"
         if [ $# -gt 0 ]; then
-          exec_cmd="$*"
+          docker exec -i "''${tty_args[@]}" "$container_name" \
+            /run/current-system/sw/bin/bash -lc 'export PATH=/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:$PATH; exec "$@"' -- "$@"
+        else
+          docker exec -i "''${tty_args[@]}" "$container_name" /run/current-system/sw/bin/bash
         fi
-
-        docker exec -i "''${tty_args[@]}" "$container_name" bash -c "$exec_cmd"
       }
 
       cmd_down() {
@@ -283,7 +283,7 @@
           echo "Status:    Running"
           docker inspect --format='Started:   {{.State.StartedAt}}' "$container_name"
           docker inspect --format='Health:    {{.State.Health.Status}}' "$container_name" 2>/dev/null || echo "Health:    N/A"
-          docker exec "$container_name" systemctl is-active nixpkgs-notifier >/dev/null 2>&1 \
+          docker exec "$container_name" /run/current-system/sw/bin/systemctl is-active nixpkgs-notifier >/dev/null 2>&1 \
             && echo "Module:    nixpkgs-notifier active" \
             || echo "Module:    nixpkgs-notifier not active"
         elif docker ps -a --format '{{.Names}}' | grep -q "^$container_name$"; then
@@ -300,19 +300,6 @@
         fi
       }
 
-      cmd_ssh() {
-        if ! docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
-          echo ">>> Container not running, starting..."
-          cmd_up
-        fi
-
-        wait_for_ssh
-        echo ">>> Connecting via SSH..."
-        ssh nixos@localhost -p 3333 \
-          -o StrictHostKeyChecking=no \
-          -o UserKnownHostsFile=/dev/null
-      }
-
       if [ $# -eq 0 ]; then
         usage
         exit 1
@@ -327,7 +314,6 @@
         down)   cmd_down "$@" ;;
         ps)     cmd_ps "$@" ;;
         status) cmd_status "$@" ;;
-        ssh)    cmd_ssh "$@" ;;
         -h|--help)
           usage
           exit 0
