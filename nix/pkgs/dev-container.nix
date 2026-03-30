@@ -13,6 +13,23 @@
             else
               "[{\"name\":\"test\",\"issuer\":\"https://accounts.google.com\",\"client_id\":\"test\",\"client_secret\":\"test\"}]";
 
+          localEnvFile = ../../.dev-container.env;
+          parseEnvVar = name: defaultValue:
+            if builtins.pathExists localEnvFile then
+              let
+                content = lib.strings.removeSuffix "\n" (builtins.readFile localEnvFile);
+                lines = lib.strings.split "\n" content;
+                matching = builtins.filter (line: lib.strings.hasPrefix "${name}=" line) lines;
+              in
+                if lib.lists.length matching > 0 then
+                  lib.strings.removePrefix "${name}=" (builtins.head matching)
+                else
+                  defaultValue
+            else
+              defaultValue;
+
+          serverUrl = parseEnvVar "SERVER_URL" "http://localhost:8080";
+
           testNixos = inputs.nixpkgs.lib.nixosSystem {
             system = targetSystem;
             modules = [
@@ -63,7 +80,7 @@
                     password = "test";
                   };
                   settings = {
-                    SERVER_URL = "http://localhost:8080";
+                    SERVER_URL = serverUrl;
                     DB_HOST = "127.0.0.1";
                     DB_PORT = "5432";
                     DB_NAME = "nixpkgs_notifier";

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -24,6 +25,26 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/pages"
 )
+
+// getServerBaseURL reconstructs the server's base URL from the request.
+// If X-Forwarded-Proto and X-Forwarded-Host headers are present (from reverse proxy),
+// uses them. Otherwise falls back to cfg.ServerURL.
+// Returns base URL without trailing slash (e.g., "https://example.com", "http://localhost:8080").
+func getServerBaseURL(r *http.Request, cfg *config.Config) string {
+	// Check for reverse proxy headers
+	proto := r.Header.Get("X-Forwarded-Proto")
+	host := r.Header.Get("X-Forwarded-Host")
+
+	if proto != "" && host != "" {
+		// Ensure host doesn't already have protocol
+		host = strings.TrimPrefix(host, "http://")
+		host = strings.TrimPrefix(host, "https://")
+		return proto + "://" + host
+	}
+
+	// Fallback to configured SERVER_URL
+	return strings.TrimSuffix(cfg.ServerURL, "/")
+}
 
 // renderHTML sets the Content-Type header to text/html and renders the given templ component.
 func renderHTML(w http.ResponseWriter, ctx context.Context, component templ.Component) {
@@ -76,7 +97,8 @@ func loginPage(provMap *auth.ProviderMap, sessionManager *session.SessionManager
 
 // login initiates the OIDC authorization code flow for the provider specified by "provider" query parameter.
 // It generates an auth URL with a state parameter, stores state in session, and redirects user to the provider.
-func login(provMap *auth.ProviderMap, sessionManager *session.SessionManager) http.HandlerFunc {
+// Dynamically sets the callback URL based on X-Forwarded-* headers (for reverse proxy support) or falls back to SERVER_URL.
+func login(cfg *config.Config, provMap *auth.ProviderMap, sessionManager *session.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// code from: https://github.com/coreos/go-oidc/blob/v3/example/idtoken/app.go (line 66-79)
 		// get provider from query
@@ -86,6 +108,10 @@ func login(provMap *auth.ProviderMap, sessionManager *session.SessionManager) ht
 			writeGenericErr(w, "web.login", "unknown provider", fmt.Errorf("unknown provider in http request %q", providerName), http.StatusBadRequest)
 			return
 		}
+
+		// Dynamically determine server URL and update callback URL for this request
+		serverBaseURL := getServerBaseURL(r, cfg)
+		provider.Config.RedirectURL = serverBaseURL + "/auth/callback"
 
 		// init
 		authURL, err := auth.AuthCodeFlowInitLogin(r.Context(), sessionManager, provider, providerName)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
+	"github.com/denyzzko/nixpkgs-notifier/internal/config"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
@@ -12,13 +13,13 @@ import (
 
 // RegisterRoutes registers all HTTP routes on mux.
 // Each handler receives only the dependencies it needs.
-func RegisterRoutes(mux *http.ServeMux, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager, disp *dispatcher.Dispatcher, chk *checker.Checker) {
+func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager, disp *dispatcher.Dispatcher, chk *checker.Checker) {
 	// home page (displays all tracked packages)
 	mux.HandleFunc("GET /", requireAuth(sessionManager, indexPage(sessionManager, db)))
 
 	// login page and corresponding routes
 	mux.HandleFunc("GET /login", loginPage(provMap, sessionManager))
-	mux.HandleFunc("GET /auth/login", login(provMap, sessionManager))
+	mux.HandleFunc("GET /auth/login", login(cfg, provMap, sessionManager))
 	mux.HandleFunc("GET /auth/callback", callback(db, provMap, sessionManager))
 	mux.HandleFunc("POST /auth/logout", logout(sessionManager))
 

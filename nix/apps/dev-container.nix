@@ -149,7 +149,7 @@
         echo ">>> Starting container..."
         docker run -d --rm --privileged --cgroupns=host \
           -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-          --network host \
+          -p 8080:8080 \
           --name "$container_name" \
           "$image_name":latest >/dev/null
 
