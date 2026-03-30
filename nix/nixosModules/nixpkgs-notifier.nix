@@ -107,9 +107,9 @@
 
             dataDir = mkOption {
               type = types.str;
-              default = "/mnt/db/data/${lib.versions.major pkgs.postgresql.version}";
-              defaultText = literalExpression "\"/mnt/db/data/<postgresql-major-version> (e.g. /mnt/db/data/17)\"";
-              description = "PostgreSQL data directory. Defaults to /mnt/db/data/<major-version> so the path is schema-versioned and survives pg_upgrade.";
+              default = "/mnt/db/data/${config.services.postgresql.package.psqlSchema}";
+              defaultText = literalExpression "\"/mnt/db/data/\${config.services.postgresql.package.psqlSchema} (e.g. /mnt/db/data/17)\"";
+              description = "PostgreSQL data directory. Defaults to /mnt/db/data/<psqlSchema> — the same versioning NixOS uses internally — so the path is schema-versioned and survives pg_upgrade.";
               example = "/mnt/db/data/17";
             };
           };
