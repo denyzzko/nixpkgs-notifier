@@ -109,7 +109,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// register routes
-	web.RegisterRoutes(mux, db, provMap, sessionManager, disp, chk)
+	web.RegisterRoutes(mux, cfg, db, provMap, sessionManager, disp, chk)
 
 	// chain middleware
 	chain := middleware.Chain(

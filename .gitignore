@@ -3,3 +3,7 @@
 *.zip
 *.sh
 *.pem
+.oidc-providers.local.json
+.dev-container.env
+/bin/
+/server
