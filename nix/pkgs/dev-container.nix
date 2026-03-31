@@ -68,9 +68,8 @@
                 ];
 
                 # Enable nixpkgs-notifier with dummy credentials so systemd
-                # generates and enables the unit correctly. We use a public
-                # OIDC issuer only for discovery/bootstrap; login itself is
-                # not expected to work with dummy client credentials.
+                # generates and enables the unit correctly. Runtime local
+                # overrides can be provided via mounted environmentFile.
                 services.nixpkgs-notifier = {
                   enable = true;
                   package = config.packages.nixpkgs-notifier;
@@ -90,6 +89,10 @@
                     SERVER_URL = serverUrl;
                     OIDC_PROVIDERS = oidcProvidersJson;
                   };
+                  # Optional runtime override mounted by dev-container app.
+                  # Use ".env.oidc.local" in repo root and it will override
+                  # OIDC_PROVIDERS from settings without rebuilding image.
+                  environmentFile = "-/etc/nixpkgs-notifier-oidc.env";
                 };
 
                 system.stateVersion = "25.11";
