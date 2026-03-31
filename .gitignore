@@ -1,9 +1,11 @@
 .env
+.env.oidc.local
 *_templ.go
 *.zip
 *.sh
 *.pem
 .oidc-providers.local.json
 .dev-container.env
+.process-state/
 /bin/
 /server
