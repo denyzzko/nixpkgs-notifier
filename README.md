@@ -25,7 +25,7 @@ This repository includes a flake-based Nix setup using `flake-parts` and `haumea
 |---|---|
 | `packages.nixpkgs-notifier` | Default server binary package |
 | `apps.run` / `apps.default` | Run the server binary directly |
-| `apps.devContainer` | Docker-based NixOS module smoke test |
+| `apps.dev-container` | Docker-based NixOS module smoke test |
 | `devShells.default` | Development shell with Go, gopls, templ |
 | `nixosModules.nixpkgs-notifier` | NixOS module for deployment |
 
@@ -47,40 +47,41 @@ nix run .#run
 
 ### Dev container (NixOS module smoke test)
 
-The `devContainer` app builds a Docker image with a full NixOS system that
-runs `nixpkgs-notifier` as a managed systemd service, then tests that the
-module is correctly configured.
+The `dev-container` app builds a Docker image with a full NixOS system that
+runs `nixpkgs-notifier` as a managed systemd service.
 
-For local OIDC credentials in this dev container, use a repository-local file
-that is intentionally not committed:
+For local OIDC credentials in this dev container, use a repository-local env
+file that is intentionally not committed:
 
 ```bash
-cp .oidc-providers.local.json.example .oidc-providers.local.json
-# edit issuer/client_id/client_secret in .oidc-providers.local.json
+cat > .env.oidc.local <<'EOF'
+OIDC_PROVIDERS=[{"name":"authentik","display_name":"School SSO","issuer":"https://auth.example.com/application/o/notifier/","client_id":"your-client-id","client_secret":"your-client-secret"}]
+EOF
 ```
 
-- `.oidc-providers.local.json` is ignored by git
-- `.oidc-providers.local.json.example` is safe to commit and share
-- when the local file exists, `devContainer` uses it for `OIDC_PROVIDERS`
+- `.env.oidc.local` is ignored by git
+- when the local file exists, `dev-container` mounts it into the container as an environment file
+- changing `.env.oidc.local` does not require rebuilding the image
 
 ```bash
 # build image, start container, run module tests
-nix run .#devContainer -- up
+nix run .#dev-container -- up
 
 # open shell inside the running container
-nix run .#devContainer -- exec
+nix run .#dev-container -- exec
 
 # check container and module status
-nix run .#devContainer -- status
+nix run .#dev-container -- status
 
 # stop and optionally remove the image
-nix run .#devContainer -- down
+nix run .#dev-container -- down
+
+# also remove the persistent Docker volume
+nix run .#dev-container -- down --purge-state
 ```
 
-The test verifies:
-1. `nixpkgs-notifier.service` is enabled by systemd
-2. `ExecStart` points to the correct binary
-3. The service runs under the dedicated `nixpkgs-notifier` system user
+The container stores PostgreSQL data in a persistent Docker volume so restarts
+do not wipe the local dev state.
 
 ### NixOS module
 

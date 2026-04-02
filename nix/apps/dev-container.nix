@@ -1,336 +1,336 @@
 { ... }:
 {
-  perSystem =
-    { pkgs, ... }:
-    let
-      shell = pkgs.writeShellApplication {
+  perSystem = { pkgs, ... }: {
+    apps."dev-container" = {
+      type = "app";
+      program = "${pkgs.writeShellApplication {
         name = "dev-container";
-
         runtimeInputs = [
-          pkgs.git
           pkgs.nix
           pkgs.docker
           pkgs.openssh
           pkgs.coreutils
           pkgs.gnugrep
+          pkgs.git
         ];
-
         text = ''
-      set -euo pipefail
+          set -euo pipefail
 
-      package_attr="dev-container"
-      image_name="nixpkgs-notifier-dev-container"
-      container_name="nixpkgs-notifier-dev-container-instance"
-      target_system="''${TARGET_SYSTEM:-x86_64-linux}"
-      version_file="''${XDG_CACHE_HOME:-$HOME/.cache}/dev-container-version"
-      flake_ref="path:$PWD"
+          find_repo_root() {
+            local dir="$PWD"
 
-      mkdir -p "$(dirname "$version_file")"
+            while [ "$dir" != "/" ]; do
+              if [ -f "$dir/flake.nix" ]; then
+                echo "$dir"
+                return 0
+              fi
 
-      usage() {
-        cat <<EOF
-      Usage: dev-container <command> [options]
+              dir="$(dirname "$dir")"
+            done
 
-      Commands:
-        up      Build and start the dev container (detached)
-        exec    Execute a command in the running container (default: bash)
-        down    Stop and remove the dev container
-        ps      List dev containers
-        status  Show detailed container status
+            echo "Run from the repository root or one of its subdirectories so flake.nix can be found." >&2
+            exit 1
+          }
 
-      Examples:
-        dev-container up
-        dev-container exec
-        dev-container exec ls -la
-        dev-container down
-        dev-container ps
-        dev-container status
-      EOF
-      }
+          image_name="nixpkgs-notifier-dev-container"
+          container_name="nixpkgs-notifier-dev-container-instance"
+          version_file="''${XDG_CACHE_HOME:-$HOME/.cache}/nixpkgs-notifier-dev-container-version"
+          target_system="''${TARGET_SYSTEM:-x86_64-linux}"
+          package_attr="dev-container"
+          repo_root="$(find_repo_root)"
+          flake_ref="git+file://$repo_root"
+          oidc_env_file="$repo_root/.env.oidc.local"
+          container_oidc_env_file="/etc/nixpkgs-notifier-oidc.env"
+          container_state_dir="/mnt/db"
+          state_volume="''${container_name}-state"
 
-      wait_for_container_ready() {
-        echo ">>> Waiting for container init/systemd to become available..."
-        for i in $(seq 1 60); do
-          if docker exec "$container_name" /run/current-system/sw/bin/systemctl list-units >/dev/null 2>&1; then
-            return 0
-          fi
-          echo "Attempt $i: waiting for systemd..."
-          sleep 1
-        done
+          mkdir -p "$(dirname "$version_file")"
 
-        echo ">>> Container is not ready after timeout"
-        return 1
-      }
+          usage() {
+            cat <<EOF
+          Usage: dev-container <command> [options]
 
-      test_nixos_module() {
-        echo ">>> Testing nixpkgs-notifier NixOS module..."
+          Commands:
+            up      Build and start the dev container (detached)
+            exec    Execute a command in the running container (default: bash)
+            down    Stop and remove the dev container
+            ps      List dev containers
+            status  Show detailed container status
 
-        # 1. Unit must be enabled (created by the module)
-        if ! docker exec "$container_name" /run/current-system/sw/bin/systemctl is-enabled nixpkgs-notifier >/dev/null 2>&1; then
-          echo ">>> FAIL: nixpkgs-notifier service is not enabled"
-          docker exec "$container_name" /run/current-system/sw/bin/systemctl status nixpkgs-notifier --no-pager || true
-          return 1
-        fi
-        echo ">>> PASS: service is enabled"
+          Examples:
+            dev-container up
+            dev-container exec
+            dev-container exec ls -la
+            dev-container down
+            dev-container ps
+            dev-container status
 
-        # 2. ExecStart must point to the correct binary
-        if ! docker exec "$container_name" /run/current-system/sw/bin/systemctl cat nixpkgs-notifier \
-             | grep -q "ExecStart=.*bin/nixpkgs-notifier"; then
-          echo ">>> FAIL: unit does not contain expected ExecStart"
-          docker exec "$container_name" /run/current-system/sw/bin/systemctl cat nixpkgs-notifier || true
-          return 1
-        fi
-        echo ">>> PASS: ExecStart is correct"
+          Persistent state:
+            Shared volume:   $state_volume -> $container_state_dir
+            Inside volume:   PostgreSQL data in $container_state_dir/postgresql
+          EOF
+          }
 
-        # 3. Service must run as the dedicated system user
-        if ! docker exec "$container_name" \
-             /run/current-system/sw/bin/systemctl show nixpkgs-notifier --property=User \
-             | grep -q "User=nixpkgs-notifier"; then
-          echo ">>> FAIL: service does not run as expected user 'nixpkgs-notifier'"
-          docker exec "$container_name" /run/current-system/sw/bin/systemctl show nixpkgs-notifier \
-            --property=User --property=Group || true
-          return 1
-        fi
-        echo ">>> PASS: service user is correct"
+          cmd_up() {
+            local rebuild=false
+            local no_cache=false
 
-        echo ">>> PASS: nixpkgs-notifier NixOS module is correctly configured"
-      }
+            while [[ $# -gt 0 ]]; do
+              case $1 in
+                --rebuild|-r) rebuild=true; shift ;;
+                --no-cache) no_cache=true; shift ;;
+                -h|--help)
+                  echo "Usage: dev-container up [--rebuild|-r] [--no-cache]"
+                  echo "  --rebuild, -r   Force rebuild of the image"
+                  echo "  --no-cache      Disable Nix cache during build"
+                  exit 0
+                  ;;
+                *) echo "Unknown option: $1"; exit 1 ;;
+              esac
+            done
 
-      cmd_up() {
-        local rebuild=false
-        local no_cache=false
+            if docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
+              echo ">>> Container '$container_name' is already running"
+              echo ">>> Use 'dev-container exec' to enter the container"
+              return 0
+            fi
 
-        while [[ $# -gt 0 ]]; do
-          case $1 in
-            --rebuild|-r) rebuild=true; shift ;;
-            --no-cache) no_cache=true; shift ;;
-            -h|--help)
-              echo "Usage: dev-container up [--rebuild|-r] [--no-cache]"
-              echo "  --rebuild, -r   Force rebuild of the image"
-              echo "  --no-cache      Disable Nix cache during build"
-              exit 0
-              ;;
-            *) echo "Unknown option: $1"; exit 1 ;;
-          esac
-        done
+            if docker ps -a --format '{{.Names}}' | grep -q "^$container_name$"; then
+              echo ">>> Removing stopped container..."
+              docker rm -f "$container_name" 2>/dev/null || true
+            fi
 
-        if docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
-          echo ">>> Container '$container_name' is already running"
-          echo ">>> Use 'dev-container exec' to enter the container"
-          return 0
-        fi
+            local current_version
+            current_version=$(git -C "$repo_root" describe --always --dirty 2>/dev/null || date +%s)
+            local last_version=""
+            [ -f "$version_file" ] && last_version=$(cat "$version_file")
 
-        if docker ps -a --format '{{.Names}}' | grep -q "^$container_name$"; then
-          echo ">>> Removing stopped container..."
-          docker rm -f "$container_name" 2>/dev/null || true
-        fi
-
-        local current_version
-        current_version=$(git -C "$(git rev-parse --show-toplevel)" describe --always --dirty 2>/dev/null || date +%s)
-        local last_version=""
-        [ -f "$version_file" ] && last_version=$(cat "$version_file")
-
-        if ! docker image inspect "$image_name":latest >/dev/null 2>&1 || \
-           [ "$rebuild" = true ] || \
-           [ "$current_version" != "$last_version" ]; then
-          echo ">>> Building container image: $image_name"
-          if [ "$no_cache" = true ]; then
-            nix build "$flake_ref#packages.$target_system.$package_attr" --option substitute false
-          else
-            nix build "$flake_ref#packages.$target_system.$package_attr"
-          fi
-          echo ">>> Loading image into Docker..."
-          docker load < result
-          echo "$current_version" > "$version_file"
-        else
-          echo ">>> Using existing image: $image_name:latest"
-        fi
-
-        echo ">>> Starting container..."
-        docker run -d --rm --privileged --cgroupns=host \
-          -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-          -p 8080:8080 \
-          --name "$container_name" \
-          "$image_name":latest >/dev/null
-
-        echo ">>> Container '$container_name' started successfully"
-        wait_for_container_ready
-        test_nixos_module
-        echo ">>> Use 'dev-container exec' to enter the container"
-      }
-
-      cmd_exec() {
-        local tty_args=()
-        [ -t 0 ] && tty_args=(-t)
-
-        if ! docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
-          echo ">>> Container '$container_name' is not running"
-          echo ">>> Run 'dev-container up' first"
-          exit 1
-        fi
-
-        if [ $# -gt 0 ]; then
-          docker exec -i "''${tty_args[@]}" "$container_name" \
-            /run/current-system/sw/bin/bash -lc 'export PATH=/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:$PATH; exec "$@"' -- "$@"
-        else
-          docker exec -i "''${tty_args[@]}" "$container_name" /run/current-system/sw/bin/bash
-        fi
-      }
-
-      cmd_down() {
-        local force=false
-
-        while [[ $# -gt 0 ]]; do
-          case $1 in
-            --force|-f) force=true; shift ;;
-            -h|--help)
-              echo "Usage: dev-container down [--force|-f]"
-              echo "  --force, -f  Force remove without confirmation"
-              exit 0
-              ;;
-            *) echo "Unknown option: $1"; exit 1 ;;
-          esac
-        done
-
-        if ! docker ps -a --format '{{.Names}}' | grep -q "^$container_name$"; then
-          echo ">>> Container '$container_name' is not running or does not exist"
-
-          if docker image inspect "$image_name":latest >/dev/null 2>&1; then
-            if [ "$force" = true ]; then
-              docker image rm -f "$image_name":latest
+            if ! docker image inspect "$image_name":latest >/dev/null 2>&1 || \
+               [ "$rebuild" = true ] || \
+               [ "$current_version" != "$last_version" ]; then
+              echo ">>> Building container image: $image_name"
+              if [ "$no_cache" = true ]; then
+                nix build "$flake_ref#packages.$target_system.$package_attr" --option substitute false
+              else
+                nix build "$flake_ref#packages.$target_system.$package_attr"
+              fi
+              echo ">>> Loading image into Docker..."
+              docker load < result
+              echo "$current_version" > "$version_file"
             else
-              read -r -p ">>> Remove image '$image_name:latest'? [y/N]: " confirm
-              if [[ "$confirm" == [yY] || "$confirm" == [yY][eE][sS] ]]; then
+              echo ">>> Using existing image: $image_name:latest"
+            fi
+
+            echo ">>> Starting container..."
+            echo ">>> Persistent state will be stored in Docker volume: $state_volume"
+            local docker_args=(
+              -d
+              --rm
+              --privileged
+              --cgroupns=host
+              -v /sys/fs/cgroup:/sys/fs/cgroup:rw
+              -v "$state_volume:$container_state_dir"
+              -p 8080:8080
+            )
+
+            if [ -f "$oidc_env_file" ]; then
+              echo ">>> Using local OIDC environment file: $oidc_env_file"
+              docker_args+=(-v "$oidc_env_file:$container_oidc_env_file:ro")
+            else
+              echo ">>> No local OIDC environment file found at $oidc_env_file"
+              echo ">>> Continuing with default OIDC config inside the dev container"
+            fi
+
+            docker run "''${docker_args[@]}" \
+              --name "$container_name" \
+              "$image_name":latest >/dev/null
+
+            echo ">>> Container '$container_name' started successfully"
+            echo ">>> Use 'dev-container exec' to enter the container"
+            echo ">>> Use 'dev-container status' to check status"
+            echo ">>> Persistent state is stored in Docker volume: $state_volume"
+          }
+
+          cmd_exec() {
+            local tty_flag=""
+            local shell_path="/run/current-system/sw/bin/bash"
+            [ -t 0 ] && tty_flag="-t"
+
+            if ! docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
+              echo ">>> Container '$container_name' is not running"
+              echo ">>> Run 'dev-container up' first"
+              exit 1
+            fi
+
+            if [ $# -gt 0 ]; then
+              docker exec -i $tty_flag "$container_name" "$shell_path" -lc "$*"
+            else
+              docker exec -i $tty_flag "$container_name" "$shell_path"
+            fi
+          }
+
+          cmd_down() {
+            local force=false
+            local purge_state=false
+
+            while [[ $# -gt 0 ]]; do
+              case $1 in
+                --force|-f) force=true; shift ;;
+                --purge-state) purge_state=true; shift ;;
+                -h|--help)
+                  echo "Usage: dev-container down [--force|-f] [--purge-state]"
+                  echo "  --force, -f  Force remove without confirmation"
+                  echo "  --purge-state  Remove persistent Docker volume used by the dev container"
+                  exit 0
+                  ;;
+                *) echo "Unknown option: $1"; exit 1 ;;
+              esac
+            done
+
+            if ! docker ps -a --format '{{.Names}}' | grep -q "^$container_name$"; then
+              echo ">>> Container '$container_name' is not running or does not exist"
+
+              if docker image inspect "$image_name":latest >/dev/null 2>&1; then
+                if [ "$force" = true ]; then
+                  docker image rm -f "$image_name":latest
+                else
+                  read -r -p ">>> Remove image '$image_name:latest'? [y/N]: " confirm
+                  if [[ "$confirm" == [yY] || "$confirm" == [yY][eE][sS] ]]; then
+                    docker image rm -f "$image_name":latest
+                  fi
+                fi
+              fi
+
+              if [ "$purge_state" = true ]; then
+                echo ">>> Removing persistent Docker volume..."
+                docker volume rm -f "$state_volume" 2>/dev/null || true
+              fi
+              return 0
+            fi
+
+            if [ "$force" = true ]; then
+              echo ">>> Stopping container..."
+              docker stop "$container_name" 2>/dev/null || docker kill "$container_name" 2>/dev/null || true
+            else
+              echo ">>> Stopping container..."
+              docker stop "$container_name" || true
+            fi
+
+            echo ">>> Container stopped"
+
+            if docker image inspect "$image_name":latest >/dev/null 2>&1; then
+              if [ "$force" = true ]; then
                 docker image rm -f "$image_name":latest
+              else
+                read -r -p ">>> Remove image '$image_name:latest'? [y/N]: " confirm
+                if [[ "$confirm" == [yY] || "$confirm" == [yY][eE][sS] ]]; then
+                  docker image rm -f "$image_name":latest
+                fi
               fi
             fi
-          fi
-          return 0
-        fi
 
-        if [ "$force" = true ]; then
-          echo ">>> Stopping container..."
-          docker stop "$container_name" 2>/dev/null || docker kill "$container_name" 2>/dev/null || true
-        else
-          echo ">>> Stopping container..."
-          docker stop "$container_name" || true
-        fi
-
-        echo ">>> Container stopped"
-
-        if docker image inspect "$image_name":latest >/dev/null 2>&1; then
-          if [ "$force" = true ]; then
-            docker image rm -f "$image_name":latest
-          else
-            read -r -p ">>> Remove image '$image_name:latest'? [y/N]: " confirm
-            if [[ "$confirm" == [yY] || "$confirm" == [yY][eE][sS] ]]; then
-              docker image rm -f "$image_name":latest
+            if [ "$purge_state" = true ]; then
+              echo ">>> Removing persistent Docker volume..."
+              docker volume rm -f "$state_volume" 2>/dev/null || true
             fi
+          }
+
+          cmd_ps() {
+            local all=false
+            local quiet=false
+
+            while [[ $# -gt 0 ]]; do
+              case $1 in
+                --all|-a) all=true; shift ;;
+                --quiet|-q) quiet=true; shift ;;
+                -h|--help)
+                  echo "Usage: dev-container ps [--all|-a] [--quiet|-q]"
+                  echo "  --all, -a      Show all containers (including stopped)"
+                  echo "  --quiet, -q    Only show container names/IDs"
+                  exit 0
+                  ;;
+                *) echo "Unknown option: $1"; exit 1 ;;
+              esac
+            done
+
+            local ps_format="table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}\t{{.RunningFor}}"
+            local docker_ps_cmd=(docker ps)
+            if [ "$all" = false ]; then
+              docker_ps_cmd+=(--filter "status=running")
+            else
+              docker_ps_cmd+=(-a)
+            fi
+            local containers
+            containers=$("''${docker_ps_cmd[@]}" --format "{{.Names}}" | grep "^$container_name" || true)
+
+            if [ -z "$containers" ]; then
+              if [ "$quiet" = true ]; then
+                :
+              else
+                echo ">>> No dev containers found"
+              fi
+              return 0
+            fi
+
+            if [ "$quiet" = true ]; then
+              echo "$containers"
+            else
+              echo ">>> Dev Containers"
+              echo "=================="
+              "''${docker_ps_cmd[@]}" --filter "name=$container_name" --format "$ps_format"
+            fi
+          }
+
+          cmd_status() {
+            echo ">>> Container Status"
+            echo "===================="
+
+            if docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
+              echo "Status:    Running"
+              docker inspect --format='Started:   {{.State.StartedAt}}' "$container_name"
+              docker inspect --format='Health:    {{.State.Health.Status}}' "$container_name" 2>/dev/null || echo "Health:    N/A"
+            elif docker ps -a --format '{{.Names}}' | grep -q "^$container_name$"; then
+              echo "Status:    Stopped"
+            else
+              echo "Status:    Not created"
+            fi
+
+            if docker image inspect "$image_name":latest >/dev/null 2>&1; then
+              echo "Image:     Available"
+              echo "Created:   $(docker inspect --format='{{.Created}}' "$image_name":latest | cut -dT -f1)"
+            else
+              echo "Image:     Not found"
+            fi
+
+            echo "State:     docker volume $state_volume -> $container_state_dir"
+          }
+
+          if [ $# -eq 0 ]; then
+            usage
+            exit 1
           fi
-        fi
-      }
 
-      cmd_ps() {
-        local all=false
-        local quiet=false
+          COMMAND="$1"
+          shift
 
-        while [[ $# -gt 0 ]]; do
-          case $1 in
-            --all|-a) all=true; shift ;;
-            --quiet|-q) quiet=true; shift ;;
+          case "$COMMAND" in
+            up)     cmd_up "$@" ;;
+            exec)   cmd_exec "$@" ;;
+            down)   cmd_down "$@" ;;
+            ps)     cmd_ps "$@" ;;
+            status) cmd_status "$@" ;;
             -h|--help)
-              echo "Usage: dev-container ps [--all|-a] [--quiet|-q]"
-              echo "  --all, -a      Show all containers (including stopped)"
-              echo "  --quiet, -q    Only show container names/IDs"
+              usage
               exit 0
               ;;
-            *) echo "Unknown option: $1"; exit 1 ;;
+            *)
+              echo "Unknown command: $COMMAND"
+              usage
+              exit 1
+              ;;
           esac
-        done
-
-        local filter_args=()
-        if [ "$all" = false ]; then
-          filter_args=("--filter" "status=running")
-        fi
-
-        local ps_format="table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}\t{{.RunningFor}}"
-        local containers
-        containers=$(docker ps "''${filter_args[@]}" --format "{{.Names}}" | grep "^$container_name" || true)
-
-        if [ -z "$containers" ]; then
-          if [ "$quiet" = true ]; then
-            :
-          else
-            echo ">>> No dev containers found"
-          fi
-          return 0
-        fi
-
-        if [ "$quiet" = true ]; then
-          echo "$containers"
-        else
-          echo ">>> Dev Containers"
-          echo "=================="
-          docker ps "''${filter_args[@]}" --filter "name=$container_name" --format "$ps_format"
-        fi
-      }
-
-      cmd_status() {
-        echo ">>> Container Status"
-        echo "===================="
-
-        if docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
-          echo "Status:    Running"
-          docker inspect --format='Started:   {{.State.StartedAt}}' "$container_name"
-          docker inspect --format='Health:    {{.State.Health.Status}}' "$container_name" 2>/dev/null || echo "Health:    N/A"
-          docker exec "$container_name" /run/current-system/sw/bin/systemctl is-active nixpkgs-notifier >/dev/null 2>&1 \
-            && echo "Module:    nixpkgs-notifier active" \
-            || echo "Module:    nixpkgs-notifier not active"
-        elif docker ps -a --format '{{.Names}}' | grep -q "^$container_name$"; then
-          echo "Status:    Stopped"
-        else
-          echo "Status:    Not created"
-        fi
-
-        if docker image inspect "$image_name":latest >/dev/null 2>&1; then
-          echo "Image:     Available"
-          echo "Created:   $(docker inspect --format='{{.Created}}' "$image_name":latest | cut -dT -f1)"
-        else
-          echo "Image:     Not found"
-        fi
-      }
-
-      if [ $# -eq 0 ]; then
-        usage
-        exit 1
-      fi
-
-      COMMAND="$1"
-      shift
-
-      case "$COMMAND" in
-        up)     cmd_up "$@" ;;
-        exec)   cmd_exec "$@" ;;
-        down)   cmd_down "$@" ;;
-        ps)     cmd_ps "$@" ;;
-        status) cmd_status "$@" ;;
-        -h|--help)
-          usage
-          exit 0
-          ;;
-        *)
-          echo "Unknown command: $COMMAND"
-          usage
-          exit 1
-          ;;
-      esac
-    '';
-      };
-    in
-    {
-      apps.devContainer = {
-        type = "app";
-        program = "${shell}/bin/dev-container";
-      };
+        '';
+      }}/bin/dev-container";
     };
+  };
 }

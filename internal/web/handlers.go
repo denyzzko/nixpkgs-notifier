@@ -28,7 +28,8 @@ import (
 
 // getServerBaseURL reconstructs the server's base URL from the request.
 // If X-Forwarded-Proto and X-Forwarded-Host headers are present (from reverse proxy),
-// uses them. Otherwise falls back to cfg.ServerURL.
+// uses them. Otherwise it uses the incoming request host, and only then
+// falls back to cfg.ServerURL.
 // Returns base URL without trailing slash (e.g., "https://example.com", "http://localhost:8080").
 func getServerBaseURL(r *http.Request, cfg *config.Config) string {
 	// Check for reverse proxy headers
@@ -36,10 +37,25 @@ func getServerBaseURL(r *http.Request, cfg *config.Config) string {
 	host := r.Header.Get("X-Forwarded-Host")
 
 	if proto != "" && host != "" {
+		// Proxies may send multiple values; use the first hop.
+		proto = strings.TrimSpace(strings.Split(proto, ",")[0])
+		host = strings.TrimSpace(strings.Split(host, ",")[0])
+
 		// Ensure host doesn't already have protocol
 		host = strings.TrimPrefix(host, "http://")
 		host = strings.TrimPrefix(host, "https://")
 		return proto + "://" + host
+	}
+
+	// Use direct request host when app is accessed without reverse proxy.
+	if r.Host != "" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		host = strings.TrimPrefix(r.Host, "http://")
+		host = strings.TrimPrefix(host, "https://")
+		return scheme + "://" + host
 	}
 
 	// Fallback to configured SERVER_URL

@@ -34,8 +34,8 @@
 
           package = mkOption {
             type = types.package;
-            default = config.packages.nixpkgs-notifier;
-            defaultText = literalExpression "config.packages.nixpkgs-notifier";
+            default = perSystem.config.packages.nixpkgs-notifier;
+            defaultText = literalExpression "perSystem.config.packages.nixpkgs-notifier";
             description = "Package providing the nixpkgs-notifier server binary.";
           };
 
