@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.977
+
+      - name: Generate templ files
+        run: templ generate
+
+      - name: Build
+        run: go build ./...
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.977
+
+      - name: Generate templ files
+        run: templ generate
+
+      - name: Test
+        run: |
+          if find . -name '*_test.go' -not -path './.git/*' | grep -q .; then
+            go test ./...
+          else
+            echo "No test files found, skipping tests."
+          fi
