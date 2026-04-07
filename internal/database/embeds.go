@@ -1,8 +1,12 @@
 package database
 
 import (
+	"embed"
 	_ "embed"
 )
+
+//go:embed sql/migrations/*.sql
+var migrationFS embed.FS
 
 //go:embed sql/get_packages_from_trackings_by_userID.sql
 var qGetUsersTrackedPackages string
@@ -27,6 +31,9 @@ var qGetAccountByIssuerSub string
 
 //go:embed sql/get_user_by_ID.sql
 var qGetUser string
+
+//go:embed sql/get_all_users.sql
+var qGetAllUsers string
 
 //go:embed sql/get_trackings_by_packageID.sql
 var qGetTrackingsByPackageID string
@@ -102,3 +109,9 @@ var sUpdateChannelDisableByServer string
 
 //go:embed sql/update_channel_ack_disabled.sql
 var sUpdateChannelAckDisabled string
+
+//go:embed sql/update_user_username_by_ID.sql
+var sUpdateUserUsername string
+
+//go:embed sql/update_user_by_ID.sql
+var sUpdateUser string

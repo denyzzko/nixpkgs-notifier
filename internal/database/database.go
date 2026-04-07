@@ -8,10 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 )
-
-//go:embed sql/CREATE_TABLES.sql
-var createTablesSQL string
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -50,27 +49,26 @@ func (db *Store) Close() {
 	db.pool.Close()
 }
 
-// RunMigrations creates database tables if they do not exist yet.
+// RunMigrations applies all pending database migrations using goose library.
 func (db *Store) RunMigrations(ctx context.Context) error {
-	// check if tables already exist (checks packages table)
-	var exists bool
-	err := db.pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'packages')").Scan(&exists)
+	// wrap pgxpool into a *sql.DB that goose understands (does not open new connection, just reuses existing pool)
+	sqlDB := stdlib.OpenDBFromPool(db.pool)
+	defer sqlDB.Close()
+
+	// tell goose to load migration files from the embedded filesystem
+	goose.SetBaseFS(migrationFS)
+
+	// set the SQL dialect so goose uses PostgreSQL syntax
+	err := goose.SetDialect("postgres")
 	if err != nil {
-		return fmt.Errorf("database: migration check failed: %w", err)
+		return fmt.Errorf("database: goose dialect: %w", err)
 	}
 
-	if exists {
-		// skip creating tables
-		log.Println("[INFO] database: tables already exist, skipping migration ...")
-		return nil
-	}
-
-	// create tables
-	log.Println("[INFO] database: creating tables...")
-	_, err = db.pool.Exec(ctx, createTablesSQL)
+	// apply all pending migrations in order
+	err = goose.UpContext(ctx, sqlDB, "sql/migrations")
 	if err != nil {
 		return fmt.Errorf("database: migration failed: %w", err)
 	}
-	log.Println("[INFO] database: tables created successfully")
+
 	return nil
 }

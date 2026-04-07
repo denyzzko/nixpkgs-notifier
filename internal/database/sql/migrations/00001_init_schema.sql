@@ -1,8 +1,9 @@
+-- +goose Up
 -- Users who track packages
 CREATE TABLE IF NOT EXISTS users (
     id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    username   TEXT NOT NULL UNIQUE,
+    username   TEXT NOT NULL,
     role       TEXT  NOT NULL DEFAULT 'user'
 );
 
@@ -155,3 +156,16 @@ CREATE TRIGGER users_set_default_username_trigger
     BEFORE INSERT ON users
     FOR EACH ROW
     EXECUTE FUNCTION set_default_username();
+
+-- +goose Down
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS trackings;
+DROP TABLE IF EXISTS emails;
+DROP TABLE IF EXISTS webhooks;
+DROP TABLE IF EXISTS channels;
+DROP TABLE IF EXISTS accounts;
+DROP TABLE IF EXISTS packages;
+DROP TABLE IF EXISTS system_config;
+DROP TABLE IF EXISTS users;
+DROP FUNCTION IF EXISTS update_updated_at();
+DROP FUNCTION IF EXISTS set_default_username();
