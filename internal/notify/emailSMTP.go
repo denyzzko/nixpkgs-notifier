@@ -70,6 +70,7 @@ func (s *SMTPSender) SendTest(_ context.Context, event VersionChangeEvent) error
 func (s *SMTPSender) buildMessage(to, subject, body string) string {
 	return "From: " + s.from + "\r\n" +
 		"To: " + to + "\r\n" +
+		"Date: " + time.Now().UTC().Format(time.RFC1123Z) + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: text/plain; charset=UTF-8\r\n" +
