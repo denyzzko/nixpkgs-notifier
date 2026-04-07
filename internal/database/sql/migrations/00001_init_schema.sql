@@ -108,7 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_package_id ON notifications(package
 CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
 CREATE INDEX IF NOT EXISTS idx_packages_name_branch ON packages(name, branch);
 
--- Triggers for updated_at
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -116,7 +116,9 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
+-- Triggers for updated_at
 DROP TRIGGER IF EXISTS packages_updated_at_trigger ON packages;
 CREATE TRIGGER packages_updated_at_trigger
     BEFORE UPDATE ON packages
@@ -135,7 +137,7 @@ CREATE TRIGGER channels_updated_at_trigger
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 
--- Trigger for default username
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION set_default_username()
 RETURNS trigger AS $$
 BEGIN
@@ -150,7 +152,9 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
+-- Trigger for default username
 DROP TRIGGER IF EXISTS users_set_default_username_trigger ON users;
 CREATE TRIGGER users_set_default_username_trigger
     BEFORE INSERT ON users
