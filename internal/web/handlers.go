@@ -23,6 +23,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/notify"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
+	"github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/pages"
 )
 
@@ -90,6 +91,8 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 
 		vm := pages.IndexVM{
 			Packages: pkgVMs,
+			Username: sessionManager.GetUsername(r.Context()),
+			Role:     sessionManager.GetUserRole(r.Context()),
 			IsAdmin:  sessionManager.GetUserRole(r.Context()) == "admin",
 		}
 
@@ -183,10 +186,11 @@ func callback(db *database.Store, provMap *auth.ProviderMap, sessionManager *ses
 		// store user id in session
 		sessionManager.Put(ctx, "userID", userID)
 
-		// fetch user to get their role and store it in session
+		// fetch user to get their username and role and store them in session
 		user, err := db.QueryUserByID(ctx, userID)
 		if err == nil {
 			sessionManager.PutUserRole(ctx, user.Role)
+			sessionManager.PutUsername(ctx, user.Username)
 		}
 
 		// redirect user to the home page
@@ -355,7 +359,9 @@ func packageTrackStatus(db *database.Store, sessionManager *session.SessionManag
 		}
 		// nix eval failed - show error row with untrack button
 		if status.Failed {
-			renderHTML(w, ctx, pages.TrackedPackageItemInitError(trackedPackageVMFromTracked(status.Package)))
+			vm := trackedPackageVMFromTracked(status.Package)
+			vm.ErrMsg = status.ErrMsg
+			renderHTML(w, ctx, pages.TrackedPackageItemInitError(vm))
 			return
 		}
 		// completed with success
@@ -444,6 +450,8 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store, di
 
 		vm := pages.ChannelsVM{
 			Channels: chVMs,
+			Username: sessionManager.GetUsername(r.Context()),
+			Role:     sessionManager.GetUserRole(r.Context()),
 			IsAdmin:  sessionManager.GetUserRole(r.Context()) == "admin",
 		}
 
@@ -734,6 +742,8 @@ func notificationsPage(sessionManager *session.SessionManager, db *database.Stor
 
 		vm := pages.DeliveryLogVM{
 			Notifications: vms,
+			Username:      sessionManager.GetUsername(r.Context()),
+			Role:          sessionManager.GetUserRole(r.Context()),
 			IsAdmin:       sessionManager.GetUserRole(r.Context()) == "admin",
 		}
 
@@ -742,7 +752,7 @@ func notificationsPage(sessionManager *session.SessionManager, db *database.Stor
 }
 
 // systemConfigPage renders the admin system configuration page with current runtime values.
-func systemConfigPage(db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker) http.HandlerFunc {
+func systemConfigPage(sessionManager *session.SessionManager, db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -754,6 +764,8 @@ func systemConfigPage(db *database.Store, disp *dispatcher.Dispatcher, chk *chec
 		// render response
 		vm := systemConfigVM(rc.Dispatcher, rc.Checker)
 		vm.Saved = r.URL.Query().Get("saved") == "1"
+		vm.Username = sessionManager.GetUsername(r.Context())
+		vm.Role = sessionManager.GetUserRole(r.Context())
 		renderHTML(w, ctx, pages.SystemConfigPage(vm))
 	}
 }
@@ -780,5 +792,177 @@ func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *ch
 		}
 
 		http.Redirect(w, r, "/admin/config?saved=1", http.StatusSeeOther)
+	}
+}
+
+// updateProfileUsername handles profile username change form (POST /profile/username).
+func updateProfileUsername(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// extract username from submitted form
+		username := r.FormValue("username")
+
+		// update username
+		if err := users.UpdateUsername(ctx, db, sessionManager, username); err != nil {
+			writeAppErr(w, "web.updateProfileUsername", err)
+			return
+		}
+
+		// save new username in session
+		sessionManager.PutUsername(ctx, strings.TrimSpace(username))
+
+		// return response
+		renderHTML(w, ctx, layout.ProfileNameDisplay(strings.TrimSpace(username)))
+	}
+}
+
+// profilesPage renders the admin profile management page with all users in the system.
+func profilesPage(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// get all users
+		usrs, err := db.QueryAllUsers(ctx)
+		if err != nil {
+			writeAppErr(w, "web.profilesPage", err)
+			return
+		}
+
+		// return response
+		vm := pages.ProfilesVM{
+			Profiles: make([]pages.ProfileVM, 0, len(usrs)),
+			Username: sessionManager.GetUsername(r.Context()),
+			Role:     sessionManager.GetUserRole(r.Context()),
+			IsAdmin:  true,
+		}
+		for _, u := range usrs {
+			vm.Profiles = append(vm.Profiles, pages.ProfileVM{
+				ID:        u.ID,
+				Username:  u.Username,
+				Role:      u.Role,
+				CreatedAt: u.CreatedAt,
+			})
+		}
+		renderHTML(w, ctx, pages.ProfilesPage(vm))
+	}
+}
+
+// profileEditForm returns inline edit form for profile row.
+func profileEditForm(db *database.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// extract user ID from request and convert string to int64
+		idStr := r.PathValue("id")
+		if idStr == "" {
+			writeGenericErr(w, "web.profileEditForm", "missing user id", errors.New("missing path param id"), http.StatusBadRequest)
+			return
+		}
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			writeGenericErr(w, "web.profileEditForm", "invalid user id", err, http.StatusBadRequest)
+			return
+		}
+
+		// query user by id
+		usr, err := db.QueryUserByID(ctx, id)
+		if err != nil {
+			writeAppErr(w, "web.profileEditForm", err)
+			return
+		}
+
+		// return response
+		renderHTML(w, ctx, pages.ProfileEditForm(pages.ProfileVM{
+			ID:        usr.ID,
+			Username:  usr.Username,
+			Role:      usr.Role,
+			CreatedAt: usr.CreatedAt,
+		}))
+	}
+}
+
+// profileEditCancel returns normal profile row, cancelling in-progress edit.
+func profileEditCancel(db *database.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// extract user ID from request and convert string to int64
+		idStr := r.PathValue("id")
+		if idStr == "" {
+			writeGenericErr(w, "web.profileEditCancel", "missing user id", errors.New("missing path param id"), http.StatusBadRequest)
+			return
+		}
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			writeGenericErr(w, "web.profileEditCancel", "invalid user id", err, http.StatusBadRequest)
+			return
+		}
+
+		// query user by id
+		usr, err := db.QueryUserByID(ctx, id)
+		if err != nil {
+			writeAppErr(w, "web.profileEditCancel", err)
+			return
+		}
+
+		// return response
+		renderHTML(w, ctx, pages.ProfileItem(pages.ProfileVM{
+			ID:        usr.ID,
+			Username:  usr.Username,
+			Role:      usr.Role,
+			CreatedAt: usr.CreatedAt,
+		}))
+	}
+}
+
+// updateProfile applies username and role changes to a user (POST /admin/profiles/{id}).
+func updateProfile(db *database.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// extract and parse user ID from request
+		idStr := r.PathValue("id")
+		if idStr == "" {
+			writeGenericErr(w, "web.updateProfile", "missing user id", errors.New("missing path param id"), http.StatusBadRequest)
+			return
+		}
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			writeGenericErr(w, "web.updateProfile", "invalid user id", err, http.StatusBadRequest)
+			return
+		}
+
+		// extract username and role from submitted form
+		newUsername := r.FormValue("username")
+		newRole := r.FormValue("role")
+
+		// validate and persist changes
+		// u holds pre-update state for error re-rendering
+		u, err := users.UpdateUsernameAndRole(ctx, db, id, newUsername, newRole)
+		if err != nil {
+			renderHTML(w, ctx, pages.ProfileUpdateError(pages.ProfileVM{
+				ID: u.ID, Username: u.Username, Role: u.Role, CreatedAt: u.CreatedAt,
+			}, appError.PublicMessage(err)))
+			return
+		}
+
+		// return response
+		renderHTML(w, ctx, pages.ProfileItem(pages.ProfileVM{
+			ID:        u.ID,
+			Username:  strings.TrimSpace(newUsername),
+			Role:      newRole,
+			CreatedAt: u.CreatedAt,
+		}))
 	}
 }

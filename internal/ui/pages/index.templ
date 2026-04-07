@@ -16,20 +16,23 @@ type TrackedPackageVM struct {
     Name                string
     Branch              string
     LastNotifiedVersion string
-    CurrentVersion     string
+    CurrentVersion      string
     VersionChanged      bool
 	Verified            bool
+    ErrMsg              string
 }
 
 // IndexVM is the top level view model for the home page.
 type IndexVM struct {
     Packages []TrackedPackageVM
+    Username string
+    Role     string
     IsAdmin  bool
 }
 
 // IndexPage is the home page wrapped in the base layout.
 templ IndexPage(vm IndexVM) {
-    @layout.Base("Home", true, vm.IsAdmin, IndexContent(vm))
+    @layout.Base("Home", true, vm.IsAdmin, vm.Username, vm.Role, IndexContent(vm))
 }
 
 // IndexContent renders the main content area of home page.
@@ -46,16 +49,14 @@ templ IndexContent(vm IndexVM) {
                 <div class="d-flex gap-2">
                     <!-- Check all button -->
                     <button
-                        class="btn btn-sm rounded-5 px-3"
-                        style="background: #009DE0; border: none; color: white;"
+                        class="btn-outline-brand-fill btn btn-sm rounded-5 px-3"
                         onclick="htmx.trigger(document.getElementById('tracked-list'), 'checkAll')"
                     >
                         Check All
                     </button>
                     <!-- Add(Track) package button -->
                     <button
-                        class="btn btn-sm rounded-5 px-3"
-                        style="border: 1px solid #009DE0; color: #009DE0;"
+                        class="btn-outline-brand btn btn-sm rounded-5 px-3"
                         hx-get="/package/track/form"
                         hx-target="#new-package-slot"
                         hx-swap="innerHTML"
@@ -153,8 +154,7 @@ templ TrackedPackageItem(pckg TrackedPackageVM) {
         <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
             <!-- Check button -->
             <button
-                class="btn btn-sm rounded-5"
-                style="border: 1px solid #009DE0; color: #009DE0;"
+                class="btn-outline-brand btn btn-sm rounded-5"
                 hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
                 hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
                 hx-swap="outerHTML"
@@ -163,8 +163,7 @@ templ TrackedPackageItem(pckg TrackedPackageVM) {
             </button>
             <!-- Untrack buttons -->
             <button
-                class="btn btn-sm rounded-5"
-                style="border: 1px solid #FF6F6F; color: #FF6F6F;"
+                class="btn-outline-danger-custom btn btn-sm rounded-5"
                 hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
                 hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
                 hx-swap="outerHTML"
@@ -198,16 +197,14 @@ templ TrackedPackageItemLoading(pckg TrackedPackageVM, pollingURL string) {
         </div>
         <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
             <!-- Check disabled until initialized -->
-            <button class="btn btn-sm rounded-5" style="border: 1px solid #009DE0; color: #009DE0;" disabled>
+            <button class="btn-outline-brand btn btn-sm rounded-5" disabled>
                 Check
             </button>
             <button
-                class="btn btn-sm rounded-5"
-                style="border: 1px solid #FF6F6F; color: #FF6F6F;"
+                class="btn-outline-danger-custom btn btn-sm rounded-5"
                 hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
                 hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
-                hx-swap="outerHTML"
-            >
+                hx-swap="outerHTML" disabled>
                 Untrack
             </button>
         </div>
@@ -215,70 +212,71 @@ templ TrackedPackageItemLoading(pckg TrackedPackageVM, pollingURL string) {
 }
 
 // TrackedPackageItemInitError is shown when nix eval during initialization fails.
-// Nix eval error means package name or branch is likely invalid.
-// Only Untrack is available - retrying would produce the same error.
+// Error message is shown below and no buttons are available, on next page reload the item will be removed.
 templ TrackedPackageItemInitError(pckg TrackedPackageVM) {
-    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
-        <div style="flex: 2;">
-            <strong class="text-white">{pckg.Name}</strong>
+    <div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #FF6B6B" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
+        <div class="d-flex align-items-center">
+            <div style="flex: 2;">
+                <strong class="text-white">{pckg.Name}</strong>
+            </div>
+
+            <div style="flex: 1;"></div>
+
+            <div style="flex: 2;">
+                <span class="small text-white">{pckg.Branch}</span>
+            </div>
+
+            <div style="flex: 2;">
+                <span class="small text-white">-</span>
+            </div>
+
+            <div style="flex: 2;"></div>
         </div>
-        <div style="flex: 1;"></div>
-        <div style="flex: 2;">
-            <span class="small text-white">{pckg.Branch}</span>
-        </div>
-        <!-- Error message in place of version -->
-        <div style="flex: 2;">
-            <span class="small text-danger">Failed to resolve - invalid name or branch?</span>
-        </div>
-        <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
-            <button
-                class="btn btn-sm rounded-5"
-                style="border: 1px solid #FF6F6F; color: #FF6F6F;"
-                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
-                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
-                hx-swap="outerHTML"
-            >
-                Untrack
-            </button>
+        <!-- Error message below the main row -->
+        <div class="ps-1 pt-1">
+            <span class="small text-danger">{pckg.ErrMsg}.</span>
         </div>
     </div>
 }
 
-// TrackedPackageItemCheckError is shown when nix eval during a manual check fails
-// Unlike init errors, the package is already tracked with a known version, so Check is available to retry
+// TrackedPackageItemCheckError is shown when nix eval during a manual check fails.
+// Unlike init errors, the package is already tracked with a known version, so Check is available to retry.
 templ TrackedPackageItemCheckError(pckg TrackedPackageVM, errMsg string) {
-    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
-        <div style="flex: 2;">
-            <strong class="text-white">{pckg.Name}</strong>
+    <div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #FF6B6B;" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
+        <div class="d-flex align-items-center">
+            <div style="flex: 2;">
+                <strong class="text-white">{pckg.Name}</strong>
+            </div>
+            <div style="flex: 1;"></div>
+            <div style="flex: 2;">
+                <span class="small text-white">{pckg.Branch}</span>
+            </div>
+            <div style="flex: 2;">
+                <span class="badge border">v{pckg.LastNotifiedVersion}</span>
+            </div>
+            <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+                <!-- Check button changed to retry -->
+                <button
+                    class="btn-outline-brand btn btn-sm rounded-5"
+                    hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
+                    hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                    hx-swap="outerHTML"
+                >
+                    Retry
+                </button>
+                <button
+                    class="btn-outline-danger-custom btn btn-sm rounded-5"
+                    hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
+                    hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                    hx-swap="outerHTML"
+                >
+                    Untrack
+                </button>
+            </div>
         </div>
-        <div style="flex: 1;"></div>
-        <div style="flex: 2;">
-            <span class="small text-white">{pckg.Branch}</span>
-        </div>
-        <!-- Error message in place of version -->
-        <div style="flex: 2;">
-            <span class="small text-danger">{errMsg}</span>
-        </div>
-        <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
-            <!-- Check button changed to retry -->
-            <button
-                class="btn btn-sm rounded-5"
-                style="border: 1px solid #009DE0; color: #009DE0;"
-                hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
-                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
-                hx-swap="outerHTML"
-            >
-                Retry
-            </button>
-            <button
-                class="btn btn-sm rounded-5"
-                style="border: 1px solid #FF6F6F; color: #FF6F6F;"
-                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
-                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
-                hx-swap="outerHTML"
-            >
-                Untrack
-            </button>
+        <!-- Error message below the main row -->
+        <div class="ps-1">
+            <span class="small text-danger">{errMsg}.</span>
         </div>
     </div>
 }
@@ -297,7 +295,7 @@ templ NewPackageForm() {
         <div style="flex: 1;">
             <input
                 class="form-control form-control-sm rounded-5 text-white"
-                style="background: #7E7E7E;"
+                style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                 type="text"
                 name="name"
                 placeholder="Package name (e.g. go)"
@@ -309,7 +307,7 @@ templ NewPackageForm() {
         <div style="flex: 1;">
             <input
                 class="form-control form-control-sm rounded-5 text-white"
-                style="background: #7E7E7E;"
+                style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                 type="text"
                 list="branch-suggestions"
                 name="branch"
@@ -326,14 +324,13 @@ templ NewPackageForm() {
         <!-- Buttons -->
         <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
             <!-- Submit button -->
-            <button type="submit" class="btn btn-success btn-sm rounded-5 px-3">
+            <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-3">
                 Submit
             </button>
             <!-- Cancel button -->
             <button
                 type="button"
-                class="btn btn-sm rounded-5 px-3"
-                style="background: #6C6C6C; color: white; border: none;"
+                class="btn-outline-basic btn btn-sm rounded-5 px-3"
                 hx-get="/package/track/cancel"
                 hx-target="#new-package-slot"
                 hx-swap="innerHTML"
@@ -348,8 +345,8 @@ templ NewPackageForm() {
 // pre-filled and an error message displayed below the inputs.
 templ NewPackageError(name string, branch string, message string) {
     <form
-        class="d-flex flex-column gap-2 rounded-5 px-4 py-3 new-package-form"
-        style="background: #474747;"
+        class="d-flex flex-column gap-2 rounded-4-5 px-2 py-2 new-package-form"
+        style="background: #474747; border: 1px solid #FF6B6B;"
         hx-post="/package/track"
         hx-target="#new-package-slot"
         hx-swap="innerHTML"
@@ -359,7 +356,7 @@ templ NewPackageError(name string, branch string, message string) {
             <div style="flex: 1;">
                 <input
                     class="form-control form-control-sm rounded-5 text-white"
-                    style="background: #7E7E7E;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                     type="text"
                     name="name"
                     value={name}
@@ -371,7 +368,7 @@ templ NewPackageError(name string, branch string, message string) {
             <div style="flex: 1;">
                 <input
                     class="form-control form-control-sm rounded-5 text-white"
-                    style="background: #7E7E7E;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                     type="text"
                     list="branch-suggestions"
                     name="branch"
@@ -389,14 +386,13 @@ templ NewPackageError(name string, branch string, message string) {
             <!-- Buttons -->
             <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
                 <!-- Submit button -->
-                <button type="submit" class="btn btn-success btn-sm rounded-5 px-3">
+                <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-3">
                     Submit
                 </button>
                 <!-- Cancel button -->
                 <button
                     type="button"
-                    class="btn btn-sm rounded-5 px-3"
-                    style="background: #6C6C6C; color: white; border: none;"
+                    class="btn-outline-basic btn btn-sm rounded-5 px-3"
                     hx-get="/package/track/cancel"
                     hx-target="#new-package-slot"
                     hx-swap="innerHTML"
@@ -406,6 +402,6 @@ templ NewPackageError(name string, branch string, message string) {
             </div>
         </div>
         <!-- Error message -->
-        <small class="text-danger px-2">{message}</small>
+        <small class="text-danger px-2">{message}.</small>
     </form>
 }

@@ -130,8 +130,8 @@ When `database.postgresql.enable = true` the module:
 - orders the service after `postgresql.service`
 
 ## Database setup
- 
-Application connects to existing PostgreSQL database. It does not create the database or the user - only tables. On first startup it runs `internal/database/sql/CREATE_TABLES.sql` automatically and logs the result. On next startups it detects that tables already exist and skips migration.
+
+Application connects to existing PostgreSQL database. It does not create the database or the user - only tables. The application manages database migrations automatically using [goose](https://github.com/pressly/goose). On every startup it applies any pending migrations from `internal/database/sql/migrations/` in order. Already-applied migrations are skipped. Migration state is tracked in the `goose_db_version` table.
 
 ## Configuration
  
@@ -251,7 +251,7 @@ internal/
   database/         - PostgreSQL connection, queries, migrations
   dispatcher/       - background notification delivery loop
   middleware/       - HTTP middleware
-  nix/              - Nix CLI integration
+  nix/              - Nix CLI integration and maintenance of nixpkgs common branches
   notify/           - email and webhook senders (SMTP, Resend, webhook)
   session/          - session management
   ui/               - HTML templates
@@ -270,9 +270,12 @@ The core functionality is complete and ready for deployment.
 - Sending webhook notifications (generic JSON and Mattermost)
 - Notification log with delivery status
 - Background periodic package version check by the system 
-- Admin panel for configuration in UI
+- Admin panel for system configuration in UI
+- Admin panel for profile management in UI
+- User profile menu in UI
 
 **Not yet implemented:**
-- Admin user management in UI
+- Sync multiple accounts with one user
 - Notification history auto-cleanup
 - Visual and other details
+- Feature request: Track Non-Existing Packages (issue #2)

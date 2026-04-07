@@ -40,7 +40,7 @@ func main() {
 	// open connection to db
 	db, err := database.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("[ERROR] DATABASE: Could not connect to database!: %v", err)
 	}
 	defer db.Close()
 	log.Println("[INFO] Connected to the database!")

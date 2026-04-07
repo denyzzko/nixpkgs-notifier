@@ -90,6 +90,16 @@ func (sm *SessionManager) GetUserRole(ctx context.Context) string {
 	return sm.manager.GetString(ctx, "userRole")
 }
 
+// PutUsername stores username of authenticated user in session.
+func (sm *SessionManager) PutUsername(ctx context.Context, username string) {
+	sm.manager.Put(ctx, "username", username)
+}
+
+// GetUsername returns username of authenticated user from session (empty string if not set).
+func (sm *SessionManager) GetUsername(ctx context.Context) string {
+	return sm.manager.GetString(ctx, "username")
+}
+
 // Destroy deletes the entire session (used on logout).
 func (sm *SessionManager) Destroy(ctx context.Context) error {
 	return sm.manager.Destroy(ctx)

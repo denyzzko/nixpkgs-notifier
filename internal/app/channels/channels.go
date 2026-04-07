@@ -117,8 +117,19 @@ func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionMana
 		return ChannelResult{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
 	}
 
+	// guard: if user already has a channel with this address, return error
+	existingChannels, err := db.QueryChannelsByUserID(ctx, userID)
+	if err != nil {
+		return ChannelResult{}, appError.NewAppError(op, appError.Internal, "failed to query channels", err)
+	}
+	for _, ch := range existingChannels {
+		if (ch.Email != nil && ch.Email.Address == address) ||
+			(ch.Webhook != nil && ch.Webhook.URL == address) {
+			return ChannelResult{}, appError.NewAppError(op, appError.Conflict, "You already have a channel with this address", nil)
+		}
+	}
+
 	var id int64
-	var err error
 
 	// delegate to appropriate creator based on channel type
 	switch chType {

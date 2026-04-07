@@ -26,6 +26,8 @@ var ErrNotAuthenticated = errors.New("not authenticated")
 type operationResult struct {
 	failed    bool
 	errMsg    string
+	name      string
+	branch    string
 	createdAt time.Time
 }
 
@@ -35,10 +37,11 @@ var operationResults sync.Map
 
 // Result of the track polling endpoint
 // Done means goroutine finished (with success or failure)
-// Failed means nix eval failed (error stored in operationResults)
+// Failed means nix eval failed (error stored from operationResults)
 type TrackStatus struct {
 	Done    bool
 	Failed  bool
+	ErrMsg  string
 	Package database.TrackedPackage
 }
 
@@ -185,6 +188,8 @@ func initializePackageBaseline(db *database.Store, chk *checker.Checker, userID 
 		operationResults.Store(resultKey, operationResult{
 			failed:    true,
 			errMsg:    classifyNixError(nixResult.Err),
+			name:      packageName,
+			branch:    packageBranch,
 			createdAt: time.Now(),
 		})
 		return
@@ -253,7 +258,16 @@ func GetTrackStatus(ctx context.Context, db *database.Store, sessionManager *ses
 		result := val.(operationResult)
 		if result.failed {
 			// goroutine finished with failure
-			return TrackStatus{Done: true, Failed: true}, nil
+			return TrackStatus{
+				Done:   true,
+				Failed: true,
+				ErrMsg: result.errMsg,
+				Package: database.TrackedPackage{
+					PackageID: packageID,
+					Name:      result.name,
+					Branch:    result.branch,
+				},
+			}, nil
 		}
 		// goroutine finished with success - fetch package to get updated data
 		pckg, err := db.QueryUsersTrackedPackage(ctx, userID, packageID)

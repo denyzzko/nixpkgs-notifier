@@ -21,11 +21,14 @@ type SystemConfigVM struct {
     PackageCheckWorkerCount          int
     // Whether config was just saved (to show success message)
     Saved bool
+    // User info
+    Username string
+    Role     string
 }
 
 // SystemConfigPage is the admin system configuration page wrapped in base layout.
 templ SystemConfigPage(vm SystemConfigVM) {
-    @layout.Base("System config", true, true, SystemConfigContent(vm))
+    @layout.Base("System config", true, true, vm.Username, vm.Role, SystemConfigContent(vm))
 }
 
 // SystemConfigContent renders the two-section system configuration form.
@@ -36,7 +39,7 @@ templ SystemConfigContent(vm SystemConfigVM) {
             <!-- Above card -->
             <div class="d-flex justify-content-between align-items-end mb-2">
                 <!-- Card heading -->
-                <h1 class="h4 text-white mb-0">System Configuration</h1>
+                <h1 class="h4 text-white mb-0">System configuration</h1>
             </div>
 
             <!-- Card -->
@@ -113,8 +116,7 @@ templ SystemConfigContent(vm SystemConfigVM) {
                 <div class="d-flex justify-content-end">
                     <button
                         type="submit"
-                        class="btn fw-bold rounded-5 px-4"
-                        style="background: transparent; border: 1px solid #009DE0; color: #009DE0;"
+                        class="btn-outline-brand-fill btn fw-bold rounded-5 px-4"
                     >
                         Save &amp; apply
                     </button>

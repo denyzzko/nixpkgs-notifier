@@ -1,0 +1,270 @@
+package pages
+
+import (
+	"fmt"
+	"time"
+	"github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+)
+
+// ProfileVM is the view model for a single profile row.
+type ProfileVM struct {
+	ID        int64
+	Username  string
+	Role      string
+	CreatedAt time.Time
+}
+
+// ProfilesVM is top level view model for the profiles management page.
+type ProfilesVM struct {
+	Profiles []ProfileVM
+	Username string
+	Role     string
+	IsAdmin  bool
+}
+
+// ProfilesPage is the profiles management page wrapped in base layout.
+templ ProfilesPage(vm ProfilesVM) {
+	@layout.Base("Manage Profiles", true, vm.IsAdmin, vm.Username, vm.Role, ProfilesContent(vm))
+}
+
+// ProfilesContent renders the main content area of the profiles management page.
+// Header row with page title and search input, followed by profile list card.
+templ ProfilesContent(vm ProfilesVM) {
+	<div style="padding-top: 5rem; padding-bottom: 2rem;">
+		<div style="max-width: 900px; width: 100%; margin: 0 auto;">
+            <!-- Above card -->
+			<div class="d-flex justify-content-between align-items-center mb-2">
+                <!-- Card heading -->
+				<h1 class="h4 text-white mb-0">Profile management</h1>
+				<!-- Search input (client-side filter) -->
+				<div class="position-relative" style="width: 260px;">
+					<i
+						class="bi bi-search position-absolute"
+						style="left: 14px; top: 50%; transform: translateY(-50%); color: #AAAAAA; font-size: 0.85rem; pointer-events: none;"
+					></i>
+					<input
+						id="profile-search"
+						type="text"
+						placeholder="Search by username..."
+						class="form-control form-control-sm rounded-5 text-white"
+						style="background: #252525; border: 1px solid #5A5A5A; padding-left: 2.25rem;"
+					/>
+				</div>
+			</div>
+            <!-- Card -->
+			<div class="card shadow-sm rounded-5" style="background: #252525; border: 1px solid #5A5A5A;">
+				<div class="card-body p-4">
+					<!-- Column names -->
+					<div class="d-flex ps-3 pe-2 align-items-end mb-1">
+                        <!-- User name -->
+						<div style="flex: 3;">
+							<span class="small" style="color: #AAAAAA;">Username</span>
+						</div>
+                        <!-- User role (user/admin) -->
+						<div style="flex: 2;">
+							<span class="small" style="color: #AAAAAA;">Role</span>
+						</div>
+                        <!-- Joined (CreatedAt date) -->
+						<div style="flex: 2;">
+							<span class="small" style="color: #AAAAAA;">Joined</span>
+						</div>
+						<div style="flex: 2;"></div>
+					</div>
+                    <!-- Profiles -->
+					<div id="profile-list" style="max-height: 60vh; overflow-y: auto;">
+						@ProfileList(vm.Profiles)
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Client-side search filter -->
+	<script>
+	(function () {
+        // filter profile rows while user types - hides non-matching wrappers in place
+		document.getElementById('profile-search').addEventListener('input', function () {
+			var q = this.value.trim().toLowerCase();
+			var wrappers = document.querySelectorAll('.profile-wrapper');
+			var visible = 0;
+			wrappers.forEach(function (w) {
+                // match against data-username set on each .profile-wrapper div
+				var match = q === '' || (w.dataset.username || '').toLowerCase().includes(q);
+				w.style.display = match ? '' : 'none';
+				if (match) visible++;
+			});
+            // show empty message when nothing matches
+			var empty = document.getElementById('profile-empty');
+			if (empty) empty.style.display = visible === 0 ? '' : 'none';
+		});
+	})();
+	</script>
+}
+
+// ProfileList renders all profile rows and the empty message.
+// Each row is wrapped in a .profile-wrapper div carrying data-username for the client-side search filter.
+templ ProfileList(profiles []ProfileVM) {
+	<div class="d-flex flex-column gap-2">
+		for _, p := range profiles {
+			<div
+				class="profile-wrapper"
+				data-username={ p.Username }
+				id={ fmt.Sprintf("profile-wrapper-%d", p.ID) }
+			>
+				@ProfileItem(p)
+			</div>
+		}
+	</div>
+	if len(profiles) == 0 {
+		<p id="profile-empty" class="text-center text-secondary mt-2">No user profiles found.</p>
+	} else {
+		<p id="profile-empty" class="text-center text-secondary mt-2" style="display:none;">No user profiles match your search.</p>
+	}
+}
+
+// ProfileItem renders a single profile row.
+// id="profile-{id}" is the HTMX swap target - Edit button swaps it for ProfileEditForm, and Save/Cancel swap it back.
+templ ProfileItem(p ProfileVM) {
+	<div
+		class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2"
+		style="background: #474747; border: 1px solid #474747;"
+		id={ fmt.Sprintf("profile-%d", p.ID) }
+	>
+        <!-- Username -->
+		<div style="flex: 3;">
+			<strong class="text-white">{ p.Username }</strong>
+		</div>
+        <!-- Role badge -->
+		<div style="flex: 2;">
+			@roleBadge(p.Role)
+		</div>
+        <!-- Joined date -->
+		<div style="flex: 2;">
+			<span class="small" style="color: #AAAAAA;">{ p.CreatedAt.Format("Jan 2, 2006") }</span>
+		</div>
+        <!-- Edit button -->
+		<div class="d-flex justify-content-end" style="flex: 2;">
+			<button
+				class="btn-outline-brand btn btn-sm rounded-5 px-3"
+				hx-get={ fmt.Sprintf("/admin/profiles/%d/edit", p.ID) }
+				hx-target={ fmt.Sprintf("#profile-%d", p.ID) }
+				hx-swap="outerHTML"
+			>
+				<i class="bi bi-pen"></i>
+			</button>
+		</div>
+	</div>
+}
+
+// roleBadge renders a small styled badge for the given role string.
+templ roleBadge(role string) {
+	if role == "admin" {
+		<span class="badge rounded-3 py-1" style="background: #1A3A5C; border: 1px solid #009DE0; color: #009DE0; font-size: 0.75rem; min-width: 62px; text-align: center; display: inline-block;">admin</span>
+	} else {
+		<span class="badge rounded-3 py-1" style="background: #3A3A3A; border: 1px solid #8A8A8A; color: #AAAAAA; font-size: 0.75rem; min-width: 62px; text-align: center; display: inline-block;">user</span>
+	}
+}
+
+// ProfileEditForm renders inline edit form for updating a profile's username and role.
+// Submits via HTMX POST to /admin/profiles/{id}, replacing profile row with the result.
+templ ProfileEditForm(u ProfileVM) {
+	<div
+		class="d-flex align-items-center rounded-5 ps-2 pe-2 py-2 gap-3"
+		style="background: #474747; border: 1px solid #009DE0;"
+		id={ fmt.Sprintf("profile-%d", u.ID) }
+	>
+		<!-- Username input -->
+		<div style="flex: 3;">
+			<input
+				id={ fmt.Sprintf("profile-edit-username-%d", u.ID) }
+				type="text"
+				name="username"
+				value={ u.Username }
+				maxlength="50"
+				class="form-control form-control-sm rounded-5 text-white"
+				style="background: #3A3A3A; border: 1px solid #5A5A5A;"
+				placeholder="Username"
+			/>
+		</div>
+		<!-- Role dropdown -->
+		<div style="flex: 2;">
+			<select
+				id={ fmt.Sprintf("profile-edit-role-%d", u.ID) }
+				name="role"
+				class="form-select form-select-sm rounded-5 text-white"
+				style="background: #3A3A3A; border: 1px solid #5A5A5A; cursor: pointer;"
+			>
+				<option value="user" selected?={ u.Role == "user" } style="background: #252525; color: white;">user</option>
+				<option value="admin" selected?={ u.Role == "admin" } style="background: #252525; color: white;">admin</option>
+			</select>
+		</div>
+		<!-- Joined date (read-only) -->
+		<div style="flex: 2;">
+			<span class="small" style="color: #AAAAAA;">{ u.CreatedAt.Format("Jan 2, 2006") }</span>
+		</div>
+        <!-- Buttons -->
+		<div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+            <!-- Save (posts the form via HTMX) -->
+			<button
+				type="button"
+				class="btn-outline-success-custom btn btn-sm rounded-5 px-3"
+				hx-post={ fmt.Sprintf("/admin/profiles/%d", u.ID) }
+				hx-target={ fmt.Sprintf("#profile-%d", u.ID) }
+				hx-include={ fmt.Sprintf("#profile-edit-username-%d, #profile-edit-role-%d", u.ID, u.ID) }
+				hx-swap="outerHTML"
+			>
+				<i class="bi bi-check-lg"></i>
+			</button>
+            <!-- Cancel (restores normal profile row via HTMX) -->
+			<button
+				type="button"
+				class="btn-outline-basic btn btn-sm rounded-5 px-3"
+				hx-get={ fmt.Sprintf("/admin/profiles/%d/edit/cancel", u.ID) }
+				hx-target={ fmt.Sprintf("#profile-%d", u.ID) }
+				hx-swap="outerHTML"
+			>
+				<i class="bi bi-x-lg"></i>
+			</button>
+		</div>
+	</div>
+}
+
+// ProfileUpdateError re-renders the profile row with the unchanged values and an error message below it.
+// Used when the server rejects the submitted username or role change.
+templ ProfileUpdateError(u ProfileVM, errMsg string) {
+	<div
+		class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2"
+		style="background: #474747; border: 1px solid #FF6B6B;"
+		id={ fmt.Sprintf("profile-%d", u.ID) }
+	>
+		<div class="d-flex align-items-center gap-3">
+            <!-- Username -->
+			<div style="flex: 3;">
+				<strong class="text-white">{ u.Username }</strong>
+			</div>
+            <!-- Role badge -->
+			<div style="flex: 2;">
+				@roleBadge(u.Role)
+			</div>
+            <!-- Joined date -->
+			<div style="flex: 2;">
+				<span class="small" style="color: #AAAAAA;">{ u.CreatedAt.Format("Jan 2, 2006") }</span>
+			</div>
+            <!-- Edit button -->
+			<div class="d-flex justify-content-end" style="flex: 2;">
+				<button
+					class="btn-outline-brand btn btn-sm rounded-5 px-3"
+					hx-get={ fmt.Sprintf("/admin/profiles/%d/edit", u.ID) }
+					hx-target={ fmt.Sprintf("#profile-%d", u.ID) }
+					hx-swap="outerHTML"
+				>
+					<i class="bi bi-pen"></i>
+				</button>
+			</div>
+		</div>
+		<!-- Inline server error shown below the row -->
+		<div class="small px-1" style="color: #FF6B6B;">
+			{ errMsg }
+		</div>
+	</div>
+}

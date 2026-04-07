@@ -26,12 +26,14 @@ type NotificationLogVM struct {
 // DeliveryLogVM is top-level view model for the delivery log page.
 type DeliveryLogVM struct {
     Notifications []NotificationLogVM
+    Username string
+    Role     string
     IsAdmin       bool
 }
 
 // DeliveryLogPage is the delivery log page wrapped in base layout.
 templ DeliveryLogPage(vm DeliveryLogVM) {
-    @layout.Base("Delivery Log", true, vm.IsAdmin, DeliveryLogContent(vm))
+    @layout.Base("Delivery Log", true, vm.IsAdmin, vm.Username, vm.Role, DeliveryLogContent(vm))
 }
 
 // DeliveryLogContent renders scrollable delivery log table with all notification history rows.

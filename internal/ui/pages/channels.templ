@@ -25,12 +25,14 @@ type ChannelVM struct {
 // ChannelsVM is top-level view model for the channels management page.
 type ChannelsVM struct {
     Channels []ChannelVM
+    Username string
+    Role     string
     IsAdmin  bool
 }
 
 // ChannelsPage is the notification channels management page wrapped in base layout.
 templ ChannelsPage(vm ChannelsVM) {
-    @layout.Base("Channels", true, vm.IsAdmin, ChannelsContent(vm))
+    @layout.Base("Channels", true, vm.IsAdmin, vm.Username, vm.Role, ChannelsContent(vm))
 }
 
 // mmHiddenClass returns an empty string for Mattermost webhook forms (visible),
@@ -152,8 +154,8 @@ templ ChannelButtons(ch ChannelVM) {
 		if ch.WebhookType == "mattermost" {
 			<button
 				type="button"
-				class="btn btn-sm rounded-circle d-flex align-items-center justify-content-center js-channel-expand"
-				style="width: 24px; height: 24px; border: 1px solid #AAAAAA; color: #AAAAAA; padding: 0; font-size: 0.65rem;"
+				class="btn-outline-basic btn btn-sm rounded-circle d-flex align-items-center justify-content-center js-channel-expand"
+				style="width: 24px; height: 24px; padding: 0; font-size: 0.65rem;"
 				data-details-id={fmt.Sprintf("channel-details-%d", ch.ID)}
 			>
 				<i class="bi bi-chevron-down" style="display: block; margin-top: 3px;"></i>
@@ -161,8 +163,7 @@ templ ChannelButtons(ch ChannelVM) {
 		}
 
 		<button
-			class="btn btn-sm rounded-5 px-3"
-			style="border: 1px solid #009DE0; color: #009DE0;"
+			class="btn-outline-brand btn btn-sm rounded-5 px-3"
 			hx-post={fmt.Sprintf("/channel/test/%d", ch.ID)}
 			hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
 			hx-swap="outerHTML"
@@ -171,8 +172,7 @@ templ ChannelButtons(ch ChannelVM) {
 		</button>
 
 		<button
-			class="btn btn-sm rounded-5 px-3"
-			style="border: 1px solid #FF6F6F; color: #FF6F6F;"
+			class="btn-outline-danger-custom btn btn-sm rounded-5 px-3"
 			hx-post={fmt.Sprintf("/channel/delete/%d", ch.ID)}
 			hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
 			hx-swap="outerHTML"
@@ -213,49 +213,60 @@ templ MattermostDetails(ch ChannelVM) {
 	}
 }
 
-// channelStyleByDisabledServer returns style for the channel row's main div.
-// Adds a red border when the channel was disabled by the server.
-func channelStyleByDisabledServer(disabled bool) string {
-    if disabled {
-        return "background: #474747; border: 1px solid #FF6F6F;"
+// channelStyle returns style for the channel row's main div.
+// Adds a red border when the channel was disabled by the server or error message is displayed.
+// Adds a green border when success message is displayed.
+func channelStyle(disabledByServer bool, msgClass string) string {
+    if disabledByServer || msgClass == "text-danger small" {
+        return "background: #474747; border: 1px solid #FF6B6B;"
+    } else if msgClass == "text-success small" {
+        return "background: #474747; border: 1px solid #51ca71;"
     }
     return "background: #474747;"
+}
+
+// channelClass returns class for the channel row's main div.
+// Changes edge to rounded-4-5 when the channel was disabled by the server or message is displayed.
+func channelClass(disabledByServer bool, msgClass string) string {
+    if disabledByServer || msgClass == "text-danger small" || msgClass == "text-success small"{
+        return "d-flex flex-column rounded-4-5 ps-3 pe-2 py-2 js-channel-main-row position-relative z-1"
+    }
+    return "d-flex flex-column rounded-5 ps-3 pe-2 py-2 js-channel-main-row position-relative z-1"
 }
 
 // ChannelRow renders a full channel row including the main row cells, optional Mattermost details panel,
 // server-disabled warning  with Ok button (when DisabledByServer is true), and status message (e.g. after a test or error).
 templ ChannelRow(ch ChannelVM, msgClass string, msg string) {
 	<div id={fmt.Sprintf("channel-%d", ch.ID)} class="d-flex flex-column">
-        <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2 js-channel-main-row position-relative z-1" 
-            style={channelStyleByDisabledServer(ch.DisabledByServer)}>
-			@ChannelTypeCell(ch)
-			@ChannelAddressCell(ch)
-			@ChannelEnabledToggle(ch)
-            <div style="flex: 1;"></div>
-			@ChannelManualToggle(ch)
-			@ChannelButtons(ch)
-		</div>
+        <div class={channelClass(ch.DisabledByServer, msgClass)} style={channelStyle(ch.DisabledByServer, msgClass)}>
+            <div class="d-flex align-items-center">
+                @ChannelTypeCell(ch)
+                @ChannelAddressCell(ch)
+                @ChannelEnabledToggle(ch)
+                <div style="flex: 1;"></div>
+                @ChannelManualToggle(ch)
+                @ChannelButtons(ch)
+            </div>
+            if ch.DisabledByServer {
+                <div class="d-flex align-items-center gap-2 ps-1 pt-2">
+                    <small class="text-danger">{fmt.Sprintf("This channel was automatically disabled by the server after reaching the maximum retry limit (%d attempts).", ch.MaxRetries)}</small>
+                    <button
+                        class="btn-outline-basic btn rounded-5 px-2"
+                        style="border: 1px solid #AAAAAA; color: #AAAAAA; font-size: 0.7rem; padding-top: 1px; padding-bottom: 1px;"
+                        hx-post={fmt.Sprintf("/channel/ack-disabled/%d", ch.ID)}
+                        hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
+                        hx-swap="outerHTML"
+                    >
+                        Ok
+                    </button>
+                </div>
+            }
+            if msg != "" {
+                <small class={msgClass + " ps-1 pt-1"}>{msg}</small>
+            }
+        </div>
 
-		@MattermostDetails(ch)
-
-        if ch.DisabledByServer {
-			<div class="d-flex align-items-center gap-2 ps-3 pt-1">
-				<small class="text-danger">{fmt.Sprintf("This channel was automatically disabled by the server after reaching the maximum retry limit (%d attempts).", ch.MaxRetries)}</small>
-				<button
-					class="btn btn-sm rounded-5 px-3"
-					style="border: 1px solid #AAAAAA; color: #AAAAAA;"
-					hx-post={fmt.Sprintf("/channel/ack-disabled/%d", ch.ID)}
-					hx-target={fmt.Sprintf("#channel-%d", ch.ID)}
-					hx-swap="outerHTML"
-				>
-					Ok
-				</button>
-			</div>
-		}
-
-		if msg != "" {
-			<small class={msgClass + " ps-3"}>{msg}</small>
-		}
+        @MattermostDetails(ch)
 	</div>
 }
 
@@ -273,8 +284,7 @@ templ ChannelsContent(vm ChannelsVM) {
                 <div class="d-flex gap-2">
                     <!-- Add channel button -->
                     <button
-                        class="btn btn-sm rounded-5 px-3"
-                        style="border: 1px solid #009DE0; color: #009DE0;"
+                        class="btn-outline-brand btn btn-sm rounded-5 px-3"
                         hx-get="/channel/add/form"
                         hx-target="#new-channel-slot"
                         hx-swap="innerHTML"
@@ -374,7 +384,7 @@ templ NewChannelForm() {
             <div class="col-2 d-flex flex-column gap-2">
                 <select
                     class="form-select form-select-sm rounded-5 text-white"
-                    style="background: #7E7E7E; padding-right: .5rem;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A; padding-right: .5rem;"
                     name="type"
                     required
                 >
@@ -385,7 +395,7 @@ templ NewChannelForm() {
                 <input
                     id="mm-username-new"
                     class="form-control form-control-sm rounded-5 text-white d-none"
-                    style="background: #7E7E7E;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                     type="text" name="username" placeholder="Username"
                 />
             </div>
@@ -394,7 +404,7 @@ templ NewChannelForm() {
             <div class="col-5 d-flex flex-column gap-2">
                 <input
                     class="form-control form-control-sm rounded-5 text-white"
-                    style="background: #7E7E7E;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                     type="text"
                     name="address"
                     placeholder="Enter email address or webhook URL..."
@@ -404,12 +414,12 @@ templ NewChannelForm() {
                 <div id="mm-fields-col2-new" class="d-none gap-2">
                 <input
                     class="form-control form-control-sm rounded-5 text-white"
-                    style="background: #7E7E7E; flex: 1.5;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.5;"
                     type="text" name="channel" placeholder="Channel"
                 />
                 <select
                     class="form-select form-select-sm rounded-5 text-white pe-2"
-                    style="background: #7E7E7E; flex: 1.25;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.25;"
                     name="priority"
                 >
                     <option value="">Priority: None</option>
@@ -418,7 +428,7 @@ templ NewChannelForm() {
                 </select>
                 <select
                     class="form-select form-select-sm rounded-5 text-white pe-2"
-                    style="background: #7E7E7E; flex: 1.25;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.25;"
                     name="request_ack"
                 >
                         <option value="false">Request Ack: false</option>
@@ -441,13 +451,12 @@ templ NewChannelForm() {
 
             <!-- Column 6: Submit and Cancel Buttons -->
             <div class="col-2 d-flex align-items-center justify-content-end gap-2">
-                <button type="submit" class="btn btn-sm rounded-5 px-4" style="border: 1px solid #68FF90; color: #68FF90;">
+                <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-4">
                     <i class="bi bi-check-lg"></i>
                 </button>
                 <button
                     type="button"
-                    class="btn btn-sm rounded-5 px-3"
-                    style="background: #6C6C6C; color: white; border: none;"
+                    class="btn-outline-basic btn btn-sm rounded-5 px-3"
                     hx-get="/channel/add/cancel"
                     hx-target="#new-channel-slot"
                     hx-swap="innerHTML"
@@ -465,7 +474,7 @@ templ NewChannelForm() {
 templ NewChannelError(chType string, address string, message string) {
     <form
         class="rounded-4-5 p-2 ps-1 pe-1 mt-2 overflow-hidden new-channel-form"
-        style="background: #474747;"
+        style="background: #474747;  border: 1px solid #FF6B6B;"
         data-form-id="error"
         data-error-form="true"
         hx-post="/channel/add"
@@ -478,7 +487,7 @@ templ NewChannelError(chType string, address string, message string) {
             <div class="col-2 d-flex flex-column gap-2">
                 <select
                     class="form-select form-select-sm rounded-5 text-white"
-                    style="background: #7E7E7E; padding-right: .5rem;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A; padding-right: .5rem;"
                     name="type"
                     required
                 >
@@ -489,7 +498,7 @@ templ NewChannelError(chType string, address string, message string) {
                 <input
                     id="mm-username-error"
                     class={"form-control form-control-sm rounded-5 text-white" + mmHiddenClass(chType)}
-                    style="background: #7E7E7E;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                     type="text" name="username" placeholder="Username"
                 />
             </div>
@@ -498,7 +507,7 @@ templ NewChannelError(chType string, address string, message string) {
             <div class="col-5 d-flex flex-column gap-2">
                 <input
                     class="form-control form-control-sm rounded-5 text-white"
-                    style="background: #7E7E7E;"
+                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                     type="text"
                     name="address"
                     value={address}
@@ -508,12 +517,12 @@ templ NewChannelError(chType string, address string, message string) {
                 <div id="mm-fields-col2-error" class={"gap-2" + mmFlexClass(chType)}>
                     <input
                         class="form-control form-control-sm rounded-5 text-white"
-                        style="background: #7E7E7E; flex: 1.5;"
+                        style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.5;"
                         type="text" name="channel" placeholder="Channel"
                     />
                     <select
                         class="form-select form-select-sm rounded-5 text-white pe-2"
-                        style="background: #7E7E7E; flex: 1.25;"
+                        style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.25;"
                         name="priority"
                     >
                         <option value="">Priority: None</option>
@@ -522,7 +531,7 @@ templ NewChannelError(chType string, address string, message string) {
                     </select>
                     <select
                         class="form-select form-select-sm rounded-5 text-white pe-2"
-                        style="background: #7E7E7E; flex: 1.25;"
+                        style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.25;"
                         name="request_ack"
                     >
                         <option value="false">Req. Ack: false</option>
@@ -563,6 +572,6 @@ templ NewChannelError(chType string, address string, message string) {
 
         </div>
         <!-- Error message -->
-        <small class="text-danger px-2">{message}</small>
+        <small class="text-danger px-2">{message}.</small>
     </form>
 }

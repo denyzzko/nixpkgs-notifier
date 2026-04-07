@@ -1,11 +1,33 @@
 package layout
 
+// ProfileNameDisplay renders username label and edit button inside the profile menu.
+// Returned as HTMX fragment (by POST /profile/username) so name updates without a page reload.
+templ ProfileNameDisplay(username string) {
+    <div id="profile-name-display" class="w-100">
+        <div
+            class="mx-auto d-grid align-items-center"
+            style="width: fit-content; grid-template-columns: 24px auto 24px; column-gap: 8px;"
+        >
+            <div></div>
+            <div class="fw-bold text-white fs-4 text-center">{ username }</div>
+            <button
+                id="profile-name-edit-btn"
+                type="button"
+                class="btn btn-sm p-0 border-0 text-white d-flex align-items-center justify-content-center icon-fill-on-hover"
+                style="background: transparent; line-height: 1; width: 24px; height: 24px;"
+            >
+                <i class="bi bi-pencil-square fs-6"></i>
+            </button>
+        </div>
+    </div>
+}
+
 // Base is the shared HTML layout used by all pages.
-// It renders the top navigation bar with links to Packages, Channels, Delivery Log and logout button.
-// Navigation links and Logout button are only shown when loggedIn is true. 
+// It renders the top navigation bar with links to Packages, Channels, Delivery Log and UserProfile button.
+// Navigation links and UserProfile button are only shown when loggedIn is true. 
 // System Config link is showed only when isAdmin is true.
 // It also includes all shared scripts and styles.
-templ Base(title string, loggedIn bool, isAdmin bool, content templ.Component) {
+templ Base(title string, loggedIn bool, isAdmin bool, username string, role string, content templ.Component) {
     <!doctype html>
     <html lang="en">
         <head>
@@ -24,10 +46,11 @@ templ Base(title string, loggedIn bool, isAdmin bool, content templ.Component) {
         </head>
 
         <body class="bg-black">
-            <nav class="d-flex align-items-center rounded-5 mx-2 mt-3 px-2" style="background: #252525; height: 48px;">
+            <nav class="position-relative d-flex align-items-center rounded-5 mx-2 mt-3 px-2" style="background: #252525; height: 48px;">
                 <a class="fw-bold text-white text-decoration-none px-3 flex-shrink-0" href="/">nixpkgsNotifier</a>
                 
                 if loggedIn {
+                    <!-- Nav links centered in the bar -->
                     <div class="d-flex flex-grow-1 justify-content-center align-items-stretch h-100 gap-5">
                         <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/" id="nav-packages">Packages</a>
                         <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/channels" id="nav-channels">Channels</a>
@@ -36,25 +59,130 @@ templ Base(title string, loggedIn bool, isAdmin bool, content templ.Component) {
                             <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/admin/config" id="nav-sysconfig">System config</a>
                         }
                     </div>
+                    <!-- Profile dropdown -->
+                    <div>
+                        <!-- Toggle button -->
+                        <button
+                            id="profile-toggle"
+                            type="button"
+                            class="btn-outline-profile btn btn-sm rounded-5 px-4 d-flex align-items-center justify-content-center"
+                        >
+                            <i class="bi bi-person fs-5"></i>
+                        </button>
+                        <!-- Dropdown menu (hidden by default, toggled by the button above)-->
+                        <div
+                            id="profile-menu"
+                            class="rounded-5 d-none position-absolute end-0 mt-2 p-4"
+                            style="width: 320px; background: #2F2F2F; border: 1px solid #8A8A8A; z-index: 99;"
+                        >
+                            <!-- Avatar, username display/edit, role -->
+                            <div class="d-flex flex-column align-items-center text-center mb-5">
+                                <div
+                                    class="d-flex align-items-center justify-content-center rounded-circle mb-1"
+                                    style="width: 90px; height: 90px; border: 2px solid white;"
+                                >
+                                    <i class="bi bi-person-fill text-white" style="font-size: 3rem;"></i>
+                                </div>
 
-                    <form method="POST" action="/auth/logout" class="m-0 p-0">
-                        <button type="submit" class="d-flex align-items-center px-3 fw-bold text-white border-0 rounded-5 flex-shrink-0" style="background: transparent;">Logout</button>
-                    </form>
+                                @ProfileNameDisplay(username)
+                                <!-- Username edit form (hidden by default, shown with pencil button) -->
+                                <form
+                                    id="profile-name-form"
+                                    hx-post="/profile/username"
+                                    hx-target="#profile-name-display"
+                                    hx-swap="outerHTML"
+                                    class="d-none w-100 mt-2"
+                                >
+
+                                    <div
+                                        class="mx-auto d-grid align-items-center"
+                                        style="width: fit-content; grid-template-columns: 48px 140px 48px; column-gap: 8px;"
+                                    >
+                                        <div></div>
+
+                                        <input
+                                            id="profile-name-input"
+                                            class="form-control form-control-sm rounded-5 text-white text-center"
+                                            style="width: 140px; background: #3A3A3A; border: 1px solid #009DE0;"
+                                            type="text"
+                                            name="username"
+                                            value={ username }
+                                            maxlength="50"
+                                        />
+                                        <!-- Confirm and cancel buttons -->
+                                        <div class="d-flex align-items-center justify-content-center gap-2" style="width: 48px;">
+                                            <button
+                                                type="submit"
+                                                class="btn btn-sm p-0 border-0 text-white d-flex align-items-center justify-content-center icon-fill-on-hover"
+                                                style="background: transparent; line-height: 1;"
+                                            >
+                                                <i class="bi bi-check-circle fs-5 icon-outline"></i>
+                                                <i class="bi bi-check-circle-fill fs-5 icon-filled"></i>
+                                            </button>
+
+                                            <button
+                                                id="profile-name-cancel-btn"
+                                                type="button"
+                                                class="btn btn-sm p-0 border-0 text-white d-flex align-items-center justify-content-center icon-fill-on-hover"
+                                                style="background: transparent; line-height: 1;"
+                                            >
+                                                <i class="bi bi-x-circle fs-5 icon-outline"></i>
+                                                <i class="bi bi-x-circle-fill fs-5 icon-filled"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p id="profile-name-error" class="text-danger small my-1 d-none"></p>
+                                </form>
+
+                                <div class="text-white-50">{ role }</div>
+                            </div>
+                            <!-- Linked accounts section -->
+                            <div class="text-white fw-semibold mb-2">Linked accounts</div>
+                            <div class="mb-5 p-2 rounded-5" style="background: #474747;">
+                                <div class="text-white-50 small">this feature is in progress...</div>
+                            </div>
+                            <!-- Button to get to the profile management page (admin only) -->
+                            if isAdmin {
+                                <a
+                                    href="/admin/profiles"
+                                    class="btn-outline-brand-fill btn w-100 rounded-5 mb-2"
+                                >
+                                    Manage other profiles
+                                </a>
+                            }
+                            <!-- Log out button -->
+                            <form method="POST" action="/auth/logout" class="m-0">
+                                <button
+                                    type="submit"
+                                    class="btn-outline-danger-custom btn w-100 rounded-5"
+                                >
+                                    Log out
+                                </button>
+                            </form>
+                        </div>
+                    </div>
                 }
             </nav>
 
-            <!-- Navbar active link highlight - sets background on the nav link matching the current path -->
+            <!-- Navbar active link highlight - sets background on the nav link matching the current path.
+                Runs before @content so it executes as soon as the nav is in the DOM. -->
             <script>
                 (function() {
+                    // match the current path to a nav link ID
                     const path = window.location.pathname;
                     let active = null;
                     if (path === '/' || path.startsWith('/package')) active = 'nav-packages';
                     else if (path.startsWith('/channel')) active = 'nav-channels';
                     else if (path.startsWith('/log')) active = 'nav-log';
                     else if (path.startsWith('/admin/config')) active = 'nav-sysconfig';
+                    
+                    // apply highlight to matched link
                     if (active) {
                         var el = document.getElementById(active);
-                        if (el) el.style.background = '#009DE0';
+                        if (el) {
+                            el.style.background = '#0090CE';
+                            el.style.border = '1px solid #21BCFF';
+                        }
                     }
                 })();
             </script>
@@ -67,18 +195,18 @@ templ Base(title string, loggedIn bool, isAdmin bool, content templ.Component) {
             <!-- Bootstrap tooltip initialisation - runs on page load and after every HTMX swap -->
             <script>
                 (function () {
+                    // initialise any uninitialised tooltips in given root element
                     function initTooltips(root) {
                         root.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+                            // skip elements that already have a tooltip
                             if (!bootstrap.Tooltip.getInstance(el)) {
                                 new bootstrap.Tooltip(el);
                             }
                         });
                     }
-
-                    document.addEventListener("DOMContentLoaded", function () {
-                        initTooltips(document);
-                    });
-
+                    // run once on page load
+                    initTooltips(document);
+                    // run on every HTMX swap so tooltips work on dynamically inserted elements
                     document.body.addEventListener("htmx:afterSwap", function (event) {
                         initTooltips(event.target);
                     });
@@ -89,21 +217,21 @@ templ Base(title string, loggedIn bool, isAdmin bool, content templ.Component) {
             <script>
                 (function () {
                     document.addEventListener("click", function (event) {
+                        // ignore clicks that are not in .js-channel-expand button
                         const btn = event.target.closest(".js-channel-expand");
                         if (!btn) return;
-
-                        const detailsId = btn.dataset.detailsId;
-                        const details = document.getElementById(detailsId);
+                        // find the details panel this button controls
+                        const details = document.getElementById(btn.dataset.detailsId);
                         if (!details) return;
-
+                        // toggle details panel visibility
                         const isHidden = details.classList.contains("d-none");
                         details.classList.toggle("d-none");
-
+                        // add .expanded to the main row when open so it has a shadow style
                         const mainRow = btn.closest(".js-channel-main-row");
                         if (mainRow) {
                             mainRow.classList.toggle("expanded", isHidden);
                         }
-
+                        // swap chevron direction
                         const icon = btn.querySelector("i");
                         if (!icon) return;
                         icon.classList.toggle("bi-chevron-down");
@@ -148,6 +276,105 @@ templ Base(title string, loggedIn bool, isAdmin bool, content templ.Component) {
                 })();
             </script>
 
+            <!-- Profile menu toggle and username editor (handles profile menu dropdown open/close and inline rename flow) -->
+            <script>
+                (function () {
+                    const toggle    = document.getElementById("profile-toggle");
+                    const menu      = document.getElementById("profile-menu");
+                    const form      = document.getElementById("profile-name-form");
+                    const cancelBtn = document.getElementById("profile-name-cancel-btn");
+                    const input     = document.getElementById("profile-name-input");
+
+                    if (!toggle || !menu) return;
+
+                    // resets username editor back to display mode
+                    // called on menu close, Cancel click or after a successful HTMX rename swap
+                    function resetProfileNameEditor() {
+                        const display = document.getElementById("profile-name-display");
+                        const err     = document.getElementById("profile-name-error");
+                        if (!display || !form || !input) return;
+                        form.classList.add("d-none");
+                        display.classList.remove("d-none");
+                        input.value = input.defaultValue;
+                        if (err) { err.textContent = ""; err.classList.add("d-none"); }
+                    }
+
+                    // --- Dropdown toggle ---
+
+                    function closeProfileMenu() {
+                        menu.classList.add("d-none");
+                        resetProfileNameEditor();
+                    }
+
+                    // toggle open/closed on button click
+                    toggle.addEventListener("click", function (event) {
+                        event.stopPropagation(); // stop propagation so the document click below doesn't immediately close it
+                        const isHidden = menu.classList.contains("d-none");
+                        if (isHidden) {
+                            menu.classList.remove("d-none");
+                            toggle.blur();
+                        } else {
+                            closeProfileMenu();
+                        }
+                    });
+
+                    // stop clicks inside the profile menu propagate to document close handler
+                    menu.addEventListener("click", function (event) {
+                        event.stopPropagation();
+                    });
+
+                    // close profile menu on outside click (only when menu is actually visible)
+                    document.addEventListener("click", function () {
+                        if (!menu.classList.contains("d-none")) {
+                            closeProfileMenu();
+                        }
+                    });
+
+                    // close profile menu on Escape (prevent default to stop browser moving focus)
+                    document.addEventListener("keydown", function (event) {
+                        if (event.key === "Escape") {
+                            event.preventDefault();
+                            closeProfileMenu();
+                        }
+                    });
+
+                    // --- Username editor inside profile menu ---
+
+                    if (!form || !cancelBtn || !input) return;
+
+                    // open the editor when pencil button inside #profile-name-display is clicked
+                    menu.addEventListener("click", function (event) {
+                        if (!event.target.closest("#profile-name-edit-btn")) return;
+                        const display = document.getElementById("profile-name-display");
+                        if (!display) return;
+                        display.classList.add("d-none");
+                        form.classList.remove("d-none");
+                        input.focus();
+                        input.select();
+                    });
+
+                    // Cancel button resets editor back to display mode
+                    cancelBtn.addEventListener("click", function (event) {
+                        event.stopPropagation();
+                        resetProfileNameEditor();
+                    });
+
+                    // hide editor after HTMX successfully swaps #profile-name-display on rename
+                    document.body.addEventListener("htmx:afterSwap", function (event) {
+                        if (event.detail.target.id !== "profile-name-display") return;
+                        resetProfileNameEditor();
+                    });
+
+                    // show error below input when a rename request fails
+                    document.body.addEventListener("htmx:responseError", function (event) {
+                        if (!event.detail.elt.closest("#profile-name-form")) return;
+                        const err = document.getElementById("profile-name-error");
+                        if (!err) return;
+                        err.textContent = event.detail.xhr.responseText || "Failed to update username.";
+                        err.classList.remove("d-none");
+                    });
+                })();
+            </script>
             
             <style>
                 /* Tooltip */
@@ -190,10 +417,6 @@ templ Base(title string, loggedIn bool, isAdmin bool, content templ.Component) {
                 input[type="number"] {
                     box-shadow: none !important;
                 }
-                /* form-select border at rest: #5A5A5A */
-                .form-select {
-                    border-color: #5A5A5A !important;
-                }
                 /* Blue border on focus everywhere */
                 .form-control:focus,
                 .form-select:focus,
@@ -201,17 +424,88 @@ templ Base(title string, loggedIn bool, isAdmin bool, content templ.Component) {
                     outline: none;
                     border-color: #009DE0 !important;
                 }
-                /* Channel and package forms: no border at rest, blue on focus */
-                .new-channel-form .form-control,
-                .new-channel-form .form-select,
-                .new-package-form .form-control {
-                    border-color: transparent !important;
-                }
                 .new-channel-form .form-control:focus,
                 .new-channel-form .form-select:focus,
                 .new-package-form .form-control:focus {
                     border-color: #009DE0 !important;
                 }
+                /* Outlined brand (blue style) button with fill-on-hover */
+                .btn-outline-brand {
+                    background: transparent;
+                    color: #009DE0;
+                    border: 1px solid #009DE0;
+                    transition: background 0.15s ease, color 0.15s ease;
+                }
+                .btn-outline-brand:hover {
+                    background: #009DE0;
+                    color: white;
+                    border: 1px solid #6ed4ff;
+                }
+                /* Outlined brand (blue style filled) button with fill-on-hover */
+                .btn-outline-brand-fill {
+                    background: #006b98;
+                    color: white;
+                    border: 1px solid #009DE0;
+                    transition: background 0.15s ease, color 0.15s ease;
+                }
+                .btn-outline-brand-fill:hover {
+                    background: #009DE0;
+                    color: white;
+                    border: 1px solid #6cd3ff;
+                }
+                /* Outlined danger (red style) button with fill-on-hover */
+                .btn-outline-danger-custom {
+                    background: transparent;
+                    color: #FF6B6B;
+                    border: 1px solid #FF6B6B;
+                    transition: background 0.15s ease, color 0.15s ease;
+                }
+                .btn-outline-danger-custom:hover {
+                    background: #893838;
+                    color: white;
+                    border: 1px solid #ff8888;
+                }
+                /* Outlined success (green style) button with fill-on-hover */
+                .btn-outline-success-custom {
+                    background: transparent;
+                    color: #68FF90;
+                    border: 1px solid #68FF90;
+                    transition: background 0.15s ease, color 0.15s ease;
+                }
+                .btn-outline-success-custom:hover {
+                    background: #51ca71;
+                    color: white;
+                    border: 1px solid #acffc2;
+                }
+                /* Outlined basic (grey style) button with fill-on-hover */
+                .btn-outline-basic {
+                    background: transparent;
+                    color: #AAAAAA;
+                    border: 1px solid #AAAAAA;
+                    transition: background 0.15s ease, color 0.15s ease;
+                }
+                .btn-outline-basic:hover {
+                    background: #8d8d8d;
+                    color: white;
+                    border: 1px solid #c6c6c6;
+                }
+                /* Outlined profile button with fill-on-hover */
+                .btn-outline-profile {
+                    background: transparent;
+                    color: white;
+                    border: 1px solid white;
+                    transition: background 0.15s ease, color 0.15s ease;
+                }
+                .btn-outline-profile:hover {
+                    background: #575757;
+                    border: 1px solid white;
+                    color: white;
+                }
+                /* Icon swap on hover (for profile menu username edit buttons)*/
+                .icon-fill-on-hover .icon-filled { display: none; }
+                .icon-fill-on-hover .icon-outline { display: inline; }
+                .icon-fill-on-hover:hover .icon-filled { display: inline; }
+                .icon-fill-on-hover:hover .icon-outline { display: none; }
             </style>
         </body>
     </html>

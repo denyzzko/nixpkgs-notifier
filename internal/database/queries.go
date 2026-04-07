@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrUsernameConflict = errors.New("username already taken")
 
 func buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, priority *string, requestAck *bool) (*Email, *Webhook) {
 	var email *Email
@@ -272,6 +274,62 @@ func (db *Store) QueryUserByID(ctx context.Context, id int64) (User, error) {
 	}
 
 	return usr, nil
+}
+
+// UpdateUserUsername updates username of a user identified by user ID.
+// Returns ErrUsernameConflict (sql code 23505) if the username is already taken by another user.
+func (db *Store) UpdateUserUsername(ctx context.Context, userID int64, username string) error {
+	result, err := db.pool.Exec(ctx, sUpdateUserUsername, userID, username)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrUsernameConflict
+		}
+		return fmt.Errorf("database.UpdateUserUsername: error updating username (userID=%d): %w", userID, err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// QueryAllUsers retrieves all users from the database (ordered by created_at).
+func (db *Store) QueryAllUsers(ctx context.Context) ([]User, error) {
+	rows, err := db.pool.Query(ctx, qGetAllUsers)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryAllUsers: query error: %w", err)
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.CreatedAt, &u.Username, &u.Role); err != nil {
+			return nil, fmt.Errorf("database.QueryAllUsers: scan error: %w", err)
+		}
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("database.QueryAllUsers: incomplete results: %w", err)
+	}
+	return users, nil
+}
+
+// UpdateUser updates the username and role of a user identified by user ID.
+// Returns ErrUsernameConflict (sql code 23505) if the username is already taken by another user.
+func (db *Store) UpdateUser(ctx context.Context, userID int64, username string, role string) error {
+	result, err := db.pool.Exec(ctx, sUpdateUser, userID, username, role)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrUsernameConflict
+		}
+		return fmt.Errorf("database.UpdateUser: error updating user (userID=%d): %w", userID, err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteTracking deletes tracking identified by user ID and tracked package ID.

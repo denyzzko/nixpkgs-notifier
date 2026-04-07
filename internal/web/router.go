@@ -46,9 +46,18 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 	// notification delivery log page
 	mux.HandleFunc("GET /log", requireAuth(sessionManager, notificationsPage(sessionManager, db, disp)))
 
-	// admin config
-	mux.HandleFunc("GET /admin/config", requireAdmin(sessionManager, systemConfigPage(db, disp, chk)))
+	// admin system config
+	mux.HandleFunc("GET /admin/config", requireAdmin(sessionManager, systemConfigPage(sessionManager, db, disp, chk)))
 	mux.HandleFunc("POST /admin/config", requireAdmin(sessionManager, updateSystemConfig(db, disp, chk)))
+
+	// admin profile management
+	mux.HandleFunc("GET /admin/profiles", requireAdmin(sessionManager, profilesPage(sessionManager, db)))
+	mux.HandleFunc("GET /admin/profiles/{id}/edit", requireAdmin(sessionManager, profileEditForm(db)))
+	mux.HandleFunc("GET /admin/profiles/{id}/edit/cancel", requireAdmin(sessionManager, profileEditCancel(db)))
+	mux.HandleFunc("POST /admin/profiles/{id}", requireAdmin(sessionManager, updateProfile(db)))
+
+	// user profile menu - username update
+	mux.HandleFunc("POST /profile/username", requireAuth(sessionManager, updateProfileUsername(sessionManager, db)))
 }
 
 // requireAuth redirects unauthenticated requests to /login.
