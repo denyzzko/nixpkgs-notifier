@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: ["**"]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build
@@ -47,9 +50,4 @@ jobs:
         run: templ generate
 
       - name: Test
-        run: |
-          if find . -name '*_test.go' -not -path './.git/*' | grep -q .; then
-            go test ./...
-          else
-            echo "No test files found, skipping tests."
-          fi
+        run: go test ./...
