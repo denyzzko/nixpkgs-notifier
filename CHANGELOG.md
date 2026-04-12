@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.0.0...v1.1.0) (2026-04-12)
+
+
+### Features
+
+* account linking ([7f296fc](https://github.com/denyzzko/nixpkgs-notifier/commit/7f296fcaa5b3852e82b31f264acf5f36b8e55fbc))
+
 # 1.0.0 (2026-04-07)
 
 
