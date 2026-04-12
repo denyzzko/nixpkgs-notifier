@@ -115,7 +115,6 @@ func main() {
 	chain := middleware.Chain(
 		middleware.RequestLogger,
 		sessionManager.LoadAndSave,
-		//middleware.RequestAuth,
 	)
 
 	// server

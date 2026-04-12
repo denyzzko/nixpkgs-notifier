@@ -1,0 +1,212 @@
+package pages
+
+import (
+	"time"
+	"github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
+)
+
+// LinkedAccountVM is the view model for a single linked OIDC account.
+type LinkedAccountVM struct {
+	Provider      string    // human-readable provider name (e.g. "google")
+	Issuer        string    // OIDC issuer URL  (used as unlink key)
+	Subject       string    // OIDC subject      (used as unlink key)
+	Email         string    // email from provider (may be empty)
+	EmailVerified bool
+	LinkedAt      time.Time
+	CanUnlink     bool // false when this is the user's only account
+}
+
+// AccountsVM is top-level view model for the accounts page.
+type AccountsVM struct {
+	layout.BaseVM
+	Accounts  []LinkedAccountVM
+}
+
+// AccountsPage is the account management page wrapped in base layout.
+templ AccountsPage(vm AccountsVM) {
+	@layout.Base("Linked Accounts", vm.BaseVM, AccountsContent(vm))
+}
+
+// AccountsContent renders the linked accounts management page.
+templ AccountsContent(vm AccountsVM) {
+	<div style="padding-top: 5rem; padding-bottom: 2rem;">
+		<div style="max-width: 700px; width: 100%; margin: 0 auto;">
+
+			<!-- Page title -->
+			<h1 class="h4 text-white mb-2">Linked accounts</h1>
+
+			<!-- Linked accounts card -->
+			<div class="card shadow-sm rounded-5 mb-3" style="background: #252525; border: 1px solid #5A5A5A;">
+				<div class="card-body p-4">
+					<!-- Column headers -->
+					<div class="d-flex ps-3 pe-2 align-items-end mb-1">
+						<div style="flex: 2;">
+							<span class="small" style="color: #AAAAAA;">Provider</span>
+						</div>
+						<div style="flex: 3;">
+							<span class="small" style="color: #AAAAAA;">Email</span>
+						</div>
+						<div style="flex: 2;">
+							<span class="small" style="color: #AAAAAA;">Linked on</span>
+						</div>
+						<div style="flex: 1;"></div>
+					</div>
+
+					<!-- Account rows -->
+					<div class="d-flex flex-column gap-2">
+						for _, a := range vm.Accounts {
+							@LinkedAccountItem(a)
+						}
+					</div>
+
+					if len(vm.Accounts) == 0 {
+						<p class="text-center text-white-50 small mt-3 mb-0">No linked accounts found.</p>
+					} else {
+						<div class="text-center">
+							<p class="text-white-50 small mt-3 mb-0">
+								These are the accounts currently attached to your user profile.
+							</p>
+							<p class="text-white-50 small mb-0">
+								You can use any of them to log in.
+							</p>
+						</div>
+					}
+				</div>
+			</div>
+
+			<!-- Link new/existing account cards -->
+			<div class="d-flex gap-3 align-items-stretch">
+
+				<!-- Link new account -->
+				<div class="card shadow-sm rounded-5" style="flex: 1; background: #252525; border: 1px solid #5A5A5A;">
+					<div class="card-body p-4 d-flex flex-column">
+						<div class="fw-semibold text-white mb-1">Link a new account</div>
+						<p class="text-white-50 small mb-3">
+							Sign in with another provider. New account will be automatically linked with this user profile.
+						</p>
+						<a href="/auth/link?mode=new" class="btn btn-outline-brand rounded-5 w-100 mt-auto">
+							<i class="bi bi-plus-lg me-1"></i>Link new
+						</a>
+					</div>
+				</div>
+
+				<!-- Link existing account -->
+				<div class="card shadow-sm rounded-5" style="flex: 1; background: #252525; border: 1px solid #5A5A5A;">
+					<div class="card-body p-4 d-flex flex-column">
+						<div class="fw-semibold text-white mb-1">Link an existing account</div>
+						<p class="text-white-50 small mb-3">
+							Log in with existing account. That account will be linked with this user profile and all data will be automatically merged.
+						</p>
+						<a href="/auth/link?mode=existing" class="btn btn-outline-brand rounded-5 w-100 mt-auto">
+							<i class="bi bi-arrow-left-right me-1"></i>Link existing
+						</a>
+					</div>
+				</div>
+
+			</div>
+
+		</div>
+	</div>
+}
+
+// LinkedAccountItem renders a single linked account row with unlink button (if unlink is possible).
+templ LinkedAccountItem(a LinkedAccountVM) {
+	<div
+		class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2"
+		style="background: #474747; border: 1px solid #474747;"
+	>
+		<!-- Provider badge -->
+		<div class="d-flex align-items-center" style="flex: 2;">
+			@providerBadge(a.Provider)
+		</div>
+		<!-- Email -->
+		<div style="flex: 3;">
+			if a.Email != "" {
+				<span class="small text-white">{ a.Email }</span>
+				if a.EmailVerified {
+					<i
+						class="bi bi-patch-check-fill ms-1"
+						style="color: #009DE0; font-size: 0.8rem;"
+						data-bs-toggle="tooltip"
+						title="Email verified"
+					></i>
+				}
+			} else {
+				<span class="small" style="color: #AAAAAA;">—</span>
+			}
+		</div>
+		<!-- Linked date -->
+		<div style="flex: 2;">
+			<span class="small" style="color: #AAAAAA;">{ a.LinkedAt.Format("Jan 2, 2006") }</span>
+		</div>
+		<!-- Unlink button -->
+		<div class="d-flex justify-content-end" style="flex: 1;">
+			if a.CanUnlink {
+				<form method="POST" action="/account/unlink" class="m-0">
+					<input type="hidden" name="issuer" value={ a.Issuer }/>
+					<input type="hidden" name="subject" value={ a.Subject }/>
+					<button
+						type="submit"
+						class="btn btn-sm btn-outline-danger-custom rounded-5 px-3"
+						data-bs-toggle="tooltip"
+						title="Unlink this account"
+						onclick="return confirm('Unlink this account? You will no longer be able to sign in with it.')"
+					>
+						<i class="bi bi-x-lg"></i>
+					</button>
+				</form>
+			} else {
+				<span
+					class="fs-6"
+					style="color: #666; font-size: 0.75rem;"
+					data-bs-toggle="tooltip"
+					title="Can't remove your only sign-in method"
+				>
+					<i class="bi bi-ban"></i>
+				</span>
+			}
+		</div>
+	</div>
+}
+
+// providerBadge renders a small badge icon for given provider.
+templ providerBadge(provider string) {
+	if provider == "google" {
+		<span class="badge rounded-3 py-1" style="background: #1A2E1A; border: 1px solid #34A853; color: #34A853; font-size: 0.75rem; min-width: 70px; text-align: center; display: inline-block;">
+			<i class="bi bi-google me-1"></i>Google
+		</span>
+	} else if provider == "apple" {
+		<span class="badge rounded-3 py-1" style="background: #2A2A2A; border: 1px solid #FFFFFF; color: #FFFFFF; font-size: 0.75rem; min-width: 70px; text-align: center; display: inline-block;">
+			<i class="bi bi-apple me-1"></i>Apple
+		</span>
+	} else if provider == "microsoft" {
+		<span class="badge rounded-3 py-1" style="background: #1A2840; border: 1px solid #00A4EF; color: #00A4EF; font-size: 0.75rem; min-width: 70px; text-align: center; display: inline-block;">
+			<i class="bi bi-microsoft me-1"></i>Microsoft
+		</span>
+	} else if provider == "gitlab" {
+		<span class="badge rounded-3 py-1" style="background: #2A1A0E; border: 1px solid #FC6D26; color: #FC6D26; font-size: 0.75rem; min-width: 70px; text-align: center; display: inline-block;">
+			<i class="bi bi-gitlab me-1"></i>GitLab
+		</span>
+	} else if provider == "keycloak" {
+		<span class="badge rounded-3 py-1" style="background: #001B33; border: 1px solid #4D9BFF; color: #4D9BFF; font-size: 0.75rem; min-width: 70px; text-align: center; display: inline-block;">
+			<img src="https://cdn.simpleicons.org/keycloak/4D9BFF" width="13" height="13" alt="Keycloak" class="me-1"/>Keycloak
+		</span>
+	} else if provider == "authentik" {
+		<span class="badge rounded-3 py-1" style="background: #3F150D; border: 1px solid #FD4B2D; color: #FD4B2D; font-size: 0.75rem; min-width: 70px; text-align: center; display: inline-block;">
+			<img src="https://cdn.simpleicons.org/authentik/FD4B2D" width="13" height="13" alt="Authentik" class="me-1"/>Authentik
+		</span>
+	} else if provider == "auth0" {
+		<span class="badge rounded-3 py-1" style="background: #2A1208; border: 1px solid #EB5424; color: #EB5424; font-size: 0.75rem; min-width: 70px; text-align: center; display: inline-block;">
+			<img src="https://cdn.simpleicons.org/auth0" width="13" height="13" alt="Auth0" class="me-1"/>Auth0
+		</span>
+	} 
+	else if provider == "okta" {
+		<span class="badge rounded-3 py-1" style="background: #001A2E; border: 1px solid #007DC1; color: #007DC1; font-size: 0.75rem; min-width: 70px; text-align: center; display: inline-block;">
+			<img src="https://cdn.simpleicons.org/okta" width="13" height="13" alt="Okta" class="me-1"/>Okta
+		</span>
+	} else {
+		<span class="badge rounded-3 py-1" style="background: #3A3A3A; border: 1px solid #8A8A8A; color: #AAAAAA; font-size: 0.75rem; min-width: 70px; text-align: center; display: inline-block;">
+			{ provider }
+		</span>
+	}
+}

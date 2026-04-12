@@ -56,6 +56,9 @@ var qGetNotificationsByUserID string
 //go:embed sql/get_system_config.sql
 var qGetSystemConfig string
 
+//go:embed sql/get_accounts_by_userID.sql
+var qGetAccountsByUserID string
+
 //go:embed sql/insert_tracking.sql
 var sInsertTracking string
 
@@ -77,6 +80,12 @@ var sInsertEmailChannel string
 //go:embed sql/insert_webhook_channel.sql
 var sInsertWebhookChannel string
 
+//go:embed sql/insert_account_link.sql
+var sInsertAccountLink string
+
+//go:embed sql/insert_trackings_from_user.sql
+var sInsertTrackingsFromUser string
+
 //go:embed sql/remove_tracking.sql
 var dRemoveTracking string
 
@@ -85,6 +94,12 @@ var dRemoveChannel string
 
 //go:embed sql/remove_package.sql
 var dRemovePackage string
+
+//go:embed sql/remove_user_by_ID.sql
+var dRemoveUserByID string
+
+//go:embed sql/remove_account_by_userID_ISSUER_SUBJECT.sql
+var dRemoveAccountByUserIDIssuerSubject string
 
 //go:embed sql/update_notification_status_to_sent_by_ID.sql
 var sUpdateNotificationToSent string
@@ -115,3 +130,15 @@ var sUpdateUserUsername string
 
 //go:embed sql/update_user_by_ID.sql
 var sUpdateUser string
+
+//go:embed sql/update_user_role_by_ID.sql
+var sUpdateUserRoleByID string
+
+//go:embed sql/update_account_user_by_ISSUER_SUBJECT.sql
+var sUpdateAccountUserByIssuerSubject string
+
+//go:embed sql/update_channels_user_by_userID.sql
+var sUpdateChannelsUserByUserID string
+
+//go:embed sql/count_accounts_by_userID.sql
+var qCountAccountsByUserID string

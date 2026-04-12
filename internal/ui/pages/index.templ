@@ -24,15 +24,13 @@ type TrackedPackageVM struct {
 
 // IndexVM is the top level view model for the home page.
 type IndexVM struct {
+    layout.BaseVM
     Packages []TrackedPackageVM
-    Username string
-    Role     string
-    IsAdmin  bool
 }
 
 // IndexPage is the home page wrapped in the base layout.
 templ IndexPage(vm IndexVM) {
-    @layout.Base("Home", true, vm.IsAdmin, vm.Username, vm.Role, IndexContent(vm))
+    @layout.Base("Home", vm.BaseVM, IndexContent(vm))
 }
 
 // IndexContent renders the main content area of home page.

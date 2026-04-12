@@ -1,3 +1,8 @@
+// Package session wraps the scs session manager and exposes session
+// operations needed by this application.
+//
+// It handles storage for authenticated user identity, temporary OIDC flow secrets
+// and account linking context.
 package session
 
 import (
@@ -22,13 +27,20 @@ type OIDCAuthData struct {
 	Provider     string
 }
 
+// LinkData holds context about in-progress account linking operation.
+type LinkData struct {
+	Mode   string // new/existing
+	UserID int64  // user who initiated linking
+}
+
 // NewManager creates and configures a new SessionManager.
 // secureCookie should be true whenever the app is served over HTTPS.
 func NewManager(secureCookie bool) *SessionManager {
 	var sessionManager SessionManager
 
-	// register custom type with gob
+	// register custom types with gob
 	gob.Register(OIDCAuthData{})
+	gob.Register(LinkData{})
 
 	sm := scs.New()
 	sm.Lifetime = 24 * time.Hour
@@ -98,6 +110,19 @@ func (sm *SessionManager) PutUsername(ctx context.Context, username string) {
 // GetUsername returns username of authenticated user from session (empty string if not set).
 func (sm *SessionManager) GetUsername(ctx context.Context) string {
 	return sm.manager.GetString(ctx, "username")
+}
+
+// SaveLinkData stores account linking context in session.
+func (sm *SessionManager) SaveLinkData(ctx context.Context, data LinkData) {
+	sm.manager.Put(ctx, "linkData", data)
+}
+
+// PopLinkData retrieves and removes account linking context from the session.
+// Returns false if no link flow is in progress (normal login callback).
+func (sm *SessionManager) PopLinkData(ctx context.Context) (LinkData, bool) {
+	value := sm.manager.Pop(ctx, "linkData")
+	data, ok := value.(LinkData)
+	return data, ok
 }
 
 // Destroy deletes the entire session (used on logout).

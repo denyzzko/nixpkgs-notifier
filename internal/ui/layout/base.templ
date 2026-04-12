@@ -1,4 +1,21 @@
+// Package layout provides shared base HTML layout used across all pages.
 package layout
+
+// LinkedAccount holds single OIDC account shown in the profile menu.
+type LinkedAccount struct {
+    Provider string
+    Email    string
+}
+
+// BaseVM is passed to every page and it controls navigation visibility, profile menu content and admin-only UI elements,
+// which are shared across all pages.
+type BaseVM struct {
+    LoggedIn bool
+    IsAdmin  bool
+    Username string
+    Role     string
+    Accounts []LinkedAccount
+}
 
 // ProfileNameDisplay renders username label and edit button inside the profile menu.
 // Returned as HTMX fragment (by POST /profile/username) so name updates without a page reload.
@@ -27,7 +44,7 @@ templ ProfileNameDisplay(username string) {
 // Navigation links and UserProfile button are only shown when loggedIn is true. 
 // System Config link is showed only when isAdmin is true.
 // It also includes all shared scripts and styles.
-templ Base(title string, loggedIn bool, isAdmin bool, username string, role string, content templ.Component) {
+templ Base(title string, base BaseVM, content templ.Component) {
     <!doctype html>
     <html lang="en">
         <head>
@@ -49,13 +66,13 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
             <nav class="position-relative d-flex align-items-center rounded-5 mx-2 mt-3 px-2" style="background: #252525; height: 48px;">
                 <a class="fw-bold text-white text-decoration-none px-3 flex-shrink-0" href="/">nixpkgsNotifier</a>
                 
-                if loggedIn {
+                if base.LoggedIn {
                     <!-- Nav links centered in the bar -->
                     <div class="d-flex flex-grow-1 justify-content-center align-items-stretch h-100 gap-5">
                         <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/" id="nav-packages">Packages</a>
                         <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/channels" id="nav-channels">Channels</a>
                         <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/log" id="nav-log">Delivery Log</a>
-                        if isAdmin {
+                        if base.IsAdmin {
                             <a class="d-flex align-items-center px-3 fw-bold text-white text-decoration-none rounded-5" href="/admin/config" id="nav-sysconfig">System config</a>
                         }
                     </div>
@@ -76,7 +93,7 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                             style="width: 320px; background: #2F2F2F; border: 1px solid #8A8A8A; z-index: 99;"
                         >
                             <!-- Avatar, username display/edit, role -->
-                            <div class="d-flex flex-column align-items-center text-center mb-5">
+                            <div class="d-flex flex-column align-items-center text-center mb-4">
                                 <div
                                     class="d-flex align-items-center justify-content-center rounded-circle mb-1"
                                     style="width: 90px; height: 90px; border: 2px solid white;"
@@ -84,7 +101,7 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                                     <i class="bi bi-person-fill text-white" style="font-size: 3rem;"></i>
                                 </div>
 
-                                @ProfileNameDisplay(username)
+                                @ProfileNameDisplay(base.Username)
                                 <!-- Username edit form (hidden by default, shown with pencil button) -->
                                 <form
                                     id="profile-name-form"
@@ -106,7 +123,7 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                                             style="width: 140px; background: #3A3A3A; border: 1px solid #009DE0;"
                                             type="text"
                                             name="username"
-                                            value={ username }
+                                            value={ base.Username }
                                             maxlength="50"
                                         />
                                         <!-- Confirm and cancel buttons -->
@@ -134,15 +151,38 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                                     <p id="profile-name-error" class="text-danger small my-1 d-none"></p>
                                 </form>
 
-                                <div class="text-white-50">{ role }</div>
+                                <div class="text-white-50">{ base.Role }</div>
                             </div>
                             <!-- Linked accounts section -->
-                            <div class="text-white fw-semibold mb-2">Linked accounts</div>
-                            <div class="mb-5 p-2 rounded-5" style="background: #474747;">
-                                <div class="text-white-50 small">this feature is in progress...</div>
+                            <div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <!-- Heading -->
+                                    <div class="text-white fw-semibold mt-1">Linked accounts</div>
+                                    <!-- Manage accounts button -->
+                                    <a href="/accounts" class="btn-outline-brand btn btn-sm rounded-5 mb-2 px-3">
+                                        <i class="bi bi-person-gear"></i>
+                                    </a>
+                                </div>
+                                <!-- Accounts -->    
+                                <div class="d-flex flex-column gap-1 mb-5">
+                                    for _, acc := range base.Accounts {
+                                        <div class="d-flex align-items-center gap-2 px-2 py-1 rounded-4" style="background: #474747;">
+                                            @providerLogo(acc.Provider)
+                                            if acc.Email != "" {
+                                                <span class="small text-white">{ acc.Email }</span>
+                                            } else {
+                                                <span class="small text-white-50">{ acc.Provider }</span>
+                                            }
+                                        </div>
+                                    }
+                                    if len(base.Accounts) == 0 {
+                                        <div class="small text-white-50 px-2">No linked accounts.</div>
+                                    }
+                                </div>
                             </div>
+                            
                             <!-- Button to get to the profile management page (admin only) -->
-                            if isAdmin {
+                            if base.IsAdmin {
                                 <a
                                     href="/admin/profiles"
                                     class="btn-outline-brand-fill btn w-100 rounded-5 mb-2"
@@ -156,7 +196,7 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                                     type="submit"
                                     class="btn-outline-danger-custom btn w-100 rounded-5"
                                 >
-                                    Log out
+                                    Sign out
                                 </button>
                             </form>
                         </div>
@@ -234,8 +274,35 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                         // swap chevron direction
                         const icon = btn.querySelector("i");
                         if (!icon) return;
-                        icon.classList.toggle("bi-chevron-down");
-                        icon.classList.toggle("bi-chevron-up");
+                        icon.classList.toggle("bi-arrow-down-circle");
+                        icon.classList.toggle("bi-arrow-up-circle");
+                    });
+                })();
+            </script>
+
+            <!-- Details panel expand/collapse - handles both channel (Mattermost) and log (error) rows -->
+            <script>
+                (function () {
+                    document.addEventListener("click", function (event) {
+                        // ignore clicks that are not in .js-expand button
+                        const btn = event.target.closest(".js-expand");
+                        if (!btn) return;
+                        // find the details panel this button controls
+                        const details = document.getElementById(btn.dataset.detailsId);
+                        if (!details) return;
+                        // toggle details panel visibility
+                        const isHidden = details.classList.contains("d-none");
+                        details.classList.toggle("d-none");
+                        // apply shadow to the nearest main row when expanded
+                        const mainRow = btn.closest(".js-expand-main-row");
+                        if (mainRow) {
+                            mainRow.classList.toggle("expanded", isHidden);
+                        }
+                        // swap chevron direction
+                        const icon = btn.querySelector("i");
+                        if (!icon) return;
+                        icon.classList.toggle("bi-arrow-down-circle");
+                        icon.classList.toggle("bi-arrow-up-circle");
                     });
                 })();
             </script>
@@ -394,8 +461,8 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                     background-color: #009DE0;
                     border-color: #009DE0;
                 }
-                /* Shadow on channel row when Mattermost details are expanded */
-                .js-channel-main-row.expanded {
+                /* Shadow on expanded row (mattermost channel and error log) */
+                .js-expand-main-row.expanded {
                     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
                 }
                 /* Custom border radius between Bootstrap rounded-4 and rounded-5 */
@@ -434,7 +501,7 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                     background: transparent;
                     color: #009DE0;
                     border: 1px solid #009DE0;
-                    transition: background 0.15s ease, color 0.15s ease;
+                    transition: background 0.3s ease, color 0.3s ease;
                 }
                 .btn-outline-brand:hover {
                     background: #009DE0;
@@ -446,7 +513,7 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                     background: #006b98;
                     color: white;
                     border: 1px solid #009DE0;
-                    transition: background 0.15s ease, color 0.15s ease;
+                    transition: background 0.3s ease, color 0.3s ease;
                 }
                 .btn-outline-brand-fill:hover {
                     background: #009DE0;
@@ -458,7 +525,7 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                     background: transparent;
                     color: #FF6B6B;
                     border: 1px solid #FF6B6B;
-                    transition: background 0.15s ease, color 0.15s ease;
+                    transition: background 0.3s ease, color 0.3s ease;
                 }
                 .btn-outline-danger-custom:hover {
                     background: #893838;
@@ -470,7 +537,7 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                     background: transparent;
                     color: #68FF90;
                     border: 1px solid #68FF90;
-                    transition: background 0.15s ease, color 0.15s ease;
+                    transition: background 0.3s ease, color 0.3s ease;
                 }
                 .btn-outline-success-custom:hover {
                     background: #51ca71;
@@ -482,7 +549,7 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                     background: transparent;
                     color: #AAAAAA;
                     border: 1px solid #AAAAAA;
-                    transition: background 0.15s ease, color 0.15s ease;
+                    transition: background 0.3s ease, color 0.3s ease;
                 }
                 .btn-outline-basic:hover {
                     background: #8d8d8d;
@@ -494,11 +561,23 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
                     background: transparent;
                     color: white;
                     border: 1px solid white;
-                    transition: background 0.15s ease, color 0.15s ease;
+                    transition: background 0.3s ease, color 0.3s ease;
                 }
                 .btn-outline-profile:hover {
                     background: #575757;
                     border: 1px solid white;
+                    color: white;
+                }
+                /* Sign in button with fill-on-hover */
+                .btn-outline-signin {
+                    background: #474747;
+                    color: white;
+                    border: 1px solid #474747;
+                    transition: background 0.3s ease, color 0.3s ease;
+                }
+                .btn-outline-signin:hover {
+                    background: #919191;
+                    border: 1px solid #dfdfdf;
                     color: white;
                 }
                 /* Icon swap on hover (for profile menu username edit buttons)*/
@@ -509,4 +588,27 @@ templ Base(title string, loggedIn bool, isAdmin bool, username string, role stri
             </style>
         </body>
     </html>
+}
+
+// providerLogo renders a small logo for given OIDC provider name.
+templ providerLogo(provider string) {
+	if provider == "google" {
+		<i class="bi bi-google text-white-50"></i>
+	} else if provider == "apple" {
+		<i class="bi bi-apple text-white-50"></i>
+	} else if provider == "microsoft" {
+		<i class="bi bi-microsoft text-white-50"></i>
+	} else if provider == "gitlab" {
+		<i class="bi bi-gitlab text-white-50"></i>
+	} else if provider == "keycloak" {
+		<img src="https://cdn.simpleicons.org/keycloak/white" width="14" height="14" alt="Keycloak" style="opacity: 0.5;"/>
+	} else if provider == "authentik" {
+		<img src="https://cdn.simpleicons.org/authentik/white" width="14" height="14" alt="Authentik" style="opacity: 0.5;"/>
+	} else if provider == "auth0" {
+		<img src="https://cdn.simpleicons.org/auth0/white" width="14" height="14" alt="Auth0" style="opacity: 0.5;"/>
+	} else if provider == "okta" {
+		<img src="https://cdn.simpleicons.org/okta/white" width="14" height="14" alt="Okta" style="opacity: 0.5;"/>
+	} else {
+		<i class="bi bi-person-circle text-white-50"></i>
+	}
 }

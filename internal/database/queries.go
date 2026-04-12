@@ -11,8 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// ErrNotFound is returned when a queried record does not exist in database.
 var ErrNotFound = errors.New("not found")
-var ErrUsernameConflict = errors.New("username already taken")
+
+// ErrConflict is returned when an operation would violate a uniqueness constraint.
+var ErrConflict = errors.New("conflict")
+
+// ErrLastAccount is returned when an unlink would remove the user's only login method.
+var ErrLastAccount = errors.New("cannot remove last account")
+
+// AccountLinkParams holds all pre-resolved decisions for ApplyExistingAccountLink.
+// All logic and decisions are made by the caller - this function only executes mechanically.
+type AccountLinkParams struct {
+	TargetUserID   int64
+	SourceUserID   int64
+	Issuer         string
+	Subject        string
+	MergeData      bool // if true: merge trackings, move channels, delete source user
+	PromoteToAdmin bool // if true: promote target user to admin
+}
 
 func buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, priority *string, requestAck *bool) (*Email, *Webhook) {
 	var email *Email
@@ -277,13 +294,13 @@ func (db *Store) QueryUserByID(ctx context.Context, id int64) (User, error) {
 }
 
 // UpdateUserUsername updates username of a user identified by user ID.
-// Returns ErrUsernameConflict (sql code 23505) if the username is already taken by another user.
+// Returns ErrConflict (sql code 23505) if the username is already taken by another user.
 func (db *Store) UpdateUserUsername(ctx context.Context, userID int64, username string) error {
 	result, err := db.pool.Exec(ctx, sUpdateUserUsername, userID, username)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return ErrUsernameConflict
+			return ErrConflict
 		}
 		return fmt.Errorf("database.UpdateUserUsername: error updating username (userID=%d): %w", userID, err)
 	}
@@ -316,13 +333,13 @@ func (db *Store) QueryAllUsers(ctx context.Context) ([]User, error) {
 }
 
 // UpdateUser updates the username and role of a user identified by user ID.
-// Returns ErrUsernameConflict (sql code 23505) if the username is already taken by another user.
+// Returns ErrConflict (sql code 23505) if the username is already taken by another user.
 func (db *Store) UpdateUser(ctx context.Context, userID int64, username string, role string) error {
 	result, err := db.pool.Exec(ctx, sUpdateUser, userID, username, role)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return ErrUsernameConflict
+			return ErrConflict
 		}
 		return fmt.Errorf("database.UpdateUser: error updating user (userID=%d): %w", userID, err)
 	}
@@ -678,4 +695,125 @@ func (db *Store) UpdateSystemConfig(ctx context.Context, cfg SystemConfig) error
 		return fmt.Errorf("database.UpsertSystemConfig: %w", err)
 	}
 	return nil
+}
+
+// QueryAccountsByUserID returns all OIDC accounts linked to a given user.
+func (db *Store) QueryAccountsByUserID(ctx context.Context, userID int64) ([]Account, error) {
+	rows, err := db.pool.Query(ctx, qGetAccountsByUserID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryAccountsByUserID: query error (userID=%d): %w", userID, err)
+	}
+	defer rows.Close()
+
+	var accounts []Account
+	for rows.Next() {
+		var a Account
+		if err := rows.Scan(&a.UserID, &a.CreatedAt, &a.Provider, &a.Issuer, &a.Subject, &a.Email, &a.EmailVerified); err != nil {
+			return nil, fmt.Errorf("database.QueryAccountsByUserID: scan error: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("database.QueryAccountsByUserID: incomplete results: %w", err)
+	}
+	return accounts, nil
+}
+
+// CreateLinkedAccount inserts a new OIDC account pointing to already existing internal user.
+// Unlike CreateUserWithAccount this does NOT create a new user row.
+// Returns ErrConflict (sql code 23505) if the (issuer, subject) pair is already taken by some user.
+func (db *Store) CreateLinkedAccount(ctx context.Context, userID int64, email *string, emailVerified bool, provider, issuer, subject string) error {
+	_, err := db.pool.Exec(ctx, sInsertAccountLink, userID, email, emailVerified, provider, issuer, subject)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrConflict
+		}
+		return fmt.Errorf("database.CreateLinkedAccount: error linking account (userID=%d, issuer=%q, subject=%q): %w", userID, issuer, subject, err)
+	}
+	return nil
+}
+
+// ApplyExistingAccountLink executes the account merge in a single transaction.
+// Steps:
+//  1. Move the single account (issuer, subject) to target.
+//  2. If MergeData: merge trackings, move channels, delete source user.
+//  3. If PromoteToAdmin: promote target to admin.
+func (db *Store) ApplyExistingAccountLink(ctx context.Context, p AccountLinkParams) error {
+	// begin transaction
+	tx, err := db.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("database.ApplyExistingAccountLink: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// move the single account to target
+	if _, err := tx.Exec(ctx, sUpdateAccountUserByIssuerSubject, p.TargetUserID, p.Issuer, p.Subject); err != nil {
+		return fmt.Errorf("database.ApplyExistingAccountLink: move account: %w", err)
+	}
+
+	if p.MergeData {
+		// merge trackings: copy source into target, skip on conflict (target version wins)
+		if _, err := tx.Exec(ctx, sInsertTrackingsFromUser, p.TargetUserID, p.SourceUserID); err != nil {
+			return fmt.Errorf("database.ApplyExistingAccountLink: merge trackings: %w", err)
+		}
+
+		// move channels: conflicting channels are skipped
+		// notifications follow automatically via FK
+		if _, err := tx.Exec(ctx, sUpdateChannelsUserByUserID, p.TargetUserID, p.SourceUserID); err != nil {
+			return fmt.Errorf("database.ApplyExistingAccountLink: move channels: %w", err)
+		}
+
+		// safe to delete source user: no accounts, trackings channels and notifications moved, cascade will delete the rest
+		if _, err := tx.Exec(ctx, dRemoveUserByID, p.SourceUserID); err != nil {
+			return fmt.Errorf("database.ApplyExistingAccountLink: delete source user (id=%d): %w", p.SourceUserID, err)
+		}
+	}
+
+	if p.PromoteToAdmin {
+		// promote target to admin
+		if _, err := tx.Exec(ctx, sUpdateUserRoleByID, "admin", p.TargetUserID); err != nil {
+			return fmt.Errorf("database.ApplyExistingAccountLink: promote target to admin: %w", err)
+		}
+	}
+
+	// commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("database.ApplyExistingAccountLink: commit: %w", err)
+	}
+	return nil
+}
+
+// DeleteAccountByIssuerSub removes a single OIDC account (unlink operation).
+// Refuses to remove last account of user (would leave them unable to log in).
+func (db *Store) DeleteAccountByIssuerSub(ctx context.Context, userID int64, issuer, subject string) error {
+	// begin transaction
+	tx, err := db.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("database.DeleteAccountByIssuerSub: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// count accounts this user has
+	var count int
+	if err := tx.QueryRow(ctx, qCountAccountsByUserID, userID).Scan(&count); err != nil {
+		return fmt.Errorf("database.DeleteAccountByIssuerSub: count accounts: %w", err)
+	}
+
+	// refuse to remove last account
+	if count == 1 {
+		return ErrLastAccount
+	}
+
+	// delete the account
+	result, err := tx.Exec(ctx, dRemoveAccountByUserIDIssuerSubject, userID, issuer, subject)
+	if err != nil {
+		return fmt.Errorf("database.DeleteAccountByIssuerSub: delete: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	// commit transaction
+	return tx.Commit(ctx)
 }

@@ -1,12 +1,16 @@
 package web
 
 import (
+	"context"
+	"net/http"
 	"time"
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/channels"
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
+	"github.com/denyzzko/nixpkgs-notifier/internal/session"
+	"github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/pages"
 )
 
@@ -107,5 +111,37 @@ func systemConfigVM(dispCfg dispatcher.Config, checkCfg checker.Config) pages.Sy
 		PackageCheckSkipIntervalVal:      checkSkipIntVal,
 		PackageCheckSkipIntervalUnit:     checkSkipIntUnit,
 		PackageCheckWorkerCount:          checkCfg.WorkerCount,
+	}
+}
+
+// buildBaseVM builds BaseVM passed to every page base layout.
+// Returns empty BaseVM if user is not logged in.
+func buildBaseVM(ctx context.Context, r *http.Request, db *database.Store, sessionManager *session.SessionManager) layout.BaseVM {
+	// get user ID
+	userID := sessionManager.GetUserID(r.Context())
+	if userID == 0 {
+		return layout.BaseVM{}
+	}
+
+	// get linked accounts for the profile menu
+	acnts, _ := db.QueryAccountsByUserID(ctx, userID)
+	linkedAccounts := make([]layout.LinkedAccount, 0, len(acnts))
+	for _, a := range acnts {
+		email := ""
+		if a.Email != nil {
+			email = *a.Email
+		}
+		linkedAccounts = append(linkedAccounts, layout.LinkedAccount{
+			Provider: a.Provider,
+			Email:    email,
+		})
+	}
+
+	return layout.BaseVM{
+		LoggedIn: true,
+		IsAdmin:  sessionManager.GetUserRole(r.Context()) == "admin",
+		Username: sessionManager.GetUsername(r.Context()),
+		Role:     sessionManager.GetUserRole(r.Context()),
+		Accounts: linkedAccounts,
 	}
 }

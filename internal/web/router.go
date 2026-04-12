@@ -17,30 +17,30 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 	// home page (displays all tracked packages)
 	mux.HandleFunc("GET /", requireAuth(sessionManager, indexPage(sessionManager, db)))
 
-	// login page and corresponding routes
+	// login and logout
 	mux.HandleFunc("GET /login", loginPage(provMap, sessionManager))
 	mux.HandleFunc("GET /auth/login", login(cfg, provMap, sessionManager))
 	mux.HandleFunc("GET /auth/callback", callback(db, provMap, sessionManager))
-	mux.HandleFunc("POST /auth/logout", logout(sessionManager))
+	mux.HandleFunc("POST /auth/logout", requireAuth(sessionManager, logout(sessionManager)))
 
 	// routes for package operations (package verifications, track/untrack)
-	mux.HandleFunc("POST /package/check/{id}", checkTrackedPackage(db, sessionManager, chk))
-	mux.HandleFunc("POST /package/untrack/{id}", untrackPackage(db, sessionManager))
-	mux.HandleFunc("GET /package/track/form", trackPackageForm())
-	mux.HandleFunc("GET /package/track/cancel", trackPackageFormCancel())
-	mux.HandleFunc("POST /package/track", trackPackage(db, sessionManager, chk))
-	mux.HandleFunc("GET /package/status/track/{id}", packageTrackStatus(db, sessionManager))
-	mux.HandleFunc("GET /package/status/check/{id}", packageCheckStatus(db, sessionManager))
+	mux.HandleFunc("POST /package/check/{id}", requireAuth(sessionManager, checkTrackedPackage(db, sessionManager, chk)))
+	mux.HandleFunc("POST /package/untrack/{id}", requireAuth(sessionManager, untrackPackage(db, sessionManager)))
+	mux.HandleFunc("GET /package/track/form", requireAuth(sessionManager, trackPackageForm()))
+	mux.HandleFunc("GET /package/track/cancel", requireAuth(sessionManager, trackPackageFormCancel()))
+	mux.HandleFunc("POST /package/track", requireAuth(sessionManager, trackPackage(db, sessionManager, chk)))
+	mux.HandleFunc("GET /package/status/track/{id}", requireAuth(sessionManager, packageTrackStatus(db, sessionManager)))
+	mux.HandleFunc("GET /package/status/check/{id}", requireAuth(sessionManager, packageCheckStatus(db, sessionManager)))
 
 	// notification channels page and corresponding routes for operations (add channel, delete channel, toggles, test, ack disabled by server)
 	mux.HandleFunc("GET /channels", requireAuth(sessionManager, channelsPage(sessionManager, db, disp)))
-	mux.HandleFunc("GET /channel/add/form", addChannelForm())
-	mux.HandleFunc("GET /channel/add/cancel", addChannelFormCancel())
-	mux.HandleFunc("POST /channel/add", addChannel(db, sessionManager))
-	mux.HandleFunc("POST /channel/delete/{id}", deleteChannel(db, sessionManager))
-	mux.HandleFunc("POST /channel/toggle/enabled/{id}", toggleChannelEnabled(db, sessionManager))
-	mux.HandleFunc("POST /channel/toggle/manual/{id}", toggleNotifyOnManualVerify(db, sessionManager))
-	mux.HandleFunc("POST /channel/test/{id}", testChannel(db, sessionManager, disp))
+	mux.HandleFunc("GET /channel/add/form", requireAuth(sessionManager, addChannelForm()))
+	mux.HandleFunc("GET /channel/add/cancel", requireAuth(sessionManager, addChannelFormCancel()))
+	mux.HandleFunc("POST /channel/add", requireAuth(sessionManager, addChannel(db, sessionManager)))
+	mux.HandleFunc("POST /channel/delete/{id}", requireAuth(sessionManager, deleteChannel(db, sessionManager)))
+	mux.HandleFunc("POST /channel/toggle/enabled/{id}", requireAuth(sessionManager, toggleChannelEnabled(db, sessionManager)))
+	mux.HandleFunc("POST /channel/toggle/manual/{id}", requireAuth(sessionManager, toggleNotifyOnManualVerify(db, sessionManager)))
+	mux.HandleFunc("POST /channel/test/{id}", requireAuth(sessionManager, testChannel(db, sessionManager, disp)))
 	mux.HandleFunc("POST /channel/ack-disabled/{id}", requireAuth(sessionManager, acknowledgeChannelDisabled(db, sessionManager, disp)))
 
 	// notification delivery log page
@@ -58,6 +58,11 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 
 	// user profile menu - username update
 	mux.HandleFunc("POST /profile/username", requireAuth(sessionManager, updateProfileUsername(sessionManager, db)))
+
+	// account linking
+	mux.HandleFunc("GET /accounts", requireAuth(sessionManager, accountsPage(db, sessionManager)))
+	mux.HandleFunc("GET /auth/link", requireAuth(sessionManager, linkAccount(provMap, sessionManager)))
+	mux.HandleFunc("POST /account/unlink", requireAuth(sessionManager, unlinkAccount(db, sessionManager)))
 }
 
 // requireAuth redirects unauthenticated requests to /login.

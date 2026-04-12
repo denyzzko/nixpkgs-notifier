@@ -6,8 +6,9 @@ import (
 )
 
 // LoginPage is the login page wrapped in the base layout.
+// Passes empty BaseVM since user is not logged in.
 templ LoginPage(provMap *auth.ProviderMap) {
-    @layout.Base("Login", false, false, "", "", LoginContent(provMap))
+    @layout.Base("Login", layout.BaseVM{}, LoginContent(provMap))
 }
 
 // LoginContent renders a centered card with one login button per configured OIDC provider.
@@ -22,8 +23,9 @@ templ LoginContent(provMap *auth.ProviderMap) {
                 <!-- One button per provider - click redirects to /auth/login?provider={name} -->
                 <div class="d-grid gap-2">
                     for _, provider := range provMap.Providers {
-                        <a class="btn btn-lg rounded-5" style="background: #474747; border: none; color: white;" href={ templ.SafeURL("/auth/login?provider=" + provider.Name) }>
-                            { "Login with " + provider.DisplayName }
+                        <a class="btn btn-lg rounded-5 btn-outline-signin" href={ templ.SafeURL("/auth/login?provider=" + provider.Name) }>
+                            @providerLoginIcon(provider.Name)
+                            { "Sign in with " + provider.DisplayName }
                         </a>
                     }
                 </div>
@@ -34,4 +36,27 @@ templ LoginContent(provMap *auth.ProviderMap) {
             </div>
         </div>
     </div>
+}
+
+// providerLoginIcon renders provider icon for login buttons.
+templ providerLoginIcon(provider string) {
+    if provider == "google" {
+        <i class="bi bi-google me-2" style="font-size: 1.2rem;"></i>
+    } else if provider == "apple" {
+        <i class="bi bi-apple me-2" style="font-size: 1.2rem;"></i>
+    } else if provider == "microsoft" {
+        <i class="bi bi-microsoft me-2" style="font-size: 1.2rem;"></i>
+    } else if provider == "gitlab" {
+        <i class="bi bi-gitlab me-2" style="font-size: 1.2rem;"></i>
+    } else if provider == "keycloak" {
+        <img src="https://cdn.simpleicons.org/keycloak/white" width="20" height="20" alt="Keycloak"/>
+    } else if provider == "authentik" {
+        <img src="https://cdn.simpleicons.org/authentik/white" width="20" height="20" alt="Authentik"/>
+    } else if provider == "auth0" {
+        <img src="https://cdn.simpleicons.org/auth0/white" width="20" height="20" alt="Auth0"/>
+    } else if provider == "okta" {
+        <img src="https://cdn.simpleicons.org/okta/white" width="20" height="20" alt="Okta"/>
+    } else {
+        <i class="bi bi-person-circle me-2" style="font-size: 1.2rem;"></i>
+    }
 }

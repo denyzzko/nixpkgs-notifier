@@ -25,21 +25,19 @@ type NotificationLogVM struct {
 
 // DeliveryLogVM is top-level view model for the delivery log page.
 type DeliveryLogVM struct {
+    layout.BaseVM
     Notifications []NotificationLogVM
-    Username string
-    Role     string
-    IsAdmin       bool
 }
 
 // DeliveryLogPage is the delivery log page wrapped in base layout.
 templ DeliveryLogPage(vm DeliveryLogVM) {
-    @layout.Base("Delivery Log", true, vm.IsAdmin, vm.Username, vm.Role, DeliveryLogContent(vm))
+    @layout.Base("Delivery Log", vm.BaseVM, DeliveryLogContent(vm))
 }
 
 // DeliveryLogContent renders scrollable delivery log table with all notification history rows.
 templ DeliveryLogContent(vm DeliveryLogVM) {
     <div style="padding-top: 5rem; padding-bottom: 2rem;">
-        <div style="max-width: 1300px; width: 100%; margin: 0 auto;">
+        <div style="max-width: 1350px; width: 100%; margin: 0 auto;">
 
             <div class="d-flex justify-content-between align-items-end mb-2">
                 <h1 class="h4 text-white mb-0">Notification history log</h1>
@@ -48,28 +46,14 @@ templ DeliveryLogContent(vm DeliveryLogVM) {
             <div class="card shadow-sm rounded-5" style="background: #252525; border: 1px solid #5A5A5A;">
                 <div class="card-body p-4">
 
-                    <div class="d-flex ps-3 pe-2 align-items-end mb-1">
-                        <div style="flex: 6;">
-                            <span class="small" style="color: #AAAAAA;">Channel</span>
-                        </div>
-                        <div style="flex: 2;">
-                            <span class="small" style="color: #AAAAAA;">Detected at</span>
-                        </div>
-                        <div style="flex: 5;">
-                            <span class="small" style="color: #AAAAAA;">Package</span>
-                        </div>
-                        <div style="flex: 5;">
-                            <span class="small" style="color: #AAAAAA;">Version change</span>
-                        </div>
-                        <div style="flex: 1;">
-                            <span class="small" style="color: #AAAAAA;">Status</span>
-                        </div>
-                        <div style="flex: 1;">
-                            <span class="small" style="color: #AAAAAA;">Attempts</span>
-                        </div>
-                        <div style="flex: 2;">
-                            <span class="small" style="color: #AAAAAA;">Error</span>
-                        </div>
+                    <div class="ps-3 pe-2 mb-1" style="white-space: nowrap;">
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 340px;">Channel</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 110px;">Detected at</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 285px;">Package</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 280px;">Version change</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 45px;">Status</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 60px;">Attempts</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 80px;">Error</span>
                     </div>
 
                     <div id="log-list"  style="max-height: 60vh; overflow-y: auto;">
@@ -95,78 +79,95 @@ templ NotificationLogList(notifications []NotificationLogVM) {
 }
 
 // NotificationLogItem renders a single delivery log row with channel icon, address, package info,
-// version change, delivery status, attempt count, and error message.
+// version change, delivery status, attempt count, and optional expandable error details.
 templ NotificationLogItem(n NotificationLogVM) {
-    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;">
+    <div class="d-flex flex-column">
 
-        <!-- Channel (type icon + address) -->
-        <div class="d-flex align-items-center gap-2" style="flex: 6;">
-            if n.ChannelType == "Email" {
-                <i class="bi bi-envelope text-white"
-                    data-bs-toggle="tooltip"
-                    data-bs-placement="top"
-                    title="E-mail"
-                ></i>
-            } else if n.WebhookType == "mattermost" {
-                <img src="https://cdn.simpleicons.org/mattermost/white" width="16" height="16" alt="Mattermost"
-                    data-bs-toggle="tooltip"
-                    data-bs-placement="top"
-                    title="Mattermost webhook"
-                />
-            } else {
-                <i class="bi bi-link-45deg text-white"
-                    data-bs-toggle="tooltip"
-                    data-bs-placement="top"
-                    title="Generic webhook"
-                ></i>
-            }
-            <span class="small text-truncate" style="color: #AAAAAA; max-width: 220px;" title={n.Address}>{n.Address}</span>
+        <!-- Main row -->
+        <div class="d-flex align-items-center ps-3 pe-2 py-2 js-expand-main-row rounded-5 position-relative z-1" style="background: #474747;">
+
+            <!-- Channel (type icon + address) -->
+            <div class="d-flex align-items-center gap-2" style="flex: 6;">
+                if n.ChannelType == "Email" {
+                    <i class="bi bi-envelope text-white"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="top"
+                        title="E-mail"
+                    ></i>
+                } else if n.WebhookType == "mattermost" {
+                    <img src="https://cdn.simpleicons.org/mattermost/white" width="16" height="16" alt="Mattermost"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="top"
+                        title="Mattermost webhook"
+                    />
+                } else {
+                    <i class="bi bi-link-45deg text-white"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="top"
+                        title="Generic webhook"
+                    ></i>
+                }
+                <span class="small text-truncate" style="color: #AAAAAA; max-width: 270px;" title={n.Address}>{n.Address}</span>
+            </div>
+
+            <!-- Detected at -->
+            <div style="flex: 2;">
+                <span class="small" style="color: #AAAAAA;">{n.DetectedAt.Format("02.01.2006")}</span>
+            </div>
+
+            <!-- Package -->
+            <div style="flex: 5;">
+                <span class="small text-white">{n.PackageName}</span>
+                <span class="small ms-1" style="color: #AAAAAA;">{n.PackageBranch}</span>
+            </div>
+
+            <!-- Version change -->
+            <div class="d-flex align-items-center gap-1" style="flex: 5;">
+                <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">v{n.OldVersion}</span>
+                <i class="bi bi-arrow-right" style="color: #AAAAAA;"></i>
+                <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">v{n.NewVersion}</span>
+            </div>
+
+            <!-- Status -->
+            <div style="flex: 1;">
+                if n.Status == "sent" {
+                    <span class="small" style="color: #68FF90;">sent</span>
+                } else if n.Status == "failed" {
+                    <span class="small text-danger">failed</span>
+                } else {
+                    <span class="small text-warning">pending</span>
+                }
+            </div>
+
+            <!-- Attempts -->
+            <div style="flex: 1;">
+                <span class="small" style="color: #AAAAAA;">{fmt.Sprintf("%d/%d", n.AttemptCount, n.MaxRetries)}</span>
+            </div>
+
+            <!-- Error -->
+            <div class="d-flex align-items-center gap-1" style="flex: 2;">
+                if n.ErrorMessage == "" {
+                    <span class="small w-100" style="color: #AAAAAA;">-</span>
+                } else {
+                    <span class="small text-truncate" style="color: #AAAAAA; max-width: 80px;">{n.ErrorMessage}</span>
+                    <button
+                        class="btn btn-sm d-flex align-items-center justify-content-center js-expand p-0 pe-1 ms-auto flex-shrink-0"
+                        style="border: none; color: #FF6B6B; background: transparent;"
+                        data-details-id={fmt.Sprintf("log-error-%d", n.ID)}
+                    >
+                        <i class="bi bi-arrow-down-circle fs-5"></i>
+                    </button>
+                }
+            </div>
+
         </div>
 
-        <!-- Detected at -->
-        <div style="flex: 2;">
-            <span class="small" style="color: #AAAAAA;">{n.DetectedAt.Format("02.01.2006")}</span>
-        </div>
-
-        <!-- Package -->
-        <div style="flex: 5;">
-            <span class="small text-white">{n.PackageName}</span>
-            <span class="small ms-1" style="color: #AAAAAA;">{n.PackageBranch}</span>
-        </div>
-
-        <!-- Version change -->
-        <div class="d-flex align-items-center gap-1" style="flex: 5;">
-            <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">v{n.OldVersion}</span>
-            <i class="bi bi-arrow-right" style="color: #AAAAAA;"></i>
-            <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">v{n.NewVersion}</span>
-        </div>
-
-        <!-- Status -->
-        <div style="flex: 1;">
-            if n.Status == "sent" {
-                <span class="small" style="color: #68FF90;">sent</span>
-            } else if n.Status == "failed" {
-                <span class="small text-danger">failed</span>
-            } else {
-                <span class="small text-warning">pending</span>
-            }
-        </div>
-
-        <!-- Attempts -->
-        <div style="flex: 1;">
-            <span class="small" style="color: #AAAAAA;">{fmt.Sprintf("%d/%d", n.AttemptCount, n.MaxRetries)}</span>
-        </div>
-
-        <!-- Error -->
-        <div style="flex: 2;">
-            if n.ErrorMessage == "" {
-                <span class="small" style="color: #AAAAAA;">-</span>
-            } else if len(n.ErrorMessage) > 15 {
-                <span class="small" style="color: #AAAAAA;" title={n.ErrorMessage}>{n.ErrorMessage[:15]}...</span>
-            } else {
-                <span class="small" style="color: #AAAAAA;" title={n.ErrorMessage}>{n.ErrorMessage}</span>
-            }
-        </div>
+        <!-- Expandable error details panel (hidden by default, outside main row) -->
+        if n.ErrorMessage != "" {
+            <div id={fmt.Sprintf("log-error-%d", n.ID)} class="d-none px-3 pb-2 pt-4" style="background: #474747; border-radius: 0 0 1.5rem 1.5rem; margin-top: -1.25rem;">
+                <span class="small" style="color: #FF6B6B;">{n.ErrorMessage}</span>
+            </div>
+        }
 
     </div>
 }

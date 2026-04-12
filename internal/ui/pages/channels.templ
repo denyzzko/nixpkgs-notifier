@@ -24,15 +24,13 @@ type ChannelVM struct {
 
 // ChannelsVM is top-level view model for the channels management page.
 type ChannelsVM struct {
+    layout.BaseVM
     Channels []ChannelVM
-    Username string
-    Role     string
-    IsAdmin  bool
 }
 
 // ChannelsPage is the notification channels management page wrapped in base layout.
 templ ChannelsPage(vm ChannelsVM) {
-    @layout.Base("Channels", true, vm.IsAdmin, vm.Username, vm.Role, ChannelsContent(vm))
+    @layout.Base("Channels", vm.BaseVM, ChannelsContent(vm))
 }
 
 // mmHiddenClass returns an empty string for Mattermost webhook forms (visible),
@@ -114,7 +112,7 @@ templ ChannelAddressCell(ch ChannelVM) {
 // Toggling it POSTs to /channel/toggle/enabled/{id} and swaps the channel row via HTMX.
 templ ChannelEnabledToggle(ch ChannelVM) {
 	<div class="d-flex justify-content-center" style="flex: 1;">
-		<div class="form-check form-switch mb-0">
+		<div class="form-check form-switch">
 			<input
 				class="form-check-input"
 				type="checkbox"
@@ -132,7 +130,7 @@ templ ChannelEnabledToggle(ch ChannelVM) {
 // Toggling it POSTs to /channel/toggle/manual/{id} and swaps the channel row via HTMX.
 templ ChannelManualToggle(ch ChannelVM) {
 	<div class="d-flex justify-content-center" style="flex: 1;">
-		<div class="form-check form-switch mb-0">
+		<div class="form-check form-switch">
 			<input
 				class="form-check-input"
 				type="checkbox"
@@ -153,13 +151,13 @@ templ ChannelButtons(ch ChannelVM) {
 	<div class="d-flex gap-2 justify-content-end align-items-center" style="flex: 2;">
 		if ch.WebhookType == "mattermost" {
 			<button
-				type="button"
-				class="btn-outline-basic btn btn-sm rounded-circle d-flex align-items-center justify-content-center js-channel-expand"
-				style="width: 24px; height: 24px; padding: 0; font-size: 0.65rem;"
-				data-details-id={fmt.Sprintf("channel-details-%d", ch.ID)}
-			>
-				<i class="bi bi-chevron-down" style="display: block; margin-top: 3px;"></i>
-			</button>
+                type="button"
+                class="btn btn-sm d-flex align-items-center justify-content-center js-expand p-0"
+                style="border: none; color: #AAAAAA;"
+                data-details-id={fmt.Sprintf("channel-details-%d", ch.ID)}
+            >
+                <i class="bi bi-arrow-down-circle fs-5"></i>
+            </button>
 		}
 
 		<button
@@ -229,9 +227,9 @@ func channelStyle(disabledByServer bool, msgClass string) string {
 // Changes edge to rounded-4-5 when the channel was disabled by the server or message is displayed.
 func channelClass(disabledByServer bool, msgClass string) string {
     if disabledByServer || msgClass == "text-danger small" || msgClass == "text-success small"{
-        return "d-flex flex-column rounded-4-5 ps-3 pe-2 py-2 js-channel-main-row position-relative z-1"
+        return "d-flex flex-column rounded-4-5 ps-3 pe-2 py-2 js-expand-main-row position-relative z-1"
     }
-    return "d-flex flex-column rounded-5 ps-3 pe-2 py-2 js-channel-main-row position-relative z-1"
+    return "d-flex flex-column rounded-5 ps-3 pe-2 py-2 js-expand-main-row position-relative z-1"
 }
 
 // ChannelRow renders a full channel row including the main row cells, optional Mattermost details panel,

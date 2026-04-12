@@ -7,6 +7,7 @@ import (
 
 // SystemConfigVM is the view model for the admin system configuration page.
 type SystemConfigVM struct {
+    layout.BaseVM
     // Notification dispatcher
     NotificationDispatchIntervalVal  float64
     NotificationDispatchIntervalUnit string
@@ -21,14 +22,11 @@ type SystemConfigVM struct {
     PackageCheckWorkerCount          int
     // Whether config was just saved (to show success message)
     Saved bool
-    // User info
-    Username string
-    Role     string
 }
 
 // SystemConfigPage is the admin system configuration page wrapped in base layout.
 templ SystemConfigPage(vm SystemConfigVM) {
-    @layout.Base("System config", true, true, vm.Username, vm.Role, SystemConfigContent(vm))
+    @layout.Base("System config", vm.BaseVM, SystemConfigContent(vm))
 }
 
 // SystemConfigContent renders the two-section system configuration form.
@@ -155,7 +153,7 @@ templ unitSelect(name string, selected string) {
     <select
         name={ name }
         class="form-select form-select-sm rounded-5 fw-bold text-white pe-2"
-        style="background: #474747; font-size: 0.9rem; cursor: pointer; width: auto;"
+        style="background: #474747; border: 1px solid #5A5A5A; font-size: 0.9rem; cursor: pointer; width: auto;"
     >
         <option value="seconds" selected?={ selected == "seconds" } style="background: #252525; color: white;">seconds</option>
         <option value="minutes" selected?={ selected == "minutes" } style="background: #252525; color: white;">minutes</option>

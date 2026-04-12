@@ -16,15 +16,13 @@ type ProfileVM struct {
 
 // ProfilesVM is top level view model for the profiles management page.
 type ProfilesVM struct {
+	layout.BaseVM
 	Profiles []ProfileVM
-	Username string
-	Role     string
-	IsAdmin  bool
 }
 
 // ProfilesPage is the profiles management page wrapped in base layout.
 templ ProfilesPage(vm ProfilesVM) {
-	@layout.Base("Manage Profiles", true, vm.IsAdmin, vm.Username, vm.Role, ProfilesContent(vm))
+	@layout.Base("Manage Profiles", vm.BaseVM, ProfilesContent(vm))
 }
 
 // ProfilesContent renders the main content area of the profiles management page.

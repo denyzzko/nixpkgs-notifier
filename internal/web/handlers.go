@@ -90,10 +90,8 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 		}
 
 		vm := pages.IndexVM{
+			BaseVM:   buildBaseVM(ctx, r, db, sessionManager),
 			Packages: pkgVMs,
-			Username: sessionManager.GetUsername(r.Context()),
-			Role:     sessionManager.GetUserRole(r.Context()),
-			IsAdmin:  sessionManager.GetUserRole(r.Context()) == "admin",
 		}
 
 		renderHTML(w, ctx, pages.IndexPage(vm))
@@ -173,6 +171,36 @@ func callback(db *database.Store, provMap *auth.ProviderMap, sessionManager *ses
 		claims, provider, err := auth.AuthCodeFlowCallback(ctx, sessionManager, provMap, state, code)
 		if err != nil {
 			writeAppErr(w, "web.callback", err)
+			return
+		}
+
+		// pop link data
+		// present only when this callback follows /auth/link redirect
+		// absent for normal logins (PopLinkData returns false in that case)
+		linkData, isLinkFlow := sessionManager.PopLinkData(ctx)
+
+		if isLinkFlow {
+			switch linkData.Mode {
+			case "new":
+				// attach freshly authenticated OIDC identity to the existing logged-in user
+				if err := users.LinkNewAccount(ctx, db, provider, claims, linkData.UserID); err != nil {
+					writeAppErr(w, "web.callback[link-new]", err)
+					return
+				}
+			case "existing":
+				// link the authenticated account to the logged-in user (also merges data if the source user becomes orphaned)
+				finalRole, err := users.LinkExistingAccount(ctx, db, provider, claims, linkData.UserID)
+				if err != nil {
+					writeAppErr(w, "web.callback[link-existing]", err)
+					return
+				}
+				// if the merged user was admin, update the role stored in session
+				if finalRole == "admin" {
+					sessionManager.PutUserRole(ctx, "admin")
+				}
+			}
+			// user is already logged in, session is unchanged - redirect back to accounts
+			http.Redirect(w, r, "/accounts", http.StatusFound)
 			return
 		}
 
@@ -449,10 +477,8 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store, di
 		}
 
 		vm := pages.ChannelsVM{
+			BaseVM:   buildBaseVM(ctx, r, db, sessionManager),
 			Channels: chVMs,
-			Username: sessionManager.GetUsername(r.Context()),
-			Role:     sessionManager.GetUserRole(r.Context()),
-			IsAdmin:  sessionManager.GetUserRole(r.Context()) == "admin",
 		}
 
 		renderHTML(w, ctx, pages.ChannelsPage(vm))
@@ -741,10 +767,8 @@ func notificationsPage(sessionManager *session.SessionManager, db *database.Stor
 		}
 
 		vm := pages.DeliveryLogVM{
+			BaseVM:        buildBaseVM(ctx, r, db, sessionManager),
 			Notifications: vms,
-			Username:      sessionManager.GetUsername(r.Context()),
-			Role:          sessionManager.GetUserRole(r.Context()),
-			IsAdmin:       sessionManager.GetUserRole(r.Context()) == "admin",
 		}
 
 		renderHTML(w, ctx, pages.DeliveryLogPage(vm))
@@ -764,8 +788,7 @@ func systemConfigPage(sessionManager *session.SessionManager, db *database.Store
 		// render response
 		vm := systemConfigVM(rc.Dispatcher, rc.Checker)
 		vm.Saved = r.URL.Query().Get("saved") == "1"
-		vm.Username = sessionManager.GetUsername(r.Context())
-		vm.Role = sessionManager.GetUserRole(r.Context())
+		vm.BaseVM = buildBaseVM(ctx, r, db, sessionManager)
 		renderHTML(w, ctx, pages.SystemConfigPage(vm))
 	}
 }
@@ -835,10 +858,8 @@ func profilesPage(sessionManager *session.SessionManager, db *database.Store) ht
 
 		// return response
 		vm := pages.ProfilesVM{
+			BaseVM:   buildBaseVM(ctx, r, db, sessionManager),
 			Profiles: make([]pages.ProfileVM, 0, len(usrs)),
-			Username: sessionManager.GetUsername(r.Context()),
-			Role:     sessionManager.GetUserRole(r.Context()),
-			IsAdmin:  true,
 		}
 		for _, u := range usrs {
 			vm.Profiles = append(vm.Profiles, pages.ProfileVM{
@@ -964,5 +985,105 @@ func updateProfile(db *database.Store) http.HandlerFunc {
 			Role:      newRole,
 			CreatedAt: u.CreatedAt,
 		}))
+	}
+}
+
+// accountsPage renders accounts management page.
+// Shows all accounts attached to the current user and lets him link or unlink them.
+func accountsPage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// get all accounts linked to the current user
+		accs, err := users.GetAccounts(ctx, db, sessionManager)
+		if err != nil {
+			writeAppErr(w, "web.accountsPage", err)
+			return
+		}
+
+		// return response (unlink is only allowed when more than one account is linked)
+		canUnlink := len(accs) > 1
+		linkedVMs := make([]pages.LinkedAccountVM, 0, len(accs))
+		for _, a := range accs {
+			email := ""
+			if a.Email != nil {
+				email = *a.Email
+			}
+			linkedVMs = append(linkedVMs, pages.LinkedAccountVM{
+				Provider:      a.Provider,
+				Issuer:        a.Issuer,
+				Subject:       a.Subject,
+				Email:         email,
+				EmailVerified: a.EmailVerified,
+				LinkedAt:      a.CreatedAt,
+				CanUnlink:     canUnlink,
+			})
+		}
+
+		vm := pages.AccountsVM{
+			BaseVM:   buildBaseVM(ctx, r, db, sessionManager),
+			Accounts: linkedVMs,
+		}
+
+		renderHTML(w, ctx, pages.AccountsPage(vm))
+	}
+}
+
+// linkAccount initiates account linking flow.
+// Stores link mode and current user ID in the session, then renders the login page
+// so user can pick a provider to sign in with. Callback handler completes the flow.
+func linkAccount(provMap *auth.ProviderMap, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// guard: user must be logged in to link an account
+		currentUserID := sessionManager.GetUserID(r.Context())
+		if currentUserID == 0 {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+
+		// mode determines whether to link a new or existing account
+		mode := r.URL.Query().Get("mode")
+		if mode != "new" && mode != "existing" {
+			writeGenericErr(w, "web.linkAccount", "invalid link mode", errors.New("mode must be 'new' or 'existing'"), http.StatusBadRequest)
+			return
+		}
+
+		// store link context before sending user to pick a provider and logs in
+		sessionManager.SaveLinkData(r.Context(), session.LinkData{
+			Mode:   mode,
+			UserID: currentUserID,
+		})
+
+		// render login page directly (user picks provider and logs in as usual, callback function handles the rest)
+		renderHTML(w, r.Context(), pages.LoginPage(provMap))
+	}
+}
+
+// unlinkAccount removes a single OIDC account from the current user.
+// Refuses to remove last account (would lock the user out).
+func unlinkAccount(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// extract issuer and subject from submitted form
+		issuer := r.FormValue("issuer")
+		subject := r.FormValue("subject")
+		if issuer == "" || subject == "" {
+			writeGenericErr(w, "web.unlinkAccount", "missing issuer or subject", nil, http.StatusBadRequest)
+			return
+		}
+
+		// unlink the account
+		err := users.UnlinkAccount(ctx, db, sessionManager, issuer, subject)
+		if err != nil {
+			writeAppErr(w, "web.unlinkAccount", err)
+			return
+		}
+
+		http.Redirect(w, r, "/accounts", http.StatusSeeOther)
 	}
 }
