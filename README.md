@@ -308,6 +308,9 @@ The core functionality is complete and ready for deployment.
 
 **Not yet implemented:**
 - Notification history auto-cleanup
-- Visual and other details
 - Feature request: Track Non-Existing Packages (issue #2)
-- webhook rate limiting 
+
+**Security hardening thats not yet implemented:**
+- Webhook rate limiting and SSRF protection
+- HTTP security headers
+- CSRF protection
