@@ -1,6 +1,37 @@
 # nixpkgs-notifier
  
-A web application that tracks Nixpkgs packages and sends notifications when a new version is detected. Users log in via OIDC, subscribe to packages they care about, and receive notifications through email or webhook channels.
+A web application that tracks Nixpkgs packages and sends notifications when a new version is detected. Users sign in via OIDC, subscribe to packages they care about, and receive notifications through email or webhook channels. Package versions are checked automatically on a configurable schedule, and users can also trigger a manual check at any time.
+
+![Demo](demo.gif)
+
+## Quick Start
+
+1. **Prerequisites** - make sure you have Nix, PostgreSQL, OIDC provider, and an email provider ready (see [Requirements](#requirements)).
+2. **Clone** the repo:
+```bash
+   $ git clone https://github.com/denyzzko/nixpkgs-notifier.git
+```
+3. **Copy** the example env file:
+```bash
+   $ cp .env.example .env
+```
+4. **Fill in `.env`** with your database credentials, OIDC provider and email settings (for more information see [Configuration](#configuration)).
+
+5. **Register** the OIDC redirect URI with your identity provider:
+```bash
+   {SERVER_URL}/auth/callback
+```
+6. **Run the server**
+```bash
+   $ go run cmd/server/main.go
+```
+   Or with Nix:
+```bash
+   $ nix run .#run
+```
+7. Visit `SERVER_URL` in your browser.
+
+For NixOS deployment, see the [NixOS module](#nixos-module) section.
 
 ## Requirements
  
@@ -55,7 +86,7 @@ file that is intentionally not committed:
 
 ```bash
 cat > .env.oidc.local <<'EOF'
-OIDC_PROVIDERS=[{"name":"authentik","display_name":"School SSO","issuer":"https://auth.example.com/application/o/notifier/","client_id":"your-client-id","client_secret":"your-client-secret"}]
+OIDC_PROVIDERS=[{"name":"authentik","display_name":"My SSO","issuer":"https://auth.example.com/application/o/notifier/","client_id":"your-client-id","client_secret":"your-client-secret"}]
 EOF
 ```
 
@@ -105,7 +136,7 @@ Minimal example with locally managed PostgreSQL:
     settings = {
       SERVER_URL = "https://notifier.example.com";
 
-      OIDC_PROVIDERS = ''[{"name":"authentik","display_name":"School SSO","issuer":"https://auth.example.com/application/o/notifier/","client_id":"id","client_secret":"secret"}]'';
+      OIDC_PROVIDERS = ''[{"name":"authentik","display_name":"My SSO","issuer":"https://auth.example.com/application/o/notifier/","client_id":"id","client_secret":"secret"}]'';
 
       EMAIL_PROVIDER = "smtp";
       SMTP_HOST      = "localhost";
@@ -182,7 +213,7 @@ Example of single provider:
 [
   {
     "name": "authentik",
-    "display_name": "School SSO",
+    "display_name": "My SSO",
     "issuer": "https://auth.example.com/application/o/notifier/",
     "client_id": "your-client-id",
     "client_secret": "your-client-secret"
@@ -193,7 +224,7 @@ Example of single provider:
 Set it as an environment variable (whole JSON as a single-line string):
  
 ```
-OIDC_PROVIDERS=[{"name":"authentik","display_name":"School SSO","issuer":"https://auth.example.com/...","client_id":"...","client_secret":"..."}]
+OIDC_PROVIDERS=[{"name":"authentik","display_name":"My SSO","issuer":"https://auth.example.com/...","client_id":"...","client_secret":"..."}]
 ```
  
 OIDC redirect URI that needs to be registered with provider:

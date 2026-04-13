@@ -139,7 +139,7 @@
               type = types.str;
               default = "";
               description = "SMTP server hostname.";
-              example = "kazi.fit.vutbr.cz";
+              example = "smtp.example.com";
             };
 
             port = mkOption {
@@ -152,7 +152,7 @@
               type = types.str;
               default = "";
               description = "Email address to use as 'From' header in notifications.";
-              example = "nixpkgs-notifier@nesad.fit.vutbr.cz";
+              example = "notifier@example.com";
             };
 
             auth = {

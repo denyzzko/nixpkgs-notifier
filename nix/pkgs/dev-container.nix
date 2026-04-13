@@ -81,9 +81,9 @@
                   email = {
                     enable = true;
                     provider = "smtp";
-                    host = "kazi.fit.vutbr.cz";
+                    host = "smtp.example.com";
                     port = 25;
-                    from = "nixpkgs-notifier@nesad.fit.vutbr.cz";
+                    from = "notifier@example.com";
                   };
                   settings = {
                     SERVER_URL = serverUrl;

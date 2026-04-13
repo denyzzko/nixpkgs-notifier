@@ -1,1 +1,1 @@
-[{"name":"fit-vut","issuer":"https://auth.example.invalid/application/o/nixpkgs-notifier/","client_id":"replace-me","client_secret":"replace-me"}]
+[{"name":"my-sso","issuer":"https://auth.example.invalid/application/o/nixpkgs-notifier/","client_id":"replace-me","client_secret":"replace-me"}]
