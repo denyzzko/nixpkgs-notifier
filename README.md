@@ -273,9 +273,10 @@ The core functionality is complete and ready for deployment.
 - Admin panel for system configuration in UI
 - Admin panel for profile management in UI
 - User profile menu in UI
+- Sync multiple accounts (OIDC identities) with one internal user
 
 **Not yet implemented:**
-- Sync multiple accounts with one user
 - Notification history auto-cleanup
 - Visual and other details
 - Feature request: Track Non-Existing Packages (issue #2)
+- webhook rate limiting 
