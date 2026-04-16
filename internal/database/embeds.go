@@ -59,6 +59,9 @@ var qGetSystemConfig string
 //go:embed sql/get_accounts_by_userID.sql
 var qGetAccountsByUserID string
 
+//go:embed sql/get_oldest_notification_created_at.sql
+var qGetOldestNotificationCreatedAt string
+
 //go:embed sql/insert_tracking.sql
 var sInsertTracking string
 
@@ -100,6 +103,9 @@ var dRemoveUserByID string
 
 //go:embed sql/remove_account_by_userID_ISSUER_SUBJECT.sql
 var dRemoveAccountByUserIDIssuerSubject string
+
+//go:embed sql/remove_expired_notifications.sql
+var dRemoveExpiredNotifications string
 
 //go:embed sql/update_notification_status_to_sent_by_ID.sql
 var sUpdateNotificationToSent string

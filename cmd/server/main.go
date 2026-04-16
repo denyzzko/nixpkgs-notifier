@@ -13,6 +13,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/packages"
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
+	"github.com/denyzzko/nixpkgs-notifier/internal/cleaner"
 	"github.com/denyzzko/nixpkgs-notifier/internal/config"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
@@ -99,6 +100,12 @@ func main() {
 	})
 	chk.Start(appCtx)
 
+	// initialize notification cleaner
+	clnr := cleaner.New(db, cleaner.Config{
+		RetentionDays: cfg.NotificationRetentionDays,
+	})
+	clnr.Start(appCtx)
+
 	// start branch fetcher goroutine that refreshes branch list every 24h
 	nix.StartBranchFetcher(appCtx)
 
@@ -109,7 +116,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// register routes
-	web.RegisterRoutes(mux, cfg, db, provMap, sessionManager, disp, chk)
+	web.RegisterRoutes(mux, cfg, db, provMap, sessionManager, disp, chk, clnr)
 
 	// chain middleware
 	chain := middleware.Chain(

@@ -272,21 +272,36 @@ Controls how often Nixpkgs package versions are checked.
 ## Project structure
  
 ```
-cmd/server/         - main entry point
+.github/workflows/
+  ci.yml          - builds and tests on every push/PR
+  release.yml     - runs semantic-release on main
+
+cmd/server/     - main entry point of application
+
 internal/
-  app/              - application-level business logic
-  appError/         - typed app errors (used across packages to distinguish error kinds)
-  auth/             - OIDC authentication setup
-  checker/          - background package version checker
-  config/           - configuration loading, validation and management
-  database/         - PostgreSQL connection, queries, migrations
-  dispatcher/       - background notification delivery loop
-  middleware/       - HTTP middleware
-  nix/              - Nix CLI integration and maintenance of nixpkgs common branches
-  notify/           - email and webhook senders (SMTP, Resend, webhook)
-  session/          - session management
-  ui/               - HTML templates
-  web/              - HTTP handlers and routing
+  app/          - application-level business logic
+  appError/     - typed app errors (used across packages to distinguish error kinds)
+  auth/         - OIDC authentication setup
+  checker/      - background package version checking loop
+  cleaner/      - background notification cleaning loop
+  config/       - configuration loading, validation and management
+  database/     - PostgreSQL connection, queries, migrations
+    sql/          - raw SQL query files and goose migration files
+  dispatcher/   - background notification delivery loop
+  middleware/   - HTTP middleware
+  nix/          - Nix CLI integration and maintenance of nixpkgs common branches
+  notify/       - email and webhook senders (SMTP, Resend, webhook)
+  session/      - session management
+  ui/           - HTML templates
+  web/          - HTTP handlers and routing
+
+nix/    - Nix module files loaded by the flake
+
+.dev-container.env.example          - minimal env overrides for dev container setup
+.env.example                        - example environment variables for local development
+.oidc-providers.local.json.example  - example OIDC provider config for local development
+.releaserc.json                     - semantic-release configuration
+flake.nix                           - Nix flake providing the development shell
 ```
 
 ## Project status
@@ -305,9 +320,9 @@ The core functionality is complete and ready for deployment.
 - Admin panel for profile management in UI
 - User profile menu in UI
 - Sync multiple accounts (OIDC identities) with one internal user
+- Notification history auto-cleanup
 
 **Not yet implemented:**
-- Notification history auto-cleanup
 - Feature request: Track Non-Existing Packages (issue #2)
 
 **Security hardening thats not yet implemented:**

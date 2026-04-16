@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS system_config (
     package_check_interval              BIGINT NOT NULL,
     package_check_worker_count          INT NOT NULL,
     package_check_skip_interval         BIGINT NOT NULL,
+    notification_retention_days         INT NOT NULL DEFAULT 0,
     CONSTRAINT system_config_single_row CHECK (id = 1)
 );
 

@@ -151,4 +151,5 @@ type SystemConfig struct {
 	PackageCheckInterval            time.Duration
 	PackageCheckWorkerCount         int
 	PackageCheckSkipInterval        time.Duration
+	NotificationRetentionDays       int
 }

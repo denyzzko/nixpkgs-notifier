@@ -7,6 +7,7 @@ import (
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/channels"
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
+	"github.com/denyzzko/nixpkgs-notifier/internal/cleaner"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
@@ -95,7 +96,7 @@ func durationToUIValue(d time.Duration) (float64, string) {
 }
 
 // systemConfigVM builds the view model for the admin system configuration page.
-func systemConfigVM(dispCfg dispatcher.Config, checkCfg checker.Config) pages.SystemConfigVM {
+func systemConfigVM(dispCfg dispatcher.Config, checkCfg checker.Config, cleanerCfg cleaner.Config) pages.SystemConfigVM {
 	dispIntVal, dispIntUnit := durationToUIValue(dispCfg.Interval)
 	checkIntVal, checkIntUnit := durationToUIValue(checkCfg.Interval)
 	checkSkipIntVal, checkSkipIntUnit := durationToUIValue(checkCfg.SkipInterval)
@@ -111,6 +112,7 @@ func systemConfigVM(dispCfg dispatcher.Config, checkCfg checker.Config) pages.Sy
 		PackageCheckSkipIntervalVal:      checkSkipIntVal,
 		PackageCheckSkipIntervalUnit:     checkSkipIntUnit,
 		PackageCheckWorkerCount:          checkCfg.WorkerCount,
+		NotificationRetentionDays:        cleanerCfg.RetentionDays,
 	}
 }
 

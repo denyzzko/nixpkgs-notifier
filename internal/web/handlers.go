@@ -18,6 +18,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
+	"github.com/denyzzko/nixpkgs-notifier/internal/cleaner"
 	"github.com/denyzzko/nixpkgs-notifier/internal/config"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
@@ -776,17 +777,17 @@ func notificationsPage(sessionManager *session.SessionManager, db *database.Stor
 }
 
 // systemConfigPage renders the admin system configuration page with current runtime values.
-func systemConfigPage(sessionManager *session.SessionManager, db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker) http.HandlerFunc {
+func systemConfigPage(sessionManager *session.SessionManager, db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker, clnr *cleaner.Cleaner) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
 		// get current runtime config
-		rc := config.GetRuntimeConfig(ctx, db, disp, chk)
+		rc := config.GetRuntimeConfig(ctx, db, disp, chk, clnr)
 
 		// render response
-		vm := systemConfigVM(rc.Dispatcher, rc.Checker)
+		vm := systemConfigVM(rc.Dispatcher, rc.Checker, rc.Cleaner)
 		vm.Saved = r.URL.Query().Get("saved") == "1"
 		vm.BaseVM = buildBaseVM(ctx, r, db, sessionManager)
 		renderHTML(w, ctx, pages.SystemConfigPage(vm))
@@ -795,7 +796,7 @@ func systemConfigPage(sessionManager *session.SessionManager, db *database.Store
 
 // updateSystemConfig handles POST from the admin system config form.
 // Parses, persists, and applies the new runtime configuration.
-func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker) http.HandlerFunc {
+func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker, clnr *cleaner.Cleaner) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -809,7 +810,7 @@ func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *ch
 		}
 
 		// store config to database and apply dispatcher and checker
-		if err := config.SaveRuntimeConfig(ctx, db, rcfg, disp, chk); err != nil {
+		if err := config.SaveRuntimeConfig(ctx, db, rcfg, disp, chk, clnr); err != nil {
 			writeAppErr(w, "web.updateSystemConfig", err)
 			return
 		}

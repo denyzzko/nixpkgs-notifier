@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
+	"github.com/denyzzko/nixpkgs-notifier/internal/cleaner"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/joho/godotenv"
@@ -98,12 +99,16 @@ type Config struct {
 	PackageCheckInterval     time.Duration // default: 12 hour
 	PackageCheckWorkerCount  int           // default: 2
 	PackageCheckSkipInterval time.Duration // default: 5 minutes
+
+	// Notification cleaner
+	NotificationRetentionDays int // default: 0 (disabled)
 }
 
 // RuntimeConfig holds the runtime settings managed by the admin via UI.
 type RuntimeConfig struct {
 	Dispatcher dispatcher.Config
 	Checker    checker.Config
+	Cleaner    cleaner.Config
 }
 
 // LoadEnvConfig loads configuration from environment variables.
@@ -206,6 +211,7 @@ func (c *Config) LoadRuntimeOverrides(ctx context.Context, db *database.Store) {
 	c.PackageCheckInterval = saved.PackageCheckInterval
 	c.PackageCheckWorkerCount = saved.PackageCheckWorkerCount
 	c.PackageCheckSkipInterval = saved.PackageCheckSkipInterval
+	c.NotificationRetentionDays = saved.NotificationRetentionDays
 }
 
 // parseDurationFromEnv parses a duration string (e.g. "5m", "12h").
@@ -345,7 +351,7 @@ func validateEnvConfig(cfg *Config) error {
 
 // GetRuntimeConfig returns the current runtime config for display in the admin UI.
 // First tries DB. Fallbacks to in-memory state of the running dispatcher and checker when no DB row exists yet.
-func GetRuntimeConfig(ctx context.Context, db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker) RuntimeConfig {
+func GetRuntimeConfig(ctx context.Context, db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker, clnr *cleaner.Cleaner) RuntimeConfig {
 	// try to load config from database
 	saved, err := db.QuerySystemConfig(ctx)
 	if err == nil {
@@ -361,17 +367,21 @@ func GetRuntimeConfig(ctx context.Context, db *database.Store, disp *dispatcher.
 				WorkerCount:  saved.PackageCheckWorkerCount,
 				SkipInterval: saved.PackageCheckSkipInterval,
 			},
+			Cleaner: cleaner.Config{
+				RetentionDays: saved.NotificationRetentionDays,
+			},
 		}
 	}
 	// no DB row yet (or error happened during query) - reflect what dispatcher and checker currently run with
 	return RuntimeConfig{
 		Dispatcher: disp.GetConfig(),
 		Checker:    chk.GetConfig(),
+		Cleaner:    clnr.GetConfig(),
 	}
 }
 
 // SaveRuntimeConfig stores rcfg to the database and immediately applies it to dispatcher and checker configs.
-func SaveRuntimeConfig(ctx context.Context, db *database.Store, rcfg RuntimeConfig, disp *dispatcher.Dispatcher, chk *checker.Checker) error {
+func SaveRuntimeConfig(ctx context.Context, db *database.Store, rcfg RuntimeConfig, disp *dispatcher.Dispatcher, chk *checker.Checker, clnr *cleaner.Cleaner) error {
 	dbCfg := database.SystemConfig{
 		NotificationDispatchInterval:    rcfg.Dispatcher.Interval,
 		NotificationMaxRetries:          rcfg.Dispatcher.MaxRetries,
@@ -380,6 +390,7 @@ func SaveRuntimeConfig(ctx context.Context, db *database.Store, rcfg RuntimeConf
 		PackageCheckInterval:            rcfg.Checker.Interval,
 		PackageCheckWorkerCount:         rcfg.Checker.WorkerCount,
 		PackageCheckSkipInterval:        rcfg.Checker.SkipInterval,
+		NotificationRetentionDays:       rcfg.Cleaner.RetentionDays,
 	}
 	// store config to database
 	if err := db.UpdateSystemConfig(ctx, dbCfg); err != nil {
@@ -389,6 +400,7 @@ func SaveRuntimeConfig(ctx context.Context, db *database.Store, rcfg RuntimeConf
 	// apply to running workers
 	disp.UpdateConfig(rcfg.Dispatcher)
 	chk.UpdateConfig(rcfg.Checker)
+	clnr.UpdateConfig(rcfg.Cleaner)
 
 	return nil
 }
@@ -420,6 +432,21 @@ func parseIntFromForm(r *http.Request, field string) (int, error) {
 		return 0, fmt.Errorf("invalid value for %s", field)
 	}
 	return v, nil
+}
+
+// parseRetentionDaysFromForm parses the notification_retention_days select field.
+// Valid values are 0 (disabled), 30, 90, 180 (these are days). Returns an error for any other value.
+func parseRetentionDaysFromForm(r *http.Request) (int, error) {
+	v, err := strconv.Atoi(r.FormValue("notification_retention_days"))
+	if err != nil {
+		return 0, fmt.Errorf("invalid value for notification_retention_days")
+	}
+	switch v {
+	case 0, 30, 90, 180:
+		return v, nil
+	default:
+		return 0, fmt.Errorf("invalid value for notification_retention_days: must be 0, 30, 90 or 180")
+	}
 }
 
 // RuntimeConfigFromForm parses a RuntimeConfig from HTTP form.
@@ -456,6 +483,11 @@ func RuntimeConfigFromForm(r *http.Request) (RuntimeConfig, error) {
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
+	// cleaner fields
+	retentionDays, err := parseRetentionDaysFromForm(r)
+	if err != nil {
+		return RuntimeConfig{}, err
+	}
 
 	// return populated RuntimeConfig
 	return RuntimeConfig{
@@ -469,6 +501,9 @@ func RuntimeConfigFromForm(r *http.Request) (RuntimeConfig, error) {
 			Interval:     checkInterval,
 			WorkerCount:  checkWorkers,
 			SkipInterval: skipInterval,
+		},
+		Cleaner: cleaner.Config{
+			RetentionDays: retentionDays,
 		},
 	}, nil
 }

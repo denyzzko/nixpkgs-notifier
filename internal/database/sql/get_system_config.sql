@@ -5,6 +5,7 @@ SELECT
     notification_worker_count,
     package_check_interval,
     package_check_worker_count,
-    package_check_skip_interval
+    package_check_skip_interval,
+    notification_retention_days
 FROM system_config
 WHERE id = 1;

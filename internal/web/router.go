@@ -5,6 +5,7 @@ import (
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
+	"github.com/denyzzko/nixpkgs-notifier/internal/cleaner"
 	"github.com/denyzzko/nixpkgs-notifier/internal/config"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
@@ -13,7 +14,7 @@ import (
 
 // RegisterRoutes registers all HTTP routes on mux.
 // Each handler receives only the dependencies it needs.
-func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager, disp *dispatcher.Dispatcher, chk *checker.Checker) {
+func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, provMap *auth.ProviderMap, sessionManager *session.SessionManager, disp *dispatcher.Dispatcher, chk *checker.Checker, clnr *cleaner.Cleaner) {
 	// home page (displays all tracked packages)
 	mux.HandleFunc("GET /", requireAuth(sessionManager, indexPage(sessionManager, db)))
 
@@ -47,8 +48,8 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 	mux.HandleFunc("GET /log", requireAuth(sessionManager, notificationsPage(sessionManager, db, disp)))
 
 	// admin system config
-	mux.HandleFunc("GET /admin/config", requireAdmin(sessionManager, systemConfigPage(sessionManager, db, disp, chk)))
-	mux.HandleFunc("POST /admin/config", requireAdmin(sessionManager, updateSystemConfig(db, disp, chk)))
+	mux.HandleFunc("GET /admin/config", requireAdmin(sessionManager, systemConfigPage(sessionManager, db, disp, chk, clnr)))
+	mux.HandleFunc("POST /admin/config", requireAdmin(sessionManager, updateSystemConfig(db, disp, chk, clnr)))
 
 	// admin profile management
 	mux.HandleFunc("GET /admin/profiles", requireAdmin(sessionManager, profilesPage(sessionManager, db)))

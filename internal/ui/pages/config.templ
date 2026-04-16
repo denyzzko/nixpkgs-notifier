@@ -20,6 +20,8 @@ type SystemConfigVM struct {
     PackageCheckSkipIntervalVal      float64
     PackageCheckSkipIntervalUnit     string
     PackageCheckWorkerCount          int
+    // Notification cleaner
+    NotificationRetentionDays int
     // Whether config was just saved (to show success message)
     Saved bool
 }
@@ -44,14 +46,14 @@ templ SystemConfigContent(vm SystemConfigVM) {
             <form method="POST" action="/admin/config">
                 <div class="rounded-5 p-4 mb-2" style="background: #252525; border: 1px solid #5A5A5A;">
 
-                    <!-- Notification Dispatcher section -->
-                    <div class="rounded-4 p-4 mb-2" style="background: #474747;">
-                        <h2 class="h6 fw-bold text-white mb-3">Notification dispatcher</h2>
+                    <!-- Notifications section -->
+                    <div class="rounded-4 p-4 mb-2" style="background: #2E2E2E;">
+                        <h2 class="h6 fw-bold text-white mb-3">Notifications</h2>
 
                         <div class="row g-3">
-                            <!-- Left column (dispatch interval, worker count) -->
+                            <!-- Left column (dispatch interval, worker count, retention period) -->
                             <div class="col-6 d-flex flex-column gap-3 px-2">
-                                @configRow("Dispatch interval", "How often the dispatcher polls for pending notifications.") {
+                                @configRow("Dispatch interval", "How often the dispatcher polls for pending notifications so they can be send.") {
                                     <div class="d-flex align-items-center gap-1">
                                         @numInput("notification_dispatch_interval_val", fmt.Sprintf("%g", vm.NotificationDispatchIntervalVal), "50px")
                                         @unitSelect("notification_dispatch_interval_unit", vm.NotificationDispatchIntervalUnit)
@@ -59,6 +61,9 @@ templ SystemConfigContent(vm SystemConfigVM) {
                                 }
                                 @configRow("Worker count", "Max concurrent notification deliveries.") {
                                     @numInput("notification_worker_count", fmt.Sprintf("%d", vm.NotificationWorkerCount), "50px")
+                                }
+                                @configRow("Retention period", "Automatically delete notifications older than...") {
+                                    @retentionSelect("notification_retention_days", vm.NotificationRetentionDays)
                                 }
                             </div>
                             <!-- Right column (max retries, disable on max retries toggle) -->
@@ -79,9 +84,9 @@ templ SystemConfigContent(vm SystemConfigVM) {
                         </div>
                     </div>
 
-                    <!-- Version Checker section -->
-                    <div class="rounded-4 p-4" style="background: #474747;">
-                        <h2 class="h6 fw-bold text-white mb-3">Version checker</h2>
+                    <!-- Version checking section -->
+                    <div class="rounded-4 p-4" style="background: #2E2E2E;">
+                        <h2 class="h6 fw-bold text-white mb-3">Version checking</h2>
 
                         <div class="row g-3">
                             <!-- Left column (check interval, worker count) -->
@@ -124,7 +129,7 @@ templ SystemConfigContent(vm SystemConfigVM) {
 
             <!-- Success message -->
             if vm.Saved {
-                <div class="d-flex align-items-center gap-2 rounded-5 px-4 py-2 mt-3" style="background: #1a3a1a; border: 1px solid #2d6a2d;">
+                <div class="d-flex align-items-center gap-2 rounded-5 px-4 py-2 mt-3" style="background: #1A3A1A; border: 1px solid #2D6A2D;">
                     <i class="bi bi-check-circle" style="color: #68FF90;"></i>
                     <span class="small" style="color: #68FF90;">Configuration saved and applied successfully.</span>
                 </div>
@@ -134,6 +139,19 @@ templ SystemConfigContent(vm SystemConfigVM) {
     </div>
 }
 
+// retentionSelect renders the retention period dropdown.
+templ retentionSelect(name string, selected int) {
+    <select
+        name={ name }
+        class="form-select form-select-sm rounded-5 fw-bold text-white pe-2"
+        style="background: #2E2E2E; border: 1px solid #5A5A5A; font-size: 0.9rem; cursor: pointer; width: auto;"
+    >
+        <option value="0"   selected?={ selected == 0   } style="background: #252525; color: white;">Disabled</option>
+        <option value="30"  selected?={ selected == 30  } style="background: #252525; color: white;">1 month</option>
+        <option value="90"  selected?={ selected == 90  } style="background: #252525; color: white;">3 months</option>
+        <option value="180" selected?={ selected == 180 } style="background: #252525; color: white;">6 months</option>
+    </select>
+}
 // numInput renders a number input.
 templ numInput(name string, value string, width string) {
     <input
@@ -153,7 +171,7 @@ templ unitSelect(name string, selected string) {
     <select
         name={ name }
         class="form-select form-select-sm rounded-5 fw-bold text-white pe-2"
-        style="background: #474747; border: 1px solid #5A5A5A; font-size: 0.9rem; cursor: pointer; width: auto;"
+        style="background: #2E2E2E; border: 1px solid #5A5A5A; font-size: 0.9rem; cursor: pointer; width: auto;"
     >
         <option value="seconds" selected?={ selected == "seconds" } style="background: #252525; color: white;">seconds</option>
         <option value="minutes" selected?={ selected == "minutes" } style="background: #252525; color: white;">minutes</option>
@@ -167,7 +185,7 @@ templ configRow(label string, tooltip string) {
         <div class="col-6 text-end">
             <span
                 class="small"
-                style="color: #ffffff; cursor: default;"
+                style="color: #FFFFFF; cursor: default;"
                 data-bs-toggle="tooltip"
                 data-bs-placement="top"
                 title={ tooltip }

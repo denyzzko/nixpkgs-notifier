@@ -7,8 +7,9 @@ INSERT INTO system_config (
     package_check_interval,
     package_check_worker_count,
     package_check_skip_interval,
+    notification_retention_days,
     updated_at
-) VALUES (1, $1, $2, $3, $4, $5, $6, $7, now())
+) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, now())
 ON CONFLICT (id) DO UPDATE SET
     notification_dispatch_interval      = EXCLUDED.notification_dispatch_interval,
     notification_max_retries            = EXCLUDED.notification_max_retries,
@@ -17,4 +18,5 @@ ON CONFLICT (id) DO UPDATE SET
     package_check_interval              = EXCLUDED.package_check_interval,
     package_check_worker_count          = EXCLUDED.package_check_worker_count,
     package_check_skip_interval         = EXCLUDED.package_check_skip_interval,
+    notification_retention_days         = EXCLUDED.notification_retention_days,
     updated_at                          = now();

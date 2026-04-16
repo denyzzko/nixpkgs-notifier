@@ -665,6 +665,7 @@ func (db *Store) QuerySystemConfig(ctx context.Context) (SystemConfig, error) {
 		&checkNs,
 		&cfg.PackageCheckWorkerCount,
 		&skipNs,
+		&cfg.NotificationRetentionDays,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -690,11 +691,36 @@ func (db *Store) UpdateSystemConfig(ctx context.Context, cfg SystemConfig) error
 		int64(cfg.PackageCheckInterval),
 		cfg.PackageCheckWorkerCount,
 		int64(cfg.PackageCheckSkipInterval),
+		cfg.NotificationRetentionDays,
 	)
 	if err != nil {
 		return fmt.Errorf("database.UpsertSystemConfig: %w", err)
 	}
 	return nil
+}
+
+// RemoveExpiredNotifications deletes all notifications created before the given "cutoff" time.
+// Returns number of rows deleted.
+func (db *Store) RemoveExpiredNotifications(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := db.pool.Exec(ctx, dRemoveExpiredNotifications, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("database.RemoveExpiredNotifications: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// QueryOldestNotificationCreatedAt returns the created_at timestamp of the oldest notification
+// in the table (a zero time.Time if the table is empty).
+func (db *Store) QueryOldestNotificationCreatedAt(ctx context.Context) (time.Time, error) {
+	var oldest *time.Time
+	err := db.pool.QueryRow(ctx, qGetOldestNotificationCreatedAt).Scan(&oldest)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("database.QueryOldestNotificationCreatedAt: %w", err)
+	}
+	if oldest == nil {
+		return time.Time{}, nil
+	}
+	return *oldest, nil
 }
 
 // QueryAccountsByUserID returns all OIDC accounts linked to a given user.
