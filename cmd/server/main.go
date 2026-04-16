@@ -120,6 +120,7 @@ func main() {
 
 	// chain middleware
 	chain := middleware.Chain(
+		middleware.SecurityHeaders(cfg),
 		middleware.RequestLogger,
 		sessionManager.LoadAndSave,
 	)

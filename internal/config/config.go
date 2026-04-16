@@ -67,6 +67,11 @@ type Config struct {
 	TLSCertFile string // path to cert file (only for TLSMode=on)
 	TLSKeyFile  string // path to key file (only for TLSMode=on)
 
+	// TrustProxy controls whether X-Forwarded-Proto and X-Forwarded-Host headers
+	// from a reverse proxy are trusted when reconstructing the server base URL.
+	// Set true when running behind a reverse proxy (e.g. nginx), false when app is exposed directly to the internet.
+	TrustProxy bool // default: false
+
 	DatabaseURL string
 	// Database TLS
 	dbSSLMode   string // "disable"/"require"/"verify-full"/"verify-ca"
@@ -152,12 +157,15 @@ func LoadEnvConfig() (*Config, error) {
 	checkWorkers := parseIntFromEnv(os.Getenv("PACKAGE_CHECK_WORKER_COUNT"), 2)
 	checkSkipInterval := parseDurationFromEnv(os.Getenv("PACKAGE_CHECK_SKIP_THRESHOLD"), 5*time.Minute)
 
+	trustProxy := parseBoolFromEnv(os.Getenv("TRUST_PROXY"), false)
+
 	cfg := &Config{
 		ServerURL:                       os.Getenv("SERVER_URL"),
 		ServerPort:                      os.Getenv("SERVER_PORT"),
 		TLSMode:                         os.Getenv("TLS_MODE"),
 		TLSCertFile:                     os.Getenv("TLS_CERT_FILE"),
 		TLSKeyFile:                      os.Getenv("TLS_KEY_FILE"),
+		TrustProxy:                      trustProxy,
 		DatabaseURL:                     dbUrl.String(),
 		dbSSLMode:                       dbSSLMode,
 		DBSSLCACert:                     os.Getenv("DB_SSL_CA_CERT"),

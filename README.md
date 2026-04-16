@@ -135,6 +135,7 @@ Minimal example with locally managed PostgreSQL:
 
     settings = {
       SERVER_URL = "https://notifier.example.com";
+      TRUST_PROXY = "true";
 
       OIDC_PROVIDERS = ''[{"name":"authentik","display_name":"My SSO","issuer":"https://auth.example.com/application/o/notifier/","client_id":"id","client_secret":"secret"}]'';
 
@@ -179,6 +180,7 @@ The application will refuse to start if any required variable is missing or inva
 | `TLS_MODE` | - | `off` | Set to `on` to enable TLS |
 | `TLS_CERT_FILE` | if `TLS_MODE=on` | - | Path to TLS certificate file |
 | `TLS_KEY_FILE` | if `TLS_MODE=on` | - | Path to TLS private key file |
+| `TRUST_PROXY` | - | `false` | Set to `true` when running behind a reverse proxy that sets `X-Forwarded-Proto` and `X-Forwarded-Host` headers|
 
 ### Database
  

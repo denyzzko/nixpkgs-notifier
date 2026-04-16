@@ -29,39 +29,44 @@ import (
 )
 
 // getServerBaseURL reconstructs the server's base URL from the request.
-// If X-Forwarded-Proto and X-Forwarded-Host headers are present (from reverse proxy),
-// uses them. Otherwise it uses the incoming request host, and only then
-// falls back to cfg.ServerURL.
+// If TRUST_PROXY is enabled and X-Forwarded-Proto / X-Forwarded-Host headers are present,
+// uses them unconditionally (the proxy is trusted to set them correctly).
+// If TRUST_PROXY is disabled, forwarded headers are ignored entirely.
+// Falls back to the incoming request host, and finally to cfg.ServerURL.
 // Returns base URL without trailing slash (e.g., "https://example.com", "http://localhost:8080").
 func getServerBaseURL(r *http.Request, cfg *config.Config) string {
-	// Check for reverse proxy headers
-	proto := r.Header.Get("X-Forwarded-Proto")
-	host := r.Header.Get("X-Forwarded-Host")
+	configuredURL := strings.TrimSuffix(cfg.ServerURL, "/")
 
-	if proto != "" && host != "" {
-		// Proxies may send multiple values; use the first hop.
-		proto = strings.TrimSpace(strings.Split(proto, ",")[0])
-		host = strings.TrimSpace(strings.Split(host, ",")[0])
+	if cfg.TrustProxy {
+		// Check for reverse proxy headers
+		proto := r.Header.Get("X-Forwarded-Proto")
+		host := r.Header.Get("X-Forwarded-Host")
 
-		// Ensure host doesn't already have protocol
-		host = strings.TrimPrefix(host, "http://")
-		host = strings.TrimPrefix(host, "https://")
-		return proto + "://" + host
+		if proto != "" && host != "" {
+			// Proxies may send multiple values; use the first hop.
+			proto = strings.TrimSpace(strings.Split(proto, ",")[0])
+			host = strings.TrimSpace(strings.Split(host, ",")[0])
+
+			// Ensure host doesn't already have protocol
+			host = strings.TrimPrefix(host, "http://")
+			host = strings.TrimPrefix(host, "https://")
+			return proto + "://" + host
+		}
 	}
 
-	// Use direct request host when app is accessed without reverse proxy.
+	// Use direct request host when accessed without a proxy.
 	if r.Host != "" {
 		scheme := "http"
 		if r.TLS != nil {
 			scheme = "https"
 		}
-		host = strings.TrimPrefix(r.Host, "http://")
+		host := strings.TrimPrefix(r.Host, "http://")
 		host = strings.TrimPrefix(host, "https://")
 		return scheme + "://" + host
 	}
 
 	// Fallback to configured SERVER_URL
-	return strings.TrimSuffix(cfg.ServerURL, "/")
+	return configuredURL
 }
 
 // renderHTML sets the Content-Type header to text/html and renders the given templ component.
