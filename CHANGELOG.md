@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.1.0...v1.2.0) (2026-04-16)
+
+
+### Features
+
+* added automatic notification cleanup configurable via admin config page ([a736e8e](https://github.com/denyzzko/nixpkgs-notifier/commit/a736e8e98f3636f817fab3dca05337a0efca05fd))
+
 # [1.1.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.0.0...v1.1.0) (2026-04-12)
 
 
