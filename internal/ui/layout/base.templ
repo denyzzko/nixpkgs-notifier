@@ -9,12 +9,15 @@ type LinkedAccount struct {
 
 // BaseVM is passed to every page and it controls navigation visibility, profile menu content and admin-only UI elements,
 // which are shared across all pages.
+// CSRFToken is embedded into the page via data-csrf attribute on <body> and injected into
+// every HTMX request as X-CSRF-Token header. Plain HTML forms include it as hidden csrf_token field.
 type BaseVM struct {
     LoggedIn bool
     IsAdmin  bool
     Username string
     Role     string
     Accounts []LinkedAccount
+    CSRFToken string
 }
 
 // ProfileNameDisplay renders username label and edit button inside the profile menu.
@@ -62,7 +65,7 @@ templ Base(title string, base BaseVM, content templ.Component) {
             <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz" crossorigin="anonymous"></script>
         </head>
 
-        <body class="bg-black">
+        <body class="bg-black" data-csrf={ base.CSRFToken }>
             <nav class="position-relative d-flex align-items-center rounded-5 mx-2 mt-3 px-2" style="background: #252525; height: 48px;">
                 <a class="fw-bold text-white text-decoration-none px-3 flex-shrink-0" href="/">nixpkgsNotifier</a>
                 
@@ -192,6 +195,7 @@ templ Base(title string, base BaseVM, content templ.Component) {
                             }
                             <!-- Log out button -->
                             <form method="POST" action="/auth/logout" class="m-0">
+                                <input type="hidden" name="csrf_token" value={ base.CSRFToken }/>
                                 <button
                                     type="submit"
                                     class="btn-outline-danger-custom btn w-100 rounded-5"
@@ -441,6 +445,14 @@ templ Base(title string, base BaseVM, content templ.Component) {
                         err.classList.remove("d-none");
                     });
                 })();
+            </script>
+
+            <script>
+                // Attach CSRF token to every HTMX request as X-CSRF-Token header so it can be validated by nosurf.
+                // Token is read from data-csrf on <body>.
+                document.body.addEventListener("htmx:configRequest", function(e) {
+                    e.detail.headers["X-CSRF-Token"] = document.body.dataset.csrf;
+                });
             </script>
             
             <style>

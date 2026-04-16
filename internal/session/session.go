@@ -46,6 +46,7 @@ func NewManager(secureCookie bool) *SessionManager {
 	sm.Lifetime = 24 * time.Hour
 	sm.IdleTimeout = 30 * time.Minute
 	sm.Cookie.Secure = secureCookie
+	sm.Cookie.SameSite = http.SameSiteLaxMode
 
 	sessionManager.manager = sm
 	return &sessionManager

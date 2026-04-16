@@ -21,6 +21,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"github.com/denyzzko/nixpkgs-notifier/internal/web"
+	"github.com/justinas/nosurf"
 )
 
 func main() {
@@ -125,9 +126,26 @@ func main() {
 		sessionManager.LoadAndSave,
 	)
 
+	// wrap middleware chain with nosurf CSRF protection
+	// validates X-CSRF-Token header (for HTMX requests) and
+	// csrf_token form field (for plain HTML forms) on all non-exempt state-changing requests.
+	csrfHandler := nosurf.New(chain(mux))
+	csrfHandler.ExemptPath("/auth/callback") // exempt: OIDC redirect from provider as there is no token available
+	// configure CSRF cookie
+	csrfHandler.SetBaseCookie(http.Cookie{
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   strings.HasPrefix(cfg.ServerURL, "https://"),
+		Path:     "/",
+	})
+	// return 403 Forbidden with message on CSRF validation failure instead of nosurf default response
+	csrfHandler.SetFailureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "CSRF token invalid or missing", http.StatusForbidden)
+	}))
+
 	// server
 	server := &http.Server{
-		Handler:           chain(mux),
+		Handler:           csrfHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      60 * time.Second,

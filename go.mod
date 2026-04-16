@@ -8,6 +8,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.16.0
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/joho/godotenv v1.5.1
+	github.com/justinas/nosurf v1.2.0
 	github.com/pressly/goose/v3 v3.27.0
 	golang.org/x/oauth2 v0.32.0
 	golang.org/x/sync v0.20.0

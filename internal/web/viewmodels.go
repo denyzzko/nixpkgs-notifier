@@ -13,6 +13,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/layout"
 	"github.com/denyzzko/nixpkgs-notifier/internal/ui/pages"
+	"github.com/justinas/nosurf"
 )
 
 // channelVM maps a channels.ChannelResult to the pages.ChannelVM used by channel templates.
@@ -140,10 +141,11 @@ func buildBaseVM(ctx context.Context, r *http.Request, db *database.Store, sessi
 	}
 
 	return layout.BaseVM{
-		LoggedIn: true,
-		IsAdmin:  sessionManager.GetUserRole(r.Context()) == "admin",
-		Username: sessionManager.GetUsername(r.Context()),
-		Role:     sessionManager.GetUserRole(r.Context()),
-		Accounts: linkedAccounts,
+		LoggedIn:  true,
+		IsAdmin:   sessionManager.GetUserRole(r.Context()) == "admin",
+		Username:  sessionManager.GetUsername(r.Context()),
+		Role:      sessionManager.GetUserRole(r.Context()),
+		Accounts:  linkedAccounts,
+		CSRFToken: nosurf.Token(r),
 	}
 }

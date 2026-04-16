@@ -55,7 +55,7 @@ templ AccountsContent(vm AccountsVM) {
 					<!-- Account rows -->
 					<div class="d-flex flex-column gap-2">
 						for _, a := range vm.Accounts {
-							@LinkedAccountItem(a)
+							@LinkedAccountItem(a, vm)
 						}
 					</div>
 
@@ -110,7 +110,7 @@ templ AccountsContent(vm AccountsVM) {
 }
 
 // LinkedAccountItem renders a single linked account row with unlink button (if unlink is possible).
-templ LinkedAccountItem(a LinkedAccountVM) {
+templ LinkedAccountItem(a LinkedAccountVM, vm AccountsVM) {
 	<div
 		class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2"
 		style="background: #474747; border: 1px solid #474747;"
@@ -143,6 +143,7 @@ templ LinkedAccountItem(a LinkedAccountVM) {
 		<div class="d-flex justify-content-end" style="flex: 1;">
 			if a.CanUnlink {
 				<form method="POST" action="/account/unlink" class="m-0">
+					<input type="hidden" name="csrf_token" value={ vm.BaseVM.CSRFToken }/>
 					<input type="hidden" name="issuer" value={ a.Issuer }/>
 					<input type="hidden" name="subject" value={ a.Subject }/>
 					<button

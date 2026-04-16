@@ -44,6 +44,7 @@ templ SystemConfigContent(vm SystemConfigVM) {
 
             <!-- Card -->
             <form method="POST" action="/admin/config">
+                <input type="hidden" name="csrf_token" value={ vm.BaseVM.CSRFToken }/>
                 <div class="rounded-5 p-4 mb-2" style="background: #252525; border: 1px solid #5A5A5A;">
 
                     <!-- Notifications section -->
