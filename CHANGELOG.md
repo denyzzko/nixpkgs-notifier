@@ -1,3 +1,10 @@
+## [1.2.3](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.2.2...v1.2.3) (2026-04-16)
+
+
+### Bug Fixes
+
+* add CSRF protection via nosurf ([18c06ff](https://github.com/denyzzko/nixpkgs-notifier/commit/18c06ff39a9cbaea3f778b1fd666272655f14ea2))
+
 ## [1.2.2](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.2.1...v1.2.2) (2026-04-16)
 
 
