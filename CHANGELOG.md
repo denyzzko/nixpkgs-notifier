@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.2.0...v1.2.1) (2026-04-16)
+
+
+### Bug Fixes
+
+* add security headers and TRUST_PROXY config ([aac9a90](https://github.com/denyzzko/nixpkgs-notifier/commit/aac9a90fd0db6ca20a893db054c1f25f9bcc0269))
+
 # [1.2.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.1.0...v1.2.0) (2026-04-16)
 
 
