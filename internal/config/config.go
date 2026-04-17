@@ -107,13 +107,17 @@ type Config struct {
 
 	// Notification cleaner
 	NotificationRetentionDays int // default: 0 (disabled)
+
+	// Notification Channels - webhook limit
+	MaxWebhooksPerUser int // default: 0 (unlimited)
 }
 
 // RuntimeConfig holds the runtime settings managed by the admin via UI.
 type RuntimeConfig struct {
-	Dispatcher dispatcher.Config
-	Checker    checker.Config
-	Cleaner    cleaner.Config
+	Dispatcher         dispatcher.Config
+	Checker            checker.Config
+	Cleaner            cleaner.Config
+	MaxWebhooksPerUser int
 }
 
 // LoadEnvConfig loads configuration from environment variables.
@@ -196,7 +200,7 @@ func LoadEnvConfig() (*Config, error) {
 	return cfg, nil
 }
 
-// LoadRuntimeOverrides tries to load dispatcher and checker settings from the database.
+// LoadRuntimeOverrides tries to load settings from the database.
 // If a saved config row exists it overwrites the env defaults on Config.
 // If no row exists (admin has never saved config via UI, fresh system_config table) the env defaults are kept unchanged.
 func (c *Config) LoadRuntimeOverrides(ctx context.Context, db *database.Store) {
@@ -220,6 +224,7 @@ func (c *Config) LoadRuntimeOverrides(ctx context.Context, db *database.Store) {
 	c.PackageCheckWorkerCount = saved.PackageCheckWorkerCount
 	c.PackageCheckSkipInterval = saved.PackageCheckSkipInterval
 	c.NotificationRetentionDays = saved.NotificationRetentionDays
+	c.MaxWebhooksPerUser = saved.MaxWebhooksPerUser
 }
 
 // parseDurationFromEnv parses a duration string (e.g. "5m", "12h").
@@ -378,6 +383,7 @@ func GetRuntimeConfig(ctx context.Context, db *database.Store, disp *dispatcher.
 			Cleaner: cleaner.Config{
 				RetentionDays: saved.NotificationRetentionDays,
 			},
+			MaxWebhooksPerUser: saved.MaxWebhooksPerUser,
 		}
 	}
 	// no DB row yet (or error happened during query) - reflect what dispatcher and checker currently run with
@@ -399,6 +405,7 @@ func SaveRuntimeConfig(ctx context.Context, db *database.Store, rcfg RuntimeConf
 		PackageCheckWorkerCount:         rcfg.Checker.WorkerCount,
 		PackageCheckSkipInterval:        rcfg.Checker.SkipInterval,
 		NotificationRetentionDays:       rcfg.Cleaner.RetentionDays,
+		MaxWebhooksPerUser:              rcfg.MaxWebhooksPerUser,
 	}
 	// store config to database
 	if err := db.UpdateSystemConfig(ctx, dbCfg); err != nil {
@@ -457,6 +464,17 @@ func parseRetentionDaysFromForm(r *http.Request) (int, error) {
 	}
 }
 
+// parseNonNegativeIntFromForm parses a non-negative integer from form field.
+// Returns an error if the value is missing, not a number, or less then 0.
+// Unlike parseIntFromForm 0 is valid value here (used for "unlimited" webhook limit setting).
+func parseNonNegativeIntFromForm(r *http.Request, field string) (int, error) {
+	v, err := strconv.Atoi(r.FormValue(field))
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("invalid value for %s", field)
+	}
+	return v, nil
+}
+
 // RuntimeConfigFromForm parses a RuntimeConfig from HTTP form.
 // Returns an error if any field is missing or has an invalid value.
 func RuntimeConfigFromForm(r *http.Request) (RuntimeConfig, error) {
@@ -496,6 +514,11 @@ func RuntimeConfigFromForm(r *http.Request) (RuntimeConfig, error) {
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
+	// channel fields (user webhook limit)
+	maxWebhooks, err := parseNonNegativeIntFromForm(r, "max_webhooks_per_user")
+	if err != nil {
+		return RuntimeConfig{}, err
+	}
 
 	// return populated RuntimeConfig
 	return RuntimeConfig{
@@ -513,5 +536,6 @@ func RuntimeConfigFromForm(r *http.Request) (RuntimeConfig, error) {
 		Cleaner: cleaner.Config{
 			RetentionDays: retentionDays,
 		},
+		MaxWebhooksPerUser: maxWebhooks,
 	}, nil
 }

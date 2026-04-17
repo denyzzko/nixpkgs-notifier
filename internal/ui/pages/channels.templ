@@ -26,6 +26,8 @@ type ChannelVM struct {
 type ChannelsVM struct {
     layout.BaseVM
     Channels []ChannelVM
+    WebhookLimit int // configured by admin
+    WebhookCount int // webhook channels the user currently has
 }
 
 // ChannelsPage is the notification channels management page wrapped in base layout.
@@ -335,6 +337,16 @@ templ ChannelsContent(vm ChannelsVM) {
                     </div>
                 </div>
             </div>
+
+            <!-- Webhook limit warning (shown when admin lowered the webhook cap below the user's current count) -->
+            if vm.WebhookLimit > 0 && vm.WebhookCount > vm.WebhookLimit {
+                <div class="d-flex align-items-center gap-2 rounded-5 px-4 py-2 mt-4" style="background: #3A2800; border: 1px solid #7A5000;">
+                    <i class="bi bi-exclamation-triangle-fill me-2" style="color: #FFA500;"></i>
+                    <span class="small" style="color: #FFA500;">
+                        You have { fmt.Sprintf("%d", vm.WebhookCount) } webhook channels, which exceeds the current limit of { fmt.Sprintf("%d", vm.WebhookLimit) } set by the administrator of the system. You cannot add new webhooks until you remove enough to get below the limit.
+                    </span>
+                </div>
+            }
 
         </div>
     </div>

@@ -5,9 +5,88 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 )
+
+// privateIPRanges holds all IP ranges that should never be target of a webhook request (SSRF protection).
+// It is populated by the init() function before main() is called.
+var privateIPRanges []*net.IPNet
+
+func init() {
+	cidrs := []string{
+		// IPv4
+		"0.0.0.0/8",          // host
+		"10.0.0.0/8",         // private
+		"100.64.0.0/10",      // shared address space
+		"127.0.0.0/8",        // loopback
+		"169.254.0.0/16",     // link-local
+		"172.16.0.0/12",      // private
+		"192.168.0.0/16",     // private
+		"198.18.0.0/15",      // benchmarking
+		"240.0.0.0/4",        // reserved
+		"255.255.255.255/32", // broadcast
+		// IPv6
+		"::1/128",   // loopback
+		"::/128",    // unspecified
+		"fc00::/7",  // unique local
+		"fe80::/10", // link-local
+	}
+	for _, cidr := range cidrs {
+		_, network, _ := net.ParseCIDR(cidr)
+		privateIPRanges = append(privateIPRanges, network)
+	}
+}
+
+// isPrivateIP returns whether given IP falls within any IP range from privateIPRanges.
+func isPrivateIP(ip net.IP) bool {
+	for _, network := range privateIPRanges {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateWebhookURL checks if rawURL is safe to send requests to.
+// It rejects non-http(s) schemes and URLs that resolve to private or reserved IP addresses (privateIPRanges).
+// Also does DNS resolution so domains pointing to internal IPs are caught.
+func ValidateWebhookURL(rawURL string) error {
+	// parse and validate URL
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("webhook URL must use http or https")
+	}
+
+	// strip port if present
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("webhook URL has no host")
+	}
+
+	// resolve hostname to IP addresses (catches domains that point to private IPs)
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("could not resolve webhook hostname %q", host)
+	}
+
+	// reject if any resolved IP falls within a private or reserved range
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if isPrivateIP(ip) {
+			return fmt.Errorf("webhook URL resolves to a private or reserved IP address")
+		}
+	}
+	return nil
+}
 
 // Delivers notifications by POST-ing JSON payload to a webhook URL
 // Single instance is created on startup in dispatcher.New() and it is reused for all webhook deliveries
@@ -152,6 +231,14 @@ func (s *WebhookSender) SendTest(ctx context.Context, event VersionChangeEvent) 
 // Helper for Send and SendTest
 // Makes POST to the given URL and checks for a 2xx response
 func (s *WebhookSender) post(ctx context.Context, url string, data []byte) error {
+	// guard against SSRF - validate URL before making request
+	if err := ValidateWebhookURL(url); err != nil {
+		return &SenderError{
+			PublicMsg: fmt.Sprintf("webhook URL rejected: %v", err),
+			Err:       fmt.Errorf("notify.WebhookSender: SSRF check failed: %w", err),
+		}
+	}
+
 	// build HTTP POST request and set header
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {

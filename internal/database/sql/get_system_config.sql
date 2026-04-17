@@ -6,6 +6,7 @@ SELECT
     package_check_interval,
     package_check_worker_count,
     package_check_skip_interval,
-    notification_retention_days
+    notification_retention_days,
+    max_webhooks_per_user
 FROM system_config
 WHERE id = 1;

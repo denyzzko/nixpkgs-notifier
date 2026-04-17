@@ -666,6 +666,7 @@ func (db *Store) QuerySystemConfig(ctx context.Context) (SystemConfig, error) {
 		&cfg.PackageCheckWorkerCount,
 		&skipNs,
 		&cfg.NotificationRetentionDays,
+		&cfg.MaxWebhooksPerUser,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -692,6 +693,7 @@ func (db *Store) UpdateSystemConfig(ctx context.Context, cfg SystemConfig) error
 		cfg.PackageCheckWorkerCount,
 		int64(cfg.PackageCheckSkipInterval),
 		cfg.NotificationRetentionDays,
+		cfg.MaxWebhooksPerUser,
 	)
 	if err != nil {
 		return fmt.Errorf("database.UpsertSystemConfig: %w", err)

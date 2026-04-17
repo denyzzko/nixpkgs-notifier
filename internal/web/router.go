@@ -34,10 +34,10 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 	mux.HandleFunc("GET /package/status/check/{id}", requireAuth(sessionManager, packageCheckStatus(db, sessionManager)))
 
 	// notification channels page and corresponding routes for operations (add channel, delete channel, toggles, test, ack disabled by server)
-	mux.HandleFunc("GET /channels", requireAuth(sessionManager, channelsPage(sessionManager, db, disp)))
+	mux.HandleFunc("GET /channels", requireAuth(sessionManager, channelsPage(sessionManager, db, disp, cfg)))
 	mux.HandleFunc("GET /channel/add/form", requireAuth(sessionManager, addChannelForm()))
 	mux.HandleFunc("GET /channel/add/cancel", requireAuth(sessionManager, addChannelFormCancel()))
-	mux.HandleFunc("POST /channel/add", requireAuth(sessionManager, addChannel(db, sessionManager)))
+	mux.HandleFunc("POST /channel/add", requireAuth(sessionManager, addChannel(db, sessionManager, cfg)))
 	mux.HandleFunc("POST /channel/delete/{id}", requireAuth(sessionManager, deleteChannel(db, sessionManager)))
 	mux.HandleFunc("POST /channel/toggle/enabled/{id}", requireAuth(sessionManager, toggleChannelEnabled(db, sessionManager)))
 	mux.HandleFunc("POST /channel/toggle/manual/{id}", requireAuth(sessionManager, toggleNotifyOnManualVerify(db, sessionManager)))
@@ -49,7 +49,7 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 
 	// admin system config
 	mux.HandleFunc("GET /admin/config", requireAdmin(sessionManager, systemConfigPage(sessionManager, db, disp, chk, clnr)))
-	mux.HandleFunc("POST /admin/config", requireAdmin(sessionManager, updateSystemConfig(db, disp, chk, clnr)))
+	mux.HandleFunc("POST /admin/config", requireAdmin(sessionManager, updateSystemConfig(db, disp, chk, clnr, cfg)))
 
 	// admin profile management
 	mux.HandleFunc("GET /admin/profiles", requireAdmin(sessionManager, profilesPage(sessionManager, db)))

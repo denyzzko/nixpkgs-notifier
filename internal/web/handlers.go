@@ -460,7 +460,7 @@ func packageCheckStatus(db *database.Store, sessionManager *session.SessionManag
 }
 
 // channelsPage renders the notification channels page with all channels current user has configured.
-func channelsPage(sessionManager *session.SessionManager, db *database.Store, disp *dispatcher.Dispatcher) http.HandlerFunc {
+func channelsPage(sessionManager *session.SessionManager, db *database.Store, disp *dispatcher.Dispatcher, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -476,6 +476,14 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store, di
 		// get value of MaxRetries
 		maxRetries := disp.MaxRetries()
 
+		// count webhook channels to check against the per-user limit
+		webhookCount := 0
+		for _, ch := range chnls {
+			if ch.Type == "Webhook" {
+				webhookCount++
+			}
+		}
+
 		// render response
 		chVMs := make([]pages.ChannelVM, 0, len(chnls))
 		for _, ch := range chnls {
@@ -483,8 +491,10 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store, di
 		}
 
 		vm := pages.ChannelsVM{
-			BaseVM:   buildBaseVM(ctx, r, db, sessionManager),
-			Channels: chVMs,
+			BaseVM:       buildBaseVM(ctx, r, db, sessionManager),
+			Channels:     chVMs,
+			WebhookLimit: cfg.MaxWebhooksPerUser,
+			WebhookCount: webhookCount,
 		}
 
 		renderHTML(w, ctx, pages.ChannelsPage(vm))
@@ -512,7 +522,7 @@ func addChannelFormCancel() http.HandlerFunc {
 // Reads type, address, notify_on_manual_verify and optional matermost webhook info from the submitted form.
 // On success renders new channel row.
 // On validation or application error re-renders form with an error message.
-func addChannel(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+func addChannel(db *database.Store, sessionManager *session.SessionManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -548,7 +558,7 @@ func addChannel(db *database.Store, sessionManager *session.SessionManager) http
 		}
 
 		// add channel
-		ch, err := channels.AddChannel(ctx, db, sessionManager, chType, address, webhookType, notifyOnManualVerify, username, channel, priority, requestAck)
+		ch, err := channels.AddChannel(ctx, db, sessionManager, chType, address, webhookType, notifyOnManualVerify, username, channel, priority, requestAck, cfg.MaxWebhooksPerUser)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = pages.NewChannelError(rawType, address, appError.PublicMessage(err)).Render(ctx, w)
@@ -792,7 +802,7 @@ func systemConfigPage(sessionManager *session.SessionManager, db *database.Store
 		rc := config.GetRuntimeConfig(ctx, db, disp, chk, clnr)
 
 		// render response
-		vm := systemConfigVM(rc.Dispatcher, rc.Checker, rc.Cleaner)
+		vm := systemConfigVM(rc.Dispatcher, rc.Checker, rc.Cleaner, rc.MaxWebhooksPerUser)
 		vm.Saved = r.URL.Query().Get("saved") == "1"
 		vm.BaseVM = buildBaseVM(ctx, r, db, sessionManager)
 		renderHTML(w, ctx, pages.SystemConfigPage(vm))
@@ -801,7 +811,7 @@ func systemConfigPage(sessionManager *session.SessionManager, db *database.Store
 
 // updateSystemConfig handles POST from the admin system config form.
 // Parses, persists, and applies the new runtime configuration.
-func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker, clnr *cleaner.Cleaner) http.HandlerFunc {
+func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *checker.Checker, clnr *cleaner.Cleaner, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -814,11 +824,14 @@ func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *ch
 			return
 		}
 
-		// store config to database and apply dispatcher and checker
+		// store config to database and apply to dispatcher, checker and cleaner
 		if err := config.SaveRuntimeConfig(ctx, db, rcfg, disp, chk, clnr); err != nil {
 			writeAppErr(w, "web.updateSystemConfig", err)
 			return
 		}
+
+		// update in-memory config so new webhook limit takes effect immediately without server restart
+		cfg.MaxWebhooksPerUser = rcfg.MaxWebhooksPerUser
 
 		http.Redirect(w, r, "/admin/config?saved=1", http.StatusSeeOther)
 	}

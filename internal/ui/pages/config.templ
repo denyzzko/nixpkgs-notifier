@@ -22,6 +22,8 @@ type SystemConfigVM struct {
     PackageCheckWorkerCount          int
     // Notification cleaner
     NotificationRetentionDays int
+    // Channels
+    MaxWebhooksPerUser int
     // Whether config was just saved (to show success message)
     Saved bool
 }
@@ -80,6 +82,9 @@ templ SystemConfigContent(vm SystemConfigVM) {
                                             <input class="form-check-input m-0" type="checkbox" role="switch" name="notification_disable_on_max_retries"/>
                                         }
                                     </div>
+                                }
+                                @configRow("Max webhooks per user", "Maximum number of webhook channels a user can create. Set to 0 for unlimited.") {
+                                    @numInputFrom0("max_webhooks_per_user", fmt.Sprintf("%d", vm.MaxWebhooksPerUser), "50px")
                                 }
                             </div>
                         </div>
@@ -153,13 +158,27 @@ templ retentionSelect(name string, selected int) {
         <option value="180" selected?={ selected == 180 } style="background: #252525; color: white;">6 months</option>
     </select>
 }
-// numInput renders a number input.
+// numInput renders a number input that allows numbers > 0.
 templ numInput(name string, value string, width string) {
     <input
         type="number"
         name={ name }
         value={ value }
         min="1"
+        max="99"
+        required
+        class="rounded-5 text-center fw-bold text-white py-1 px-2"
+        style={ "background: transparent; width: " + width + "; font-size: 0.9rem; border: 1px solid #5A5A5A;" }
+    />
+}
+
+// numInputFrom0 renders a number input that allows numbers >= 0.
+templ numInputFrom0(name string, value string, width string) {
+    <input
+        type="number"
+        name={ name }
+        value={ value }
+        min="0"
         max="99"
         required
         class="rounded-5 text-center fw-bold text-white py-1 px-2"
