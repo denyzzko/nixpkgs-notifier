@@ -326,8 +326,3 @@ The core functionality is complete and ready for deployment.
 
 **Not yet implemented:**
 - Feature request: Track Non-Existing Packages (issue #2)
-
-**Security hardening thats not yet implemented:**
-- Webhook rate limiting and SSRF protection
-- HTTP security headers
-- CSRF protection
