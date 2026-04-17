@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.2.3...v1.3.0) (2026-04-17)
+
+
+### Features
+
+* added SSRF webhook protection and configurable webhook per user limit ([596f057](https://github.com/denyzzko/nixpkgs-notifier/commit/596f0576140d561b89475593da0bdb2bb6ca3464))
+
 ## [1.2.3](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.2.2...v1.2.3) (2026-04-16)
 
 
