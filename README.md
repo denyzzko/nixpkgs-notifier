@@ -325,6 +325,5 @@ The core functionality is complete and ready for deployment.
 - Notification history auto-cleanup
 
 **Not yet implemented:**
-- Request rate limiting
 - Email per user limit (similar like webhooks have)
 - Feature request: Track Non-Existing Packages (issue #2)
