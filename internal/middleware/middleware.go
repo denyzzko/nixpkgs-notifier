@@ -55,7 +55,7 @@ func SecurityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 			// Restrict referrer information sent to other origins
 			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			// Only allow resources from same origin; unsafe-inline required for HTMX and templ
-			h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https://cdn.simpleicons.org; font-src 'self' https://cdn.jsdelivr.net")
+			h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https://cdn.simpleicons.org; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net")
 			// Disable legacy IE XSS filter (modern browsers ignore this; 0 is the safe value)
 			h.Set("X-XSS-Protection", "0")
 			// Deny access to all browser features the app does not use
