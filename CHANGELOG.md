@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.3.0...v1.3.1) (2026-04-18)
+
+
+### Bug Fixes
+
+* added per request limits ([e0bae1d](https://github.com/denyzzko/nixpkgs-notifier/commit/e0bae1dd5e8709a0c8b4a920628288e8d699332b))
+
 # [1.3.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.2.3...v1.3.0) (2026-04-17)
 
 
