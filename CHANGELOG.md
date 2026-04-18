@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.3.1...v1.3.2) (2026-04-18)
+
+
+### Bug Fixes
+
+* add connect-src to CSP to allow jsdelivr source maps in devtools ([763a12a](https://github.com/denyzzko/nixpkgs-notifier/commit/763a12aac320a759f6d48a86d68293fdac0ba022))
+
 ## [1.3.1](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.3.0...v1.3.1) (2026-04-18)
 
 
