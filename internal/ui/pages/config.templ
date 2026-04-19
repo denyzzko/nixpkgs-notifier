@@ -24,6 +24,7 @@ type SystemConfigVM struct {
     NotificationRetentionDays int
     // Channels
     MaxWebhooksPerUser int
+    MaxEmailsPerUser   int
     // Whether config was just saved (to show success message)
     Saved bool
 }
@@ -53,25 +54,28 @@ templ SystemConfigContent(vm SystemConfigVM) {
                     <div class="rounded-4 p-4 mb-2" style="background: #2E2E2E;">
                         <h2 class="h6 fw-bold text-white mb-3">Notifications</h2>
 
-                        <div class="row g-3">
-                            <!-- Left column (dispatch interval, worker count, retention period) -->
-                            <div class="col-6 d-flex flex-column gap-3 px-2">
-                                @configRow("Dispatch interval", "How often the dispatcher polls for pending notifications so they can be send.") {
+                        <div class="row g-3 justify-content-center">
+                            <!-- Left column (dispatch interval, worker count, webhook and email limit) -->
+                            <div class="col-5 d-flex flex-column gap-3 px-2">
+                                @configRow("Dispatch interval", "How often the dispatcher polls for pending/failed notifications so they can be sent.") {
                                     <div class="d-flex align-items-center gap-1">
                                         @numInput("notification_dispatch_interval_val", fmt.Sprintf("%g", vm.NotificationDispatchIntervalVal), "50px")
                                         @unitSelect("notification_dispatch_interval_unit", vm.NotificationDispatchIntervalUnit)
                                     </div>
                                 }
-                                @configRow("Worker count", "Max concurrent notification deliveries.") {
+                                @configRow("Deliver worker count", "Maximum concurrent notification deliveries.") {
                                     @numInput("notification_worker_count", fmt.Sprintf("%d", vm.NotificationWorkerCount), "50px")
                                 }
-                                @configRow("Retention period", "Automatically delete notifications older than...") {
-                                    @retentionSelect("notification_retention_days", vm.NotificationRetentionDays)
+                                @configRow("Maximum webhooks", "Maximum number of webhook channels a user can create. Set to 0 for unlimited.") {
+                                    @numInputFrom0("max_webhooks_per_user", fmt.Sprintf("%d", vm.MaxWebhooksPerUser), "50px")
+                                }
+                                @configRow("Maximum emails", "Maximum number of email channels a user can create. Set to 0 for unlimited.") {
+                                    @numInputFrom0("max_emails_per_user", fmt.Sprintf("%d", vm.MaxEmailsPerUser), "50px")
                                 }
                             </div>
-                            <!-- Right column (max retries, disable on max retries toggle) -->
-                            <div class="col-6 d-flex flex-column gap-3 px-2">
-                                @configRow("Max retries", "Max delivery attempts before giving up.") {
+                            <!-- Right column (max retries, disable on max retries toggle, retention period) -->
+                            <div class="col-5 d-flex flex-column gap-3 px-2">
+                                @configRow("Maximum retries", "Maximum delivery attempts before giving up.") {
                                     @numInput("notification_max_retries", fmt.Sprintf("%d", vm.NotificationMaxRetries), "50px")
                                 }
                                 @configRow("Disable on max retries", "System will automatically disable channel after reaching max retries.") {
@@ -83,8 +87,8 @@ templ SystemConfigContent(vm SystemConfigVM) {
                                         }
                                     </div>
                                 }
-                                @configRow("Max webhooks per user", "Maximum number of webhook channels a user can create. Set to 0 for unlimited.") {
-                                    @numInputFrom0("max_webhooks_per_user", fmt.Sprintf("%d", vm.MaxWebhooksPerUser), "50px")
+                                @configRow("Retention period", "Automatically delete notifications older than...") {
+                                    @retentionSelect("notification_retention_days", vm.NotificationRetentionDays)
                                 }
                             </div>
                         </div>
@@ -94,22 +98,22 @@ templ SystemConfigContent(vm SystemConfigVM) {
                     <div class="rounded-4 p-4" style="background: #2E2E2E;">
                         <h2 class="h6 fw-bold text-white mb-3">Version checking</h2>
 
-                        <div class="row g-3">
+                        <div class="row g-3 justify-content-center">
                             <!-- Left column (check interval, worker count) -->
-                            <div class="col-6 d-flex flex-column gap-3 px-2">
-                                @configRow("Check interval", "How often all tracked packages are queued for automatic version check.") {
+                            <div class="col-5 d-flex flex-column gap-3 px-2">
+                                @configRow("Auto check interval", "How often all tracked packages are queued for automatic version check.") {
                                     <div class="d-flex align-items-center gap-1">
                                         @numInput("package_check_interval_val", fmt.Sprintf("%g", vm.PackageCheckIntervalVal), "50px")
                                         @unitSelect("package_check_interval_unit", vm.PackageCheckIntervalUnit)
                                     </div>
                                 }
-                                @configRow("Worker count", "Max concurrent nix eval processes.") {
+                                @configRow("Evaluate worker count", "Maximum concurrent nix eval package version checks.") {
                                     @numInput("package_check_worker_count", fmt.Sprintf("%d", vm.PackageCheckWorkerCount), "50px")
                                 }
                             </div>
                             <!-- Right column (skip iterval) -->
-                            <div class="col-6 d-flex flex-column gap-3 px-2">
-                                @configRow("Skip interval", "Minimum time between real nix evals for specific package (cache).") {
+                            <div class="col-5 d-flex flex-column gap-3 px-2">
+                                @configRow("Nix eval skip interval", "Minimum time between real nix evals for specific package (cache).") {
                                     <div class="d-flex align-items-center gap-1">
                                         @numInput("package_check_skip_interval_val", fmt.Sprintf("%g", vm.PackageCheckSkipIntervalVal), "50px")
                                         @unitSelect("package_check_skip_interval_unit", vm.PackageCheckSkipIntervalUnit)
@@ -201,8 +205,8 @@ templ unitSelect(name string, selected string) {
 
 // configRow renders a single config field as label (with tooltip) and input side by side.
 templ configRow(label string, tooltip string) {
-    <div class="row align-items-center">
-        <div class="col-6 text-end">
+    <div class="d-flex align-items-center gap-3">
+        <div class="text-start" style="min-width: 155px;">
             <span
                 class="small"
                 style="color: #FFFFFF; cursor: default;"
@@ -211,7 +215,7 @@ templ configRow(label string, tooltip string) {
                 title={ tooltip }
             >{ label }</span>
         </div>
-        <div class="col-6 text-start">
+        <div>
             { children... }
         </div>
     </div>

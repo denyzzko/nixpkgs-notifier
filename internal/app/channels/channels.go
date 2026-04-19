@@ -109,7 +109,7 @@ func channelResultFromRow(row database.UserChannel) ChannelResult {
 
 // AddChannel creates a new notification channel of the given type ("email" or "webhook") for current user.
 // Returns the newly created channel ready to render.
-func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionManager, chType string, address string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool, maxWebhooks int) (ChannelResult, error) {
+func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionManager, chType string, address string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool, maxWebhooks int, maxEmails int) (ChannelResult, error) {
 	const op = "channels.Add"
 
 	// get user ID
@@ -140,7 +140,21 @@ func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionMana
 		}
 		if webhookCount >= maxWebhooks {
 			return ChannelResult{}, appError.NewAppError(op, appError.Conflict,
-				fmt.Sprintf("Webhook limit of %d reached. Remove an existing webhook to add a new one.", maxWebhooks), nil)
+				fmt.Sprintf("Webhook limit of %d reached. Remove an existing webhook to add a new one", maxWebhooks), nil)
+		}
+	}
+
+	// guard: enforce per-user email limit when adding an email channel
+	if chType == "email" && maxEmails > 0 {
+		emailCount := 0
+		for _, ch := range existingChannels {
+			if ch.Email != nil {
+				emailCount++
+			}
+		}
+		if emailCount >= maxEmails {
+			return ChannelResult{}, appError.NewAppError(op, appError.Conflict,
+				fmt.Sprintf("Email limit of %d reached. Remove an existing email to add a new one", maxEmails), nil)
 		}
 	}
 

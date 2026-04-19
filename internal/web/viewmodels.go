@@ -97,7 +97,7 @@ func durationToUIValue(d time.Duration) (float64, string) {
 }
 
 // systemConfigVM builds the view model for the admin system configuration page.
-func systemConfigVM(dispCfg dispatcher.Config, checkCfg checker.Config, cleanerCfg cleaner.Config, maxWebhooks int) pages.SystemConfigVM {
+func systemConfigVM(dispCfg dispatcher.Config, checkCfg checker.Config, cleanerCfg cleaner.Config, maxWebhooks int, maxEmails int) pages.SystemConfigVM {
 	dispIntVal, dispIntUnit := durationToUIValue(dispCfg.Interval)
 	checkIntVal, checkIntUnit := durationToUIValue(checkCfg.Interval)
 	checkSkipIntVal, checkSkipIntUnit := durationToUIValue(checkCfg.SkipInterval)
@@ -115,6 +115,7 @@ func systemConfigVM(dispCfg dispatcher.Config, checkCfg checker.Config, cleanerC
 		PackageCheckWorkerCount:          checkCfg.WorkerCount,
 		NotificationRetentionDays:        cleanerCfg.RetentionDays,
 		MaxWebhooksPerUser:               maxWebhooks,
+		MaxEmailsPerUser:                 maxEmails,
 	}
 }
 

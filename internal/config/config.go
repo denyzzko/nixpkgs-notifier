@@ -108,8 +108,9 @@ type Config struct {
 	// Notification cleaner
 	NotificationRetentionDays int // default: 0 (disabled)
 
-	// Notification Channels - webhook limit
+	// Notification Channels - webhook and email limit
 	MaxWebhooksPerUser int // default: 0 (unlimited)
+	MaxEmailsPerUser   int // default: 0 (unlimited)
 }
 
 // RuntimeConfig holds the runtime settings managed by the admin via UI.
@@ -118,6 +119,7 @@ type RuntimeConfig struct {
 	Checker            checker.Config
 	Cleaner            cleaner.Config
 	MaxWebhooksPerUser int
+	MaxEmailsPerUser   int
 }
 
 // LoadEnvConfig loads configuration from environment variables.
@@ -225,6 +227,7 @@ func (c *Config) LoadRuntimeOverrides(ctx context.Context, db *database.Store) {
 	c.PackageCheckSkipInterval = saved.PackageCheckSkipInterval
 	c.NotificationRetentionDays = saved.NotificationRetentionDays
 	c.MaxWebhooksPerUser = saved.MaxWebhooksPerUser
+	c.MaxEmailsPerUser = saved.MaxEmailsPerUser
 }
 
 // parseDurationFromEnv parses a duration string (e.g. "5m", "12h").
@@ -384,6 +387,7 @@ func GetRuntimeConfig(ctx context.Context, db *database.Store, disp *dispatcher.
 				RetentionDays: saved.NotificationRetentionDays,
 			},
 			MaxWebhooksPerUser: saved.MaxWebhooksPerUser,
+			MaxEmailsPerUser:   saved.MaxEmailsPerUser,
 		}
 	}
 	// no DB row yet (or error happened during query) - reflect what dispatcher and checker currently run with
@@ -406,6 +410,7 @@ func SaveRuntimeConfig(ctx context.Context, db *database.Store, rcfg RuntimeConf
 		PackageCheckSkipInterval:        rcfg.Checker.SkipInterval,
 		NotificationRetentionDays:       rcfg.Cleaner.RetentionDays,
 		MaxWebhooksPerUser:              rcfg.MaxWebhooksPerUser,
+		MaxEmailsPerUser:                rcfg.MaxEmailsPerUser,
 	}
 	// store config to database
 	if err := db.UpdateSystemConfig(ctx, dbCfg); err != nil {
@@ -514,8 +519,12 @@ func RuntimeConfigFromForm(r *http.Request) (RuntimeConfig, error) {
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
-	// channel fields (user webhook limit)
+	// channel fields (user webhook and email limit)
 	maxWebhooks, err := parseNonNegativeIntFromForm(r, "max_webhooks_per_user")
+	if err != nil {
+		return RuntimeConfig{}, err
+	}
+	maxEmails, err := parseNonNegativeIntFromForm(r, "max_emails_per_user")
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
@@ -537,5 +546,6 @@ func RuntimeConfigFromForm(r *http.Request) (RuntimeConfig, error) {
 			RetentionDays: retentionDays,
 		},
 		MaxWebhooksPerUser: maxWebhooks,
+		MaxEmailsPerUser:   maxEmails,
 	}, nil
 }

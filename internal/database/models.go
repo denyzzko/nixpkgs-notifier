@@ -153,4 +153,5 @@ type SystemConfig struct {
 	PackageCheckSkipInterval        time.Duration
 	NotificationRetentionDays       int
 	MaxWebhooksPerUser              int
+	MaxEmailsPerUser                int
 }

@@ -476,11 +476,14 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store, di
 		// get value of MaxRetries
 		maxRetries := disp.MaxRetries()
 
-		// count webhook channels to check against the per-user limit
+		// count webhook and email channels to check against the per-user limit
 		webhookCount := 0
+		emailCount := 0
 		for _, ch := range chnls {
 			if ch.Type == "Webhook" {
 				webhookCount++
+			} else if ch.Type == "Email" {
+				emailCount++
 			}
 		}
 
@@ -495,6 +498,8 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store, di
 			Channels:     chVMs,
 			WebhookLimit: cfg.MaxWebhooksPerUser,
 			WebhookCount: webhookCount,
+			EmailLimit:   cfg.MaxEmailsPerUser,
+			EmailCount:   emailCount,
 		}
 
 		renderHTML(w, ctx, pages.ChannelsPage(vm))
@@ -558,7 +563,7 @@ func addChannel(db *database.Store, sessionManager *session.SessionManager, cfg 
 		}
 
 		// add channel
-		ch, err := channels.AddChannel(ctx, db, sessionManager, chType, address, webhookType, notifyOnManualVerify, username, channel, priority, requestAck, cfg.MaxWebhooksPerUser)
+		ch, err := channels.AddChannel(ctx, db, sessionManager, chType, address, webhookType, notifyOnManualVerify, username, channel, priority, requestAck, cfg.MaxWebhooksPerUser, cfg.MaxEmailsPerUser)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = pages.NewChannelError(rawType, address, appError.PublicMessage(err)).Render(ctx, w)
@@ -802,7 +807,7 @@ func systemConfigPage(sessionManager *session.SessionManager, db *database.Store
 		rc := config.GetRuntimeConfig(ctx, db, disp, chk, clnr)
 
 		// render response
-		vm := systemConfigVM(rc.Dispatcher, rc.Checker, rc.Cleaner, rc.MaxWebhooksPerUser)
+		vm := systemConfigVM(rc.Dispatcher, rc.Checker, rc.Cleaner, rc.MaxWebhooksPerUser, rc.MaxEmailsPerUser)
 		vm.Saved = r.URL.Query().Get("saved") == "1"
 		vm.BaseVM = buildBaseVM(ctx, r, db, sessionManager)
 		renderHTML(w, ctx, pages.SystemConfigPage(vm))
@@ -830,8 +835,9 @@ func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *ch
 			return
 		}
 
-		// update in-memory config so new webhook limit takes effect immediately without server restart
+		// update in-memory config so new webhook and email limit takes effect immediately without server restart
 		cfg.MaxWebhooksPerUser = rcfg.MaxWebhooksPerUser
+		cfg.MaxEmailsPerUser = rcfg.MaxEmailsPerUser
 
 		http.Redirect(w, r, "/admin/config?saved=1", http.StatusSeeOther)
 	}
