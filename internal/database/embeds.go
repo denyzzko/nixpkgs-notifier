@@ -1,3 +1,10 @@
+// Package database provides the data access layer for application.
+//
+// It is organised in four files:
+//   - database.go: opens connection pool and runs migrations
+//   - embeds.go:   embeds all SQL files into the binary at compile time
+//   - models.go:   defines data types returned by queries
+//   - queries.go:  implements all database operations (using embedded SQL)
 package database
 
 import (

@@ -1,3 +1,10 @@
+// Package database provides the data access layer for application.
+//
+// It is organised in four files:
+//   - database.go: opens connection pool and runs migrations
+//   - embeds.go:   embeds all SQL files into the binary at compile time
+//   - models.go:   defines data types returned by queries
+//   - queries.go:  implements all database operations (using embedded SQL)
 package database
 
 import (
@@ -31,6 +38,8 @@ type AccountLinkParams struct {
 	PromoteToAdmin bool // if true: promote target user to admin
 }
 
+// buildEmailWebhook constructs Email or Webhook value from nullable SQL scan results.
+// Exactly one of the two return values will be non-nil (depending on which fields are set).
 func buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, priority *string, requestAck *bool) (*Email, *Webhook) {
 	var email *Email
 	var webhook *Webhook
@@ -445,9 +454,8 @@ func (db *Store) QueryChannelByID(ctx context.Context, channelID int64, userID i
 	return c, nil
 }
 
-// 1. Updates current_version of a package identified by name and branch
-// 2. Inserts pending notification for the change of this package per channel of user who tracks this package
-// In one transaction for atomicity
+// CreateNotificationsForVersionChange updates current_version of package and inserts
+// one pending notification per channel job (atomically in one transaction).
 func (db *Store) CreateNotificationsForVersionChange(ctx context.Context, packageName string, packageBranch string, newVersion string, packageID int64, jobs []ChannelNotification, detectedAt time.Time) error {
 	// begin transaction
 	tx, err := db.pool.Begin(ctx)
@@ -512,6 +520,9 @@ func (db *Store) QueryPendingFailedNotifications(ctx context.Context, maxRetries
 // 1. Marks the notification as "sent"
 // 2. updates the tracking's last notified version
 // In one transaction for atomicity
+
+// MarkNotificationSent marks the notification as "sent" and updates the tracking's
+// last_notified_version (atomically in one transaction).
 func (db *Store) MarkNotificationSent(ctx context.Context, notificationID int64, userID int64, packageID int64, newVersion string) error {
 	// begin transaction
 	tx, err := db.pool.Begin(ctx)

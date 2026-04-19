@@ -1,3 +1,14 @@
+// Package notifications handles creation of pending notification records on package version changes.
+//
+// When a version change is detected (by background checker or a manual user check),
+// CreatePendingNotifications finds all users tracking that package
+// and creates one notification job per active channel of each found user.
+//
+// Each channel has a flag (NotifyOnManualVerify) that controls whether
+// a user's own manual check sends a notification to that channel.
+//
+// All notifications and updated package version are persisted atomically
+// in single database call.
 package notifications
 
 import (
@@ -11,6 +22,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 )
 
+// user is not authenticated error
 var ErrNotAuthenticated = errors.New("not authenticated")
 
 // triggerUserID is 0 when triggered by the system

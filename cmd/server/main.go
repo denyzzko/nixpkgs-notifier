@@ -1,3 +1,19 @@
+// Package main is the entry point for nixpkgs-notifier server.
+//
+// It wires together all subparts in correct order.
+// Most important ones are:
+// configuration loading, database connection and migration,
+// OIDC provider setup, session management, and background workers
+// (dispatcher, checker, cleaner, branch fetcher).
+//
+// After all dependencies are initialized, it registers HTTP routes,
+// chains middleware (security headers, request logger, session, CSRF),
+// and starts HTTP(S) server.
+//
+// Graceful shutdown is handled via OS signal (SIGINT/SIGTERM):
+// background workers are cancelled through shared context,
+// and HTTP server is given 30 seconds to finish requests
+// that are already being processed.
 package main
 
 import (

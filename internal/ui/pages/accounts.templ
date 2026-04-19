@@ -1,3 +1,17 @@
+// Package pages contains all templ components for the UI.
+//
+// Each file corresponds to one page of the application and contains both
+// full-page component (e.g. ChannelsPage) and partial components
+// used for HTMX partial re-renders (e.g. ChannelRow, ChannelItem).
+//
+// Files:
+//   - index.templ:    tracked packages
+//   - channels.templ: notification channels
+//   - log.templ:      notification delivery log
+//   - accounts.templ: linked accounts management
+//   - profiles.templ: admin user management
+//   - config.templ:   admin configuration management
+//   - login.templ:    login page
 package pages
 
 import (

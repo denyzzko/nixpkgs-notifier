@@ -1,3 +1,10 @@
+// Package web contains HTTP layer of the application.
+//
+// It is organised in four files:
+//   - router.go:      registers all routes and access control wrappers (requireAuth, requireAdmin)
+//   - handlers.go:    HTTP handler functions
+//   - viewmodels.go:  converts database and app types to template view models (e.g. ChannelVM)
+//   - webErrors.go:   maps appError causes to HTTP status codes and writes error responses (writeGenericErr for plain errors)
 package web
 
 import (

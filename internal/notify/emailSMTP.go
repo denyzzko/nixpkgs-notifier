@@ -1,3 +1,12 @@
+// Package notify provides sender implementations used by the dispatcher to deliver notifications.
+//
+// Sender interface abstracts the delivery transport so the dispatcher does not need
+// to know, which channel type it is sending to.
+//
+// Three implementations are provided:
+//   - ResendSender:  delivers email via the Resend HTTP API
+//   - SMTPSender:    delivers email via raw SMTP
+//   - WebhookSender: delivers notifications via HTTP POST to a webhook URL
 package notify
 
 import (

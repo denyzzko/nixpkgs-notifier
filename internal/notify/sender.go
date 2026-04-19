@@ -1,11 +1,12 @@
-// Package notify provides delivery abstraction and specific sender
-// implementations that are used by the dispatcher to send notifications
+// Package notify provides sender implementations used by the dispatcher to deliver notifications.
 //
-// There are three types that implement Sender interface,
-// so dispatcher does not need to know what transport tech is used:
-//   - ResendSender  (Resend service HTTP API)
-//   - SMTPSender    (raw SMTP)
-//   - WebhookSender (HTTP POST to webhook URL)
+// Sender interface abstracts the delivery transport so the dispatcher does not need
+// to know, which channel type it is sending to.
+//
+// Three implementations are provided:
+//   - ResendSender:  delivers email via the Resend HTTP API
+//   - SMTPSender:    delivers email via raw SMTP
+//   - WebhookSender: delivers notifications via HTTP POST to a webhook URL
 package notify
 
 import (
@@ -41,15 +42,25 @@ type Sender interface {
 }
 
 // Wraps a delivery failure with two separate messages:
-// - Err: internal message, logged by the dispatcher (contains everything, function path, status codes, ...)
 // - PublicMsg: public message, stored in the DB and shown in the UI delivery log
+// - Err: internal message, logged by the dispatcher (contains everything, function path, status codes, ...)
 type SenderError struct {
 	PublicMsg string
 	Err       error
 }
 
-func (e *SenderError) Error() string { return e.Err.Error() }
-func (e *SenderError) Unwrap() error { return e.Err }
+// Error returns the internal error message.
+func (e *SenderError) Error() string {
+	return e.Err.Error()
+}
+
+// Unwrap returns the underlying error to support errors.Is and errors.As unwrapping.
+func (e *SenderError) Unwrap() error {
+	return e.Err
+}
+
+// PublicMessage extracts safe message for user from SenderError.
+// Returns "internal server error" if error is not SenderError.
 func PublicMessage(err error) string {
 	var se *SenderError
 	if errors.As(err, &se) {

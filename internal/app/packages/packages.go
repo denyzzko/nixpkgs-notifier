@@ -1,3 +1,12 @@
+// Package packages handles all operations on tracked packages.
+//
+// Main operations (Track, Untrack, Check, CheckAll) follow async pattern:
+//   - handler returns immediately after storing initial state
+//   - goroutine runs the nix eval in the background
+//   - UI polls a status endpoint every 3s until the goroutine signals completion via the operationResults map.
+//
+// On nix eval failure during Track, goroutine rolls back both the tracking
+// record and the package record (if it was newly created) to keep clean database.
 package packages
 
 import (
@@ -22,7 +31,7 @@ var ErrNotAuthenticated = errors.New("not authenticated")
 
 // operationResult stores the outcome of a track or check goroutine
 // Written on completion (success or failure), read and cleared by GetTrackStatus/GetCheckStatus
-// Entries that are not polled (e.g. user closes browser) are cleaned up by StartOperationResultCleanup
+// Entries that are never polled (e.g. user closes browser) are cleaned up by StartOperationResultCleanup
 type operationResult struct {
 	failed    bool
 	errMsg    string

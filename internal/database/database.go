@@ -1,3 +1,10 @@
+// Package database provides the data access layer for application.
+//
+// It is organised in four files:
+//   - database.go: opens connection pool and runs migrations
+//   - embeds.go:   embeds all SQL files into the binary at compile time
+//   - models.go:   defines data types returned by queries
+//   - queries.go:  implements all database operations (using embedded SQL)
 package database
 
 import (
@@ -12,10 +19,12 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+// Store wraps a pgxpool connection pool and is the receiver for all database operations.
 type Store struct {
 	pool *pgxpool.Pool
 }
 
+// Open creates a new connection pool for given DSN, verifies it with ping and returns a Store.
 func Open(ctx context.Context, dsn string) (*Store, error) {
 	// parse config
 	cfg, err := pgxpool.ParseConfig(dsn)
@@ -44,6 +53,7 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	return &Store{pool: dbpool}, nil
 }
 
+// Close closes the underlying connection pool.
 func (db *Store) Close() {
 	log.Println("[INFO] Closing database connection...")
 	db.pool.Close()
