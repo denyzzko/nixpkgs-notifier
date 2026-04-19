@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.3.2...v1.4.0) (2026-04-19)
+
+
+### Features
+
+* added email per user limit ([8d5ed88](https://github.com/denyzzko/nixpkgs-notifier/commit/8d5ed88f7e53d62a41d2524be485ff0e947b24ae))
+
 ## [1.3.2](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.3.1...v1.3.2) (2026-04-18)
 
 
