@@ -323,6 +323,4 @@ The core functionality is complete and ready for deployment.
 - User profile menu in UI
 - Sync multiple accounts (OIDC identities) with one internal user
 - Notification history auto-cleanup
-
-**Not yet implemented:**
 - Feature request: Track Non-Existing Packages (issue #2)
