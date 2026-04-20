@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.4.0...v1.5.0) (2026-04-20)
+
+
+### Features
+
+* watch option for non-existing packages ([#2](https://github.com/denyzzko/nixpkgs-notifier/issues/2)) ([f4a5844](https://github.com/denyzzko/nixpkgs-notifier/commit/f4a5844bc2cedec304497dbeab2c81017285d7b9))
+
 # [1.4.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.3.2...v1.4.0) (2026-04-19)
 
 
