@@ -24,6 +24,12 @@ var ErrNotAuthenticated = errors.New("not authenticated")
 // regex for username
 var usernameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
+// AccountsSummary holds the linked accounts for current user and whether any can be unlinked.
+type AccountsSummary struct {
+	Accounts  []database.Account
+	CanUnlink bool // true when more than one account is linked (unlinking would not lock the user out)
+}
+
 // Resolves (issuer, subject) -> internal user ID
 // If no user account is found, it creates a new user + account mapping
 func GetUser(ctx context.Context, db *database.Store, provider *auth.Provider, claims auth.UserClaims) (int64, error) {
@@ -266,22 +272,25 @@ func LinkExistingAccount(ctx context.Context, db *database.Store, provider *auth
 }
 
 // GetAccounts returns all OIDC accounts linked to the current user.
-func GetAccounts(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) ([]database.Account, error) {
+func GetAccounts(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) (AccountsSummary, error) {
 	const op = "users.GetAccounts"
 
 	// get user ID
 	userID := sessionManager.GetUserID(ctx)
 	if userID == 0 {
-		return nil, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
+		return AccountsSummary{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
 	}
 
 	// fetch all accounts linked to this user
 	accs, err := db.QueryAccountsByUserID(ctx, userID)
 	if err != nil {
-		return nil, appError.NewAppError(op, appError.Internal, "failed to load accounts", err)
+		return AccountsSummary{}, appError.NewAppError(op, appError.Internal, "failed to load accounts", err)
 	}
 
-	return accs, nil
+	return AccountsSummary{
+		Accounts:  accs,
+		CanUnlink: len(accs) > 1,
+	}, nil
 }
 
 // UnlinkAccount removes a single OIDC account from the current user.

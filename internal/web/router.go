@@ -41,7 +41,7 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 	mux.HandleFunc("GET /auth/callback", ipLimit(callback(db, provMap, sessionManager)))
 	mux.HandleFunc("POST /auth/logout", requireAuth(sessionManager, logout(sessionManager)))
 
-	// routes for package operations (package verifications, track/untrack)
+	// routes for package operations (package verifications, track/untrack, watchlist)
 	mux.HandleFunc("POST /package/check/{id}", requireAuth(sessionManager, checkTrackedPackage(db, sessionManager, chk)))
 	mux.HandleFunc("POST /package/untrack/{id}", requireAuth(sessionManager, untrackPackage(db, sessionManager)))
 	mux.HandleFunc("GET /package/track/form", requireAuth(sessionManager, trackPackageForm()))
@@ -49,6 +49,10 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 	mux.HandleFunc("POST /package/track", requireAuthLimited(sessionManager, userLimit, trackPackage(db, sessionManager, chk)))
 	mux.HandleFunc("GET /package/status/track/{id}", requireAuth(sessionManager, packageTrackStatus(db, sessionManager)))
 	mux.HandleFunc("GET /package/status/check/{id}", requireAuth(sessionManager, packageCheckStatus(db, sessionManager)))
+	mux.HandleFunc("POST /package/watch", requireAuthLimited(sessionManager, userLimit, watchPackage(db, sessionManager)))
+	mux.HandleFunc("POST /package/unwatch/{id}", requireAuth(sessionManager, unwatchPackage(db, sessionManager)))
+	mux.HandleFunc("POST /package/watch/check/{id}", requireAuthLimited(sessionManager, userLimit, checkWatchedPackage(db, sessionManager, chk)))
+	mux.HandleFunc("GET /package/watch/status/check/{id}", requireAuth(sessionManager, watchCheckStatus(db, sessionManager)))
 
 	// notification channels page and corresponding routes for operations (add channel, delete channel, toggles, test, ack disabled by server)
 	mux.HandleFunc("GET /channels", requireAuth(sessionManager, channelsPage(sessionManager, db, disp, cfg)))

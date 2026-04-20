@@ -36,10 +36,20 @@ type TrackedPackageVM struct {
     ErrMsg              string
 }
 
+// WatchlistEntryVM is the view model for a single watchlist row.
+type WatchlistEntryVM struct {
+    ID              int64
+    Name            string
+    Branch          string
+    ErrMsg          string
+    CheckedNotFound bool // set after a manual check confirmed package still not in nixpkgs
+}
+
 // IndexVM is the top level view model for the home page.
 type IndexVM struct {
     layout.BaseVM
-    Packages []TrackedPackageVM
+    Packages  []TrackedPackageVM
+    Watchlist []WatchlistEntryVM
 }
 
 // IndexPage is the home page wrapped in the base layout.
@@ -80,7 +90,7 @@ templ IndexContent(vm IndexVM) {
             </div>
 
             <!-- Card -->
-            <div class="card shadow-sm rounded-5" style="background: #252525; border: 1px solid #5A5A5A;">
+            <div class="card shadow-sm rounded-5 mb-4" style="background: #252525; border: 1px solid #5A5A5A;">
                 <div class="card-body p-4">
                     <!-- Column names -->
                     <div class="d-flex ps-3 pe-2 align-items-end">
@@ -107,8 +117,166 @@ templ IndexContent(vm IndexVM) {
                     </div>
                 </div>
             </div>
+            
+            <!-- Watchlist -->
+            <div id="watchlist-section">
+                if len(vm.Watchlist) > 0 {
+                    @WatchlistSection(vm.Watchlist)
+                }
+            </div>
 
         </div>
+    </div>
+}
+
+// WatchlistSection renders watchlist card.
+templ WatchlistSection(entries []WatchlistEntryVM) {
+    <!-- Above card -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <!-- Card heading -->
+        <h2 class="h5 text-white mb-0">Watching for future packages</h2>
+    </div>
+    <!-- Card -->
+    <div class="card shadow-sm rounded-5" style="background: #252525; border: 1px solid #5A5A5A;">
+        <div class="card-body p-4">
+            <!-- Column names -->
+            <div class="d-flex ps-3 pe-2 align-items-end mb-1">
+                <div style="flex: 2;"><span class="small" style="color: #AAAAAA;">Name</span></div>
+                <div style="flex: 1;"></div>
+                <div style="flex: 2;"><span class="small" style="color: #AAAAAA;">Branch</span></div>
+                <div style="flex: 2;"><span class="small" style="color: #AAAAAA;">Status</span></div>
+                <div style="flex: 2;"></div>
+            </div>
+            <!-- Watched packages -->
+            <div id="watchlist-entries" class="d-flex flex-column gap-2">
+                for _, entry := range entries {
+                    @WatchlistItem(entry)
+                }
+            </div>
+        </div>
+    </div>
+}
+
+// WatchlistItem renders a single watchlist row.
+templ WatchlistItem(entry WatchlistEntryVM) {
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={ fmt.Sprintf("watchlist-%d", entry.ID) }>
+        <div style="flex: 2;"><strong class="text-white">{ entry.Name }</strong></div>
+        <div style="flex: 1;"></div>
+        <div style="flex: 2;"><span class="small text-white">{ entry.Branch }</span></div>
+        <div style="flex: 2;">
+            if entry.CheckedNotFound {
+                <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">still not there :(</span>
+            } else {
+                <span class="badge" style="border: 1px solid #7DAAFF; color: #7DAAFF;">watching</span>
+            }
+        </div>
+        <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+            <button
+                class="btn-outline-brand btn btn-sm rounded-5"
+                hx-post={ fmt.Sprintf("/package/watch/check/%d", entry.ID) }
+                hx-target={ fmt.Sprintf("#watchlist-%d", entry.ID) }
+                hx-swap="outerHTML"
+            >
+                Check
+            </button>
+            <button
+                class="btn-outline-danger-custom btn btn-sm rounded-5"
+                hx-post={ fmt.Sprintf("/package/unwatch/%d", entry.ID) }
+                hx-target={ fmt.Sprintf("#watchlist-%d", entry.ID) }
+                hx-swap="outerHTML"
+            >
+                Unwatch
+            </button>
+        </div>
+    </div>
+}
+
+// WatchlistItemLoading is shown while background nix eval check is in progress.
+templ WatchlistItemLoading(entry WatchlistEntryVM, pollingURL string) {
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={ fmt.Sprintf("watchlist-%d", entry.ID) }
+        hx-get={ pollingURL }
+        hx-trigger="every 3s"
+        hx-swap="outerHTML"
+    >
+        <div style="flex: 2;"><strong class="text-white">{ entry.Name }</strong></div>
+        <div style="flex: 1;"></div>
+        <div style="flex: 2;"><span class="small text-white">{ entry.Branch }</span></div>
+        <div style="flex: 2;">
+            <span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
+        </div>
+        <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+            <button class="btn-outline-brand btn btn-sm rounded-5" disabled>Check</button>
+            <button class="btn-outline-danger-custom btn btn-sm rounded-5" disabled>Unwatch</button>
+        </div>
+    </div>
+}
+
+// WatchlistItemError is shown when a manual check fails with a non "not found" error.
+templ WatchlistItemError(entry WatchlistEntryVM) {
+    <div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #FF6B6B;" id={ fmt.Sprintf("watchlist-%d", entry.ID) }>
+        <div class="d-flex align-items-center">
+            <div style="flex: 2;"><strong class="text-white">{ entry.Name }</strong></div>
+            <div style="flex: 1;"></div>
+            <div style="flex: 2;"><span class="small text-white">{ entry.Branch }</span></div>
+            <div style="flex: 2;"><span class="badge" style="border: 1px solid #7DAAFF; color: #7DAAFF;">watching</span></div>
+            <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+                <button
+                    class="btn-outline-brand btn btn-sm rounded-5"
+                    hx-post={ fmt.Sprintf("/package/watch/check/%d", entry.ID) }
+                    hx-target={ fmt.Sprintf("#watchlist-%d", entry.ID) }
+                    hx-swap="outerHTML"
+                >Retry</button>
+                <button
+                    class="btn-outline-danger-custom btn btn-sm rounded-5"
+                    hx-post={ fmt.Sprintf("/package/unwatch/%d", entry.ID) }
+                    hx-target={ fmt.Sprintf("#watchlist-%d", entry.ID) }
+                    hx-swap="outerHTML"
+                >Unwatch</button>
+            </div>
+        </div>
+        <!-- Error message below -->
+        <div class="ps-1 pt-1">
+            <span class="small text-danger">{ entry.ErrMsg }.</span>
+        </div>
+    </div>
+}
+
+// WatchlistItemPromoted replaces the watchlist row with success version and at the same time
+// inserts new tracking loading row into #tracked-list via HTMX OOB swap.
+templ WatchlistItemPromoted(watchlistIDStr string, pkg TrackedPackageVM) {
+    <div id={ fmt.Sprintf("watchlist-%s", watchlistIDStr) } class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #51ca71;">
+        <div class="d-flex align-items-center">
+            <div style="flex: 2;"><strong class="text-white">{ pkg.Name }</strong></div>
+            <div style="flex: 1;"></div>
+            <div style="flex: 2;"><span class="small text-white">{ pkg.Branch }</span></div>
+            <div style="flex: 2;"><span class="small text-white">{ pkg.LastNotifiedVersion }</span></div>
+            <div style="flex: 2;"></div>
+        </div>
+        <div class="ps-1 pt-1">
+            <span class="small" style="color: #51ca71;">Package appeared in nixpkgs - now tracking</span>
+        </div>
+    </div>
+    <div hx-swap-oob="afterbegin:#tracked-list">
+        @TrackedPackageItem(pkg)
+    </div>
+}
+
+// WatchPackageResponse is returned by POST /package/watch.
+// Main body is empty so HTMX clears #new-package-slot (removing the NotFound row in Tracked packages).
+// OOB swap re-renders #watchlist-section with all current entries including new one.
+templ WatchPackageResponse(entries []WatchlistEntryVM) {
+    <div id="watchlist-section" hx-swap-oob="innerHTML">
+        @WatchlistSection(entries)
+    </div>
+}
+
+// UnwatchResponse is returned by POST /package/unwatch/{id}.
+// OOB swap re-renders #watchlist-section -> removes it entirely when no entries remain.
+templ UnwatchResponse(entries []WatchlistEntryVM) {
+    <div id="watchlist-section" hx-swap-oob="innerHTML">
+        if len(entries) > 0 {
+            @WatchlistSection(entries)
+        }
     </div>
 }
 
@@ -251,6 +419,47 @@ templ TrackedPackageItemInitError(pckg TrackedPackageVM) {
     </div>
 }
 
+// TrackedPackageItemNotFound is shown when nix eval confirms the package does not exist yet.
+// Instead of a plain error in TrackedPackageItemInitError, it offers a "Watch" button.
+templ TrackedPackageItemNotFound(pckg TrackedPackageVM) {
+	<div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #7DAAFF;" id={ fmt.Sprintf("package-%d", pckg.PackageID) }>
+		<div class="d-flex align-items-center">
+			<div style="flex: 2;"><strong class="text-white">{ pckg.Name }</strong></div>
+			<div style="flex: 1;"></div>
+			<div style="flex: 2;"><span class="small text-white">{ pckg.Branch }</span></div>
+			<div style="flex: 2;"><span class="small text-white">-</span></div>
+			<div class="d-flex gap-2 justify-content-end" style="flex: 2;">
+				<button
+					class="btn-outline-watch btn btn-sm rounded-5 px-3"
+                    hx-post="/package/watch"
+                    hx-vals={ fmt.Sprintf(`{"name":"%s","branch":"%s"}`, pckg.Name, pckg.Branch) }
+                    hx-target="#new-package-slot"
+                    hx-swap="innerHTML"
+                    data-bs-toggle="tooltip"
+                    data-bs-placement="top"
+                    title="Get notified when this package appears in Nixpkgs"
+                >
+                    <i class="bi bi-eye-fill me-1 px-3"></i>
+				</button>
+				<button
+					type="button"
+					class="btn-outline-basic btn btn-sm rounded-5 px-3"
+					hx-get="/package/track/cancel"
+					hx-target="#new-package-slot"
+					hx-swap="innerHTML"
+				>
+                    <i class="bi bi-x-lg"></i>
+                </button>
+			</div>
+		</div>
+		<div class="ps-1 pt-1">
+			<span class="small" style="color: #7DAAFF;">
+				This package was not found.
+			</span>
+		</div>
+	</div>
+}
+
 // TrackedPackageItemCheckError is shown when nix eval during a manual check fails.
 // Unlike init errors, the package is already tracked with a known version, so Check is available to retry.
 templ TrackedPackageItemCheckError(pckg TrackedPackageVM, errMsg string) {
@@ -336,8 +545,8 @@ templ NewPackageForm() {
         <!-- Buttons -->
         <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
             <!-- Submit button -->
-            <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-3">
-                Submit
+            <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-4">
+                <i class="bi bi-check-lg"></i>
             </button>
             <!-- Cancel button -->
             <button
@@ -347,7 +556,7 @@ templ NewPackageForm() {
                 hx-target="#new-package-slot"
                 hx-swap="innerHTML"
             >
-                Cancel
+                <i class="bi bi-x-lg"></i>
             </button>
         </div>
     </form>

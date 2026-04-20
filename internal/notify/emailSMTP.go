@@ -43,22 +43,41 @@ func NewSMTPSender(host, port, username, password, from string) *SMTPSender {
 // Builds RFC 2822 plain-text message
 // smtp.SendMail handles STARTTLS negotiation and PLAIN AUTH
 func (s *SMTPSender) Send(_ context.Context, event VersionChangeEvent) error {
-	subject := fmt.Sprintf("[nixpkgs-notifier] %s updated: %s → %s",
-		event.PackageName, event.OldVersion, event.NewVersion)
+	var subject, body string
 
-	body := fmt.Sprintf(
-		"Package update detected\r\n\r\n"+
-			"Package:     %s\r\n"+
-			"Branch:      %s\r\n"+
-			"Old version: %s\r\n"+
-			"New version: %s\r\n"+
-			"Detected at: %s\r\n",
-		event.PackageName,
-		event.PackageBranch,
-		event.OldVersion,
-		event.NewVersion,
-		event.DetectedAt.UTC().Format(time.RFC3339),
-	)
+	if event.IsFirstAppearance {
+		subject = fmt.Sprintf("[nixpkgs-notifier] %s appeared in nixpkgs: %s",
+			event.PackageName, event.NewVersion)
+
+		body = fmt.Sprintf(
+			"Package appeared in nixpkgs for the first time!\r\n\r\n"+
+				"Package:     %s\r\n"+
+				"Branch:      %s\r\n"+
+				"Version:     %s\r\n"+
+				"Detected at: %s\r\n",
+			event.PackageName,
+			event.PackageBranch,
+			event.NewVersion,
+			event.DetectedAt.UTC().Format(time.RFC3339),
+		)
+	} else {
+		subject = fmt.Sprintf("[nixpkgs-notifier] %s updated: %s → %s",
+			event.PackageName, event.OldVersion, event.NewVersion)
+
+		body = fmt.Sprintf(
+			"Package version change detected!\r\n\r\n"+
+				"Package:     %s\r\n"+
+				"Branch:      %s\r\n"+
+				"Old version: %s\r\n"+
+				"New version: %s\r\n"+
+				"Detected at: %s\r\n",
+			event.PackageName,
+			event.PackageBranch,
+			event.OldVersion,
+			event.NewVersion,
+			event.DetectedAt.UTC().Format(time.RFC3339),
+		)
+	}
 
 	msg := s.buildMessage(event.RecipientAddress, subject, body)
 	return s.sendMail(event.RecipientAddress, msg)

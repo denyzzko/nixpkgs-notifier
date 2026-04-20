@@ -34,28 +34,50 @@ type ChannelResult struct {
 	WebhookRequestAck    bool   // mattermost only
 }
 
-// GetChannels returns all channels for a user with resolved type and address.
-func GetChannels(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) ([]ChannelResult, error) {
+// ChannelsSummary holds list of channels and per-type counts for the current user.
+type ChannelsSummary struct {
+	Channels     []ChannelResult
+	WebhookCount int
+	EmailCount   int
+}
+
+// ChannelTestPayload holds resolved email or webhook structs needed by dispatcher test call.
+type ChannelTestPayload struct {
+	Channel ChannelResult
+	Email   *database.Email
+	Webhook *database.Webhook
+}
+
+// GetChannels returns all channels for a user with resolved type, address and per-type counts.
+func GetChannels(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) (ChannelsSummary, error) {
 	const op = "channels.GetChannels"
 
 	// get user ID
 	userID := sessionManager.GetUserID(ctx)
 	if userID == 0 {
-		return nil, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
+		return ChannelsSummary{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
 	}
 
 	// get user channels
 	rows, err := db.QueryChannelsByUserID(ctx, userID)
 	if err != nil {
-		return nil, appError.NewAppError(op, appError.Internal, "failed to load channels", err)
+		return ChannelsSummary{}, appError.NewAppError(op, appError.Internal, "failed to load channels", err)
 	}
 
-	// resolve type (email/webhook) and fill array of structs
-	results := make([]ChannelResult, 0, len(rows))
-	for _, row := range rows {
-		results = append(results, channelResultFromRow(row))
+	// resolve type and address for each channel, count per type
+	summary := ChannelsSummary{
+		Channels: make([]ChannelResult, 0, len(rows)),
 	}
-	return results, nil
+	for _, row := range rows {
+		ch := channelResultFromRow(row)
+		summary.Channels = append(summary.Channels, ch)
+		if ch.Type == "Webhook" {
+			summary.WebhookCount++
+		} else if ch.Type == "Email" {
+			summary.EmailCount++
+		}
+	}
+	return summary, nil
 }
 
 // GetChannelByID returns a single channel by its ID.
@@ -300,4 +322,33 @@ func AcknowledgeDisabled(ctx context.Context, db *database.Store, sm *session.Se
 
 	// return updated channel
 	return GetChannelByID(ctx, db, sm, channelID)
+}
+
+// GetChannelTestPayload fetches channel by ID and resolves it into payload ready for dispatcher.
+func GetChannelTestPayload(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, channelID int64) (ChannelTestPayload, error) {
+	const op = "channels.GetChannelTestPayload"
+
+	// fetch channel
+	ch, err := GetChannelByID(ctx, db, sessionManager, channelID)
+	if err != nil {
+		return ChannelTestPayload{}, appError.NewAppError(op, appError.NotFound, "channel not found", err)
+	}
+
+	// resolve types
+	var email *database.Email
+	var webhook *database.Webhook
+	if ch.Type == "Email" {
+		email = &database.Email{Address: ch.Address}
+	} else {
+		webhook = &database.Webhook{
+			URL:        ch.Address,
+			Type:       ch.WebhookType,
+			Username:   ch.WebhookUsername,
+			Channel:    ch.WebhookChannel,
+			Priority:   ch.WebhookPriority,
+			RequestAck: ch.WebhookRequestAck,
+		}
+	}
+
+	return ChannelTestPayload{Channel: ch, Email: email, Webhook: webhook}, nil
 }

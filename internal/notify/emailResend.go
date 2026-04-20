@@ -73,33 +73,48 @@ func (s *ResendSender) Send(ctx context.Context, event VersionChangeEvent) error
 		}
 	}
 
-	subject := fmt.Sprintf("[nixpkgs-notifier] %s updated: %s → %s",
-		event.PackageName, event.OldVersion, event.NewVersion)
+	var subject, body string
 
-	body := fmt.Sprintf(
-		"Package update detected\n\n"+
-			"Package:     %s\n"+
-			"Branch:      %s\n"+
-			"Old version: %s\n"+
-			"New version: %s\n"+
-			"Detected at: %s\n",
-		event.PackageName,
-		event.PackageBranch,
-		event.OldVersion,
-		event.NewVersion,
-		event.DetectedAt.UTC().Format(time.RFC3339),
-	)
+	if event.IsFirstAppearance {
+		subject = fmt.Sprintf("[nixpkgs-notifier] %s appeared in nixpkgs: %s",
+			event.PackageName, event.NewVersion)
 
-	// produce JSON payload
+		body = fmt.Sprintf(
+			"Package appeared in nixpkgs for the first time!\n\n"+
+				"Package:     %s\n"+
+				"Branch:      %s\n"+
+				"Version:     %s\n"+
+				"Detected at: %s\n",
+			event.PackageName,
+			event.PackageBranch,
+			event.NewVersion,
+			event.DetectedAt.UTC().Format(time.RFC3339),
+		)
+	} else {
+		subject = fmt.Sprintf("[nixpkgs-notifier] %s updated: %s → %s",
+			event.PackageName, event.OldVersion, event.NewVersion)
+
+		body = fmt.Sprintf(
+			"Package version change detected!\n\n"+
+				"Package:     %s\n"+
+				"Branch:      %s\n"+
+				"Old version: %s\n"+
+				"New version: %s\n"+
+				"Detected at: %s\n",
+			event.PackageName,
+			event.PackageBranch,
+			event.OldVersion,
+			event.NewVersion,
+			event.DetectedAt.UTC().Format(time.RFC3339),
+		)
+	}
+
 	data, err := json.Marshal(resendRequest{
 		From:    s.fromAddr,
 		To:      []string{event.RecipientAddress},
 		Subject: subject,
 		Text:    body,
 	})
-	if err != nil {
-		return fmt.Errorf("notify.ResendSender: marshal request: %w", err)
-	}
 
 	// POST the payload to the Resend API
 	return s.post(ctx, data)

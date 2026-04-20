@@ -41,6 +41,15 @@ func channelVM(ch channels.ChannelResult, maxRetries int) pages.ChannelVM {
 	}
 }
 
+// watchlistEntryVM maps a database.WatchlistEntry to pages.WatchlistEntryVM.
+func watchlistEntryVM(e database.WatchlistEntry) pages.WatchlistEntryVM {
+	return pages.WatchlistEntryVM{
+		ID:     e.ID,
+		Name:   e.Name,
+		Branch: e.Branch,
+	}
+}
+
 // trackedPackageVMFromTracked maps a database.TrackedPackage to pages.TrackedPackageVM.
 func trackedPackageVMFromTracked(t database.TrackedPackage) pages.TrackedPackageVM {
 	return pages.TrackedPackageVM{

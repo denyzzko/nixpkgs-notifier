@@ -69,6 +69,15 @@ var qGetAccountsByUserID string
 //go:embed sql/get_oldest_notification_created_at.sql
 var qGetOldestNotificationCreatedAt string
 
+//go:embed sql/get_watchlist_by_userID.sql
+var qGetWatchlistByUserID string
+
+//go:embed sql/get_watchlist_entry_by_ID.sql
+var qGetWatchlistEntryByID string
+
+//go:embed sql/get_distinct_watchlist_name_branch.sql
+var qGetDistinctWatchlistNameBranch string
+
 //go:embed sql/insert_tracking.sql
 var sInsertTracking string
 
@@ -96,6 +105,9 @@ var sInsertAccountLink string
 //go:embed sql/insert_trackings_from_user.sql
 var sInsertTrackingsFromUser string
 
+//go:embed sql/insert_watchlist_entry.sql
+var sInsertWatchlistEntry string
+
 //go:embed sql/remove_tracking.sql
 var dRemoveTracking string
 
@@ -113,6 +125,12 @@ var dRemoveAccountByUserIDIssuerSubject string
 
 //go:embed sql/remove_expired_notifications.sql
 var dRemoveExpiredNotifications string
+
+//go:embed sql/remove_watchlist_entry.sql
+var dRemoveWatchlistEntry string
+
+//go:embed sql/remove_watchlist_by_name_branch.sql
+var dRemoveWatchlistByNameBranch string
 
 //go:embed sql/update_notification_status_to_sent_by_ID.sql
 var sUpdateNotificationToSent string

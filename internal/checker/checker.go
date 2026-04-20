@@ -1,20 +1,27 @@
-// Package checker implements the background package version checking system
+// Package checker implements the background package version checking system.
 //
 // It manages two priority queues of nix eval jobs:
-// - High priority queue (highQ - capacity 128): checks triggered by users from UI (Track, Check, CheckAll) - processed first
-// - Low priority queue   (lowQ - capacity 512): automatic periodic system checks for all tracked packages  - processed only when highQ is empty
+//   - High priority queue (highQ - capacity 128): checks triggered by users from UI (Track, Check, WatchCheck) - processed first
+//   - Low priority queue  (lowQ - capacity 512):  automatic periodic system checks for all tracked packages and
+//     watchlist checks for not-yet-existing packages - processed only when highQ is empty
 //
-// A fixed pool of worker goroutines takes periodically from both queues
-// Each worker calls nix eval for one job (acts as a rate limiter -> at most WorkerCount nix evals run concurrently, preventing overload)
+// A fixed pool of worker goroutines takes periodically from both queues.
+// Each worker calls nix eval for one job (acts as a rate limiter -> at most WorkerCount nix evals run concurrently, preventing overload).
 //
-// Two protections of nix eval abuse:
-//   - Singleflight (in nix package): if multiple workers call nix for same package at the same moment, only one subprocess runs evaluation with nix eval and result is shared
-//   - SkipInterval treshold: nix eval is skipped if last_checked_at for that package is within configured SkipInterval (package's current_version is returned instead), this protects from sequential abuse requests
+// Two protections against nix eval abuse:
+//   - Singleflight (in nix package): if multiple workers call nix for same package at the same moment, only one
+//     subprocess runs and result is shared.
+//   - SkipInterval threshold: nix eval is skipped if last_checked_at for that package is within configured
+//     SkipInterval and stored current_version is returned instead. Watchlist checks are exeption - they always run.
 //
-// User-triggered jobs carry a reply channel (CheckJob.Result) so the caller can create a buffered channel, place in job, enqueue job and block on the channel waiting for result (necessary for the SSR request->response flow)
-// Worker sends nix result back when finished, which unblocks caller
+// User-triggered jobs carry a reply channel (CheckJob.Result): caller creates a buffered channel, enqueues job,
+// and blocks on the channel. Worker sends nix result back when finished, unblocking caller.
 //
-// System-triggered jobs carry no reply channel (worker handles full flow itself - version comparison and notification creation)
+// System-triggered package checks (Result == nil, IsWatchlistCheck == false): worker handles the full flow -
+// compares versions and calls CreatePendingNotifications if change is detected.
+//
+// System-triggered watchlist checks (Result == nil, IsWatchlistCheck == true): worker calls nix eval and if
+// package appears for the first time calls PromoteWatchlistEntries and CreateFirstAppearanceNotifications.
 package checker
 
 import (
@@ -29,43 +36,47 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 )
 
-// Checker variables (config) that can be altered by admin of the system
-// Loaded from env on startup, replaceable at runtime through the admin interface using UpdateConfig
+// Checker variables (config) that can be altered by admin of the system.
+// Loaded from env on startup, replaceable at runtime through the admin interface using UpdateConfig.
 type Config struct {
 	Interval     time.Duration // how often the schedule loop enqueues all packages in the system for automatic background version check
 	WorkerCount  int           // number of workers evaluating nix eval (max concurrent nix evals)
 	SkipInterval time.Duration // minimum time between nix evals for the same package (within this interval nix evals are skipped and the stored version is returned)
 }
 
-// Outcome of a single nix eval job
-// It is sent back to the caller through a reply channel (for user-triggered jobs)
+// Outcome of a single nix eval job.
+// It is sent back to the caller through a reply channel (for user-triggered jobs).
 type NixResult struct {
 	Version string
 	Err     error
 	Skipped bool
 }
 
-// One unit of work placed into a priority queue
+// One unit of work placed into a priority queue.
 //
-// For user-triggered jobs (Result != nil): caller creates a buffered channel, assigns it to Result, enqueues job, and blocks on the channel
-// The worker sends the nix eval result back when done, unblocking the caller
-// This turns async worker pool into a synchronous call from the HTTP handler perspective, which is required for the SSR request->response flow
-// The caller is responsible for all DB operations after receiving the result
+// For user-triggered jobs (Result != nil): caller creates a buffered channel, assigns it to Result, enqueues job, and blocks on the channel.
+// The worker sends the nix eval result back when done, unblocking the caller.
+// This turns async worker pool into a synchronous call from the HTTP handler perspective, which is required for the SSR request->response flow.
+// The caller is responsible for all DB operations after receiving the result.
 //
-// For system-triggered jobs (Result == nil): worker handles the full flow internally
-// It compares versions and calls CreatePendingNotifications if a change is detected
+// For system-triggered jobs (Result == nil, IsWatchlistCheck == false): worker handles the full flow internally.
+// It compares versions and calls CreatePendingNotifications if a change is detected.
+//
+// For system-triggered watchlist checks (Result == nil, IsWatchlistCheck == true): worker calls nix eval and
+// if the package appears for the first time calls PromoteWatchlistEntries and CreateFirstAppearanceNotifications.
 type CheckJob struct {
-	Name           string
-	Branch         string
-	PackageID      int64            // 0 if package does not exist yet (e.g. when called from package.Track())
-	CurrentVersion string           // currently stored version of package in database
-	LastCheckedAt  *time.Time       // last time nix eval was executed for this package (nil means never)
-	Result         chan<- NixResult // reply channel - nil for system (low-priority) jobs
+	Name             string
+	Branch           string
+	PackageID        int64            // 0 if package does not exist yet (e.g. when called from package.Track())
+	CurrentVersion   string           // currently stored version of package in database
+	LastCheckedAt    *time.Time       // last time nix eval was executed for this package (nil means never)
+	Result           chan<- NixResult // reply channel - nil for system (low-priority) jobs
+	IsWatchlistCheck bool             // true for periodic background checks of watched packages
 }
 
-// Checker with all resources it needs
-// It is created once in main.go on startup
-// It manages worker pool and priority queues for nix eval jobs
+// Checker with all resources it needs.
+// It is created once in main.go on startup.
+// It manages worker pool and priority queues for nix eval jobs.
 type Checker struct {
 	db    *database.Store
 	cfg   Config
@@ -87,14 +98,14 @@ func New(db *database.Store, cfg Config) *Checker {
 	}
 }
 
-// Config helper that replaces config at runtime
+// Config helper that replaces config at runtime.
 func (ch *Checker) UpdateConfig(cfg Config) {
 	ch.cfgMu.Lock()
 	defer ch.cfgMu.Unlock()
 	ch.cfg = cfg
 }
 
-// Config helper that returns current config
+// Config helper that returns current config.
 func (ch *Checker) config() Config {
 	ch.cfgMu.RLock()
 	defer ch.cfgMu.RUnlock()
@@ -107,8 +118,8 @@ func (ch *Checker) GetConfig() Config {
 	return ch.config()
 }
 
-// Launches N worker goroutines (where N is WorkerCount) and the schedule loop
-// All goroutines run until ctx is cancelled (SIGTERM/SIGINT)
+// Launches N worker goroutines (where N is WorkerCount) and the schedule loop.
+// All goroutines run until ctx is cancelled (SIGTERM/SIGINT).
 func (ch *Checker) Start(ctx context.Context) {
 	cfg := ch.config()
 	for i := 0; i < cfg.WorkerCount; i++ {
@@ -118,9 +129,9 @@ func (ch *Checker) Start(ctx context.Context) {
 	log.Println("[INFO] checker: started")
 }
 
-// Background goroutine responsible for periodic scheduling
+// Background goroutine responsible for periodic scheduling.
 // Uses time.Ticker to wake up at the configured Interval to enqueue all
-// tracked packages into lowQ for a background version check
+// tracked packages into lowQ for a background version check.
 func (ch *Checker) scheduleLoop(ctx context.Context) {
 	cfg := ch.config()
 	ticker := time.NewTicker(cfg.Interval)
@@ -136,20 +147,21 @@ func (ch *Checker) scheduleLoop(ctx context.Context) {
 			// re-read config (interval may have been updated at runtime) and enqueue all packages
 			cfg = ch.config()
 			ticker.Reset(cfg.Interval)
-			ch.enqueueAll(ctx)
+			ch.enqueueAllTracked(ctx)
+			ch.enqueueAllWatched(ctx)
 		}
 	}
 }
 
-// Queries all packages from the database and enqueues each one as a low-priority system job
-// During enqueuing it skips any package whose last_checked_at is within configured SkipInterval
-// Called by scheduleLoop on every tick
+// enqueueAllTracked queries all packages from the database and enqueues each one as a low-priority system job.
+// Skips packages whose last_checked_at is within the configured SkipInterval.
+// Called by scheduleLoop on every tick.
 //
 // Each job carries a snapshot of the package's ID and current version at the time of enqueue,
-// so process() can compare against nix eval result and detect version change
+// so process() can compare against nix eval result and detect version change.
 //
-// If lowQ is full, jobs are dropped and warning is logged
-func (ch *Checker) enqueueAll(ctx context.Context) {
+// If lowQ is full, jobs are dropped and warning is logged.
+func (ch *Checker) enqueueAllTracked(ctx context.Context) {
 	// get all packages
 	packages, err := ch.db.QueryAllPackages(ctx)
 	if err != nil {
@@ -182,9 +194,43 @@ func (ch *Checker) enqueueAll(ctx context.Context) {
 	log.Printf("[INFO] checker: enqueued %d/%d packages for background check (%d skipped - recently checked)", enqueued, len(packages), skipped)
 }
 
-// Places a user-triggered job into the high-priority queue
-// Enqueue is non-blocking, if all 128 slots are taken, job is dropped and error is returned through reply channel so caller does not hang
-// Plain EnqueueHigh is used for Track because that always needs a real eval to set last_notified_version baseline correctly
+// enqueueAllWatched queries all distinct (name, branch) pairs from the watchlist and enqueues
+// each one as a low-priority system watchlist job.
+// Unlike enqueueAllTracked, SkipInterval does not apply.
+// Called by scheduleLoop on every tick.
+//
+// If lowQ is full, jobs are dropped and a warning is logged.
+func (ch *Checker) enqueueAllWatched(ctx context.Context) {
+	// get all distinct (name, branch) pairs currently in the watchlist
+	entries, err := ch.db.QueryDistinctWatchlistPackages(ctx)
+	if err != nil {
+		log.Printf("[ERROR] checker: query watchlist packages: %v", err)
+		return
+	}
+	if len(entries) == 0 {
+		return
+	}
+
+	// enqueue to low-priority queue
+	enqueued := 0
+	for _, e := range entries {
+		if ch.EnqueueLow(CheckJob{Name: e.Name, Branch: e.Branch, IsWatchlistCheck: true}) {
+			enqueued++
+		}
+	}
+
+	dropped := len(entries) - enqueued
+	if dropped > 0 {
+		log.Printf("[WARN] checker: low-priority queue full - %d/%d watchlist entries dropped this tick. Please increase queue capacity!", dropped, len(entries))
+	}
+
+	log.Printf("[INFO] checker: enqueued %d/%d watchlist entries for background check", enqueued, len(entries))
+}
+
+// Places a user-triggered job into the high-priority queue.
+// Enqueue is non-blocking, if all 128 slots are taken, job is dropped and error is returned through reply channel so caller does not hang.
+// Plain EnqueueHigh is used for Track because it always needs a real eval to set the last_notified_version baseline.
+// It is also used for WatchCheck because SkipInterval does not apply to watched packages.
 func (ch *Checker) EnqueueHigh(job CheckJob) {
 	select {
 	case ch.highQ <- job:
@@ -197,10 +243,10 @@ func (ch *Checker) EnqueueHigh(job CheckJob) {
 	}
 }
 
-// Like EnqueueHigh but it also applies the SkipInterval threshold before enqueueing
+// Like EnqueueHigh but it also applies the SkipInterval threshold before enqueueing.
 // If last_checked_at for this package is within SkipInterval, the nix eval is skipped
-// entirely and stored CurrentVersion is returned immediately through the reply channel (no job is enqueued)
-// Returns true if the job was skipped, false if it was enqueued for real evaluation
+// entirely and stored CurrentVersion is returned immediately through the reply channel (no job is enqueued).
+// Returns true if the job was skipped, false if it was enqueued for real evaluation.
 func (ch *Checker) EnqueueHighOrSkip(job CheckJob) bool {
 	cfg := ch.config()
 	if cfg.SkipInterval > 0 && job.LastCheckedAt != nil {
@@ -217,9 +263,9 @@ func (ch *Checker) EnqueueHighOrSkip(job CheckJob) bool {
 	return false
 }
 
-// Places a periodic system job into the low-priority queue
+// Places a periodic system job into the low-priority queue.
 // Returns true if the job was enqueued, false if the queue was full and the job was dropped
-// job.Result must be nil - system jobs do not reply to any caller
+// job.Result must be nil - system jobs do not reply to any caller.
 func (ch *Checker) EnqueueLow(job CheckJob) bool {
 	select {
 	case ch.lowQ <- job:
@@ -229,8 +275,8 @@ func (ch *Checker) EnqueueLow(job CheckJob) bool {
 	}
 }
 
-// worker is the core goroutine that processes jobs from both high and low queues
-// Each call to Start spins up WorkerCount of these, all running concurrently
+// worker is the core goroutine that processes jobs from both high and low queues.
+// Each call to Start spins up WorkerCount of these, all running concurrently.
 //
 // --BIASED PRIORITY SELECT PATTERN--
 // idea: https://groups.google.com/g/golang-nuts/c/SXsgdpRK-mE
@@ -238,7 +284,7 @@ func (ch *Checker) EnqueueLow(job CheckJob) bool {
 //
 // Go's select picks a ready case at random when multiple cases are
 // ready simultaneously, so a plain two-case select would not guarantee that
-// highQ is always preferred over lowQ
+// highQ is always preferred over lowQ.
 //
 // The biased priority pattern fixes this with two selects:
 //
@@ -275,27 +321,31 @@ func (ch *Checker) worker(ctx context.Context) {
 	}
 }
 
-// dispatch routes a job to the appropriate handler based on whether it carries a reply channel
+// dispatch routes a job to the appropriate handler based on job type.
+// User-triggered jobs (Result != nil) are handled by processUserJob.
+// System watchlist jobs (IsWatchlistCheck == true) are handled by processSystemWatchlistJob.
+// System tracked package jobs are handled by processSystemTrackedJob.
 func (ch *Checker) dispatch(ctx context.Context, job CheckJob) {
 	if job.Result != nil {
 		ch.processUserJob(ctx, job)
+	} else if job.IsWatchlistCheck {
+		ch.processSystemWatchlistJob(ctx, job)
 	} else {
-		ch.processSystemJob(ctx, job)
+		ch.processSystemTrackedJob(ctx, job)
 	}
 }
 
-// processUserJob handles a user-triggered job (job.Result != nil)
-// Runs nix eval and sends the raw result (possibly including error) back through the reply channel
-// All DB operations (including last_checked_at update) are the responsibility of the caller's goroutine (packages layer)
+// processUserJob handles a user-triggered job (job.Result != nil).
+// Runs nix eval and sends the raw result (possibly including error) back through the reply channel.
+// All DB operations (including last_checked_at update) are the responsibility of the caller's goroutine (packages layer).
 func (ch *Checker) processUserJob(ctx context.Context, job CheckJob) {
 	version, err := nix.GetPackageVersionByNameAndBranch(ctx, job.Name, job.Branch)
 	job.Result <- NixResult{Version: version, Err: err}
 }
 
-// processSystemJob handles a system-triggered (periodic background) job (job.Result == nil)
-// Runs nix eval, compares fetched version against the stored one, updates last_checked_at on success
-// and calls CreatePendingNotifications if a version change is detected
-func (ch *Checker) processSystemJob(ctx context.Context, job CheckJob) {
+// processSystemTrackedJob handles a periodic background check for a tracked package (Result == nil, IsWatchlistCheck == false).
+// Runs nix eval, updates last_checked_at, and calls CreatePendingNotifications if a version change is detected.
+func (ch *Checker) processSystemTrackedJob(ctx context.Context, job CheckJob) {
 	version, err := nix.GetPackageVersionByNameAndBranch(ctx, job.Name, job.Branch)
 
 	if err != nil {
@@ -327,4 +377,36 @@ func (ch *Checker) processSystemJob(ctx context.Context, job CheckJob) {
 	// all users tracking this package are notified about version change
 	// triggerUserID=0 signals a system-triggered check
 	notifications.CreatePendingNotifications(ctx, ch.db, job.PackageID, job.Name, job.Branch, version, 0)
+}
+
+// processSystemWatchlistJob handles a periodic background check for a watched package (Result == nil, IsWatchlistCheck == true).
+// Runs nix eval and if package appears calls PromoteWatchlistEntries to create package and tracking rows
+// for all users who had it in their watchlist, removes their watchlist entries, and queues notifications.
+func (ch *Checker) processSystemWatchlistJob(ctx context.Context, job CheckJob) {
+	version, err := nix.GetPackageVersionByNameAndBranch(ctx, job.Name, job.Branch)
+	if err != nil {
+		if errors.Is(err, nix.ErrAttrNotFound) {
+			// still not in nixpkgs
+			return
+		}
+		log.Printf("[WARN] checker: watchlist nix eval failed (%q/%q): %v", job.Name, job.Branch, err)
+		return
+	}
+
+	log.Printf("[INFO] checker: watched package appeared (%q/%q) version=%s - creating tracking rows", job.Name, job.Branch, version)
+
+	// create package row, tracking rows for all users who had it in their watchlist, remove their watchlist entries
+	packageID, userIDs, err := ch.db.PromoteWatchlistEntries(ctx, job.Name, job.Branch, version)
+	if err != nil {
+		log.Printf("[ERROR] checker: promote watchlist entries (%q/%q): %v", job.Name, job.Branch, err)
+		return
+	}
+	if len(userIDs) == 0 {
+		// no users to notify about
+		// probably another worker already promoted
+		return
+	}
+
+	// notify all users - triggerUserID=0 signals system-triggered check
+	notifications.CreatePendingNotificationsFirstAppearance(ctx, ch.db, packageID, job.Name, job.Branch, version, 0)
 }

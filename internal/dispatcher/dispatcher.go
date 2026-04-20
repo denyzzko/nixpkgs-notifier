@@ -203,11 +203,12 @@ func (d *Dispatcher) deliver(ctx context.Context, n database.PendingFailedNotifi
 func (d *Dispatcher) resolveSender(n database.PendingFailedNotification) (notify.Sender, notify.VersionChangeEvent, error) {
 	// populate shared event payload from notification db row
 	event := notify.VersionChangeEvent{
-		PackageName:   n.PackageName,
-		PackageBranch: n.PackageBranch,
-		OldVersion:    n.OldVersion,
-		NewVersion:    n.NewVersion,
-		DetectedAt:    n.DetectedAt,
+		PackageName:       n.PackageName,
+		PackageBranch:     n.PackageBranch,
+		OldVersion:        n.OldVersion,
+		NewVersion:        n.NewVersion,
+		DetectedAt:        n.DetectedAt,
+		IsFirstAppearance: n.OldVersion == "",
 	}
 
 	// decide email/webhook

@@ -254,6 +254,10 @@ templ Base(title string, base BaseVM, content templ.Component) {
                     document.body.addEventListener("htmx:afterSwap", function (event) {
                         initTooltips(event.target);
                     });
+                    // clean up stuck tooltips before every HTMX swap
+                    document.body.addEventListener("htmx:beforeSwap", function () {
+                        document.querySelectorAll('.tooltip').forEach(el => el.remove());
+                    });
                 })();
             </script>
 
@@ -567,6 +571,18 @@ templ Base(title string, base BaseVM, content templ.Component) {
                     background: #8d8d8d;
                     color: white;
                     border: 1px solid #c6c6c6;
+                }
+                /* Outlined watch (purple style) button with fill-on-hover */
+                .btn-outline-watch {
+                    background: transparent;
+                    color: #7DAAFF;
+                    border: 1px solid #7DAAFF;
+                    transition: background 0.3s ease, color 0.3s ease;
+                }
+                .btn-outline-watch:hover {
+                    background: #5a78ff;
+                    color: white;
+                    border: 1px solid #acc9ff;
                 }
                 /* Outlined profile button with fill-on-hover */
                 .btn-outline-profile {

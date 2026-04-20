@@ -111,14 +111,23 @@ func NewWebhookSender() *WebhookSender {
 	}
 }
 
-// webhookPayload is the standardised JSON body sent to webhook endpoints
+// webhookPayloadVersionChange is the standardised JSON body sent to webhook endpoints
 // Receiving services should rely on this structure
-type webhookPayload struct {
+type webhookPayloadVersionChange struct {
+	EventType  string `json:"event_type"`
 	Package    string `json:"package"`
 	Branch     string `json:"branch"`
 	OldVersion string `json:"old_version"`
 	NewVersion string `json:"new_version"`
-	DetectedAt string `json:"detected_at"` // RFC3339 UTC timestamp
+	DetectedAt string `json:"detected_at"`
+}
+
+type webhookFirstAppearancePayload struct {
+	EventType  string `json:"event_type"`
+	Package    string `json:"package"`
+	Branch     string `json:"branch"`
+	Version    string `json:"version"`
+	DetectedAt string `json:"detected_at"`
 }
 
 // mattermostPayload is the standardised JSON body for Mattermost webhook endpoints
@@ -140,26 +149,39 @@ type testWebhookPayload struct {
 	Message string `json:"message"`
 }
 
-// Send POST event as JSON to webhook URL
+// Send delivers notification to a webhook URL as JSON POST.
+// The payload format depends on both webhook type and event kind:
+//   - generic + version update:    webhookPayloadVersionChange  (event_type "version_update")
+//   - generic + first appearance:  webhookFirstAppearancePayload (event_type "first_appearance")
+//   - mattermost + version update:    mattermostPayload with update text
+//   - mattermost + first appearance:  mattermostPayload with appeared text
 func (s *WebhookSender) Send(ctx context.Context, event VersionChangeEvent) error {
 	var data []byte
 	var err error
 
-	// produce JSON payload based on webhook type
 	switch event.WebhookType {
 	case "mattermost":
-		text := fmt.Sprintf(
-			"**Nixpkgs update:** `%s` on branch `%s` - `%s` -> `%s` (detected %s)",
-			event.PackageName,
-			event.PackageBranch,
-			event.OldVersion,
-			event.NewVersion,
-			event.DetectedAt.UTC().Format(time.RFC3339),
-		)
-
-		payload := mattermostPayload{
-			Text: text,
+		var text string
+		if event.IsFirstAppearance {
+			text = fmt.Sprintf(
+				"**Nixpkgs package appeared:** `%s` on branch `%s` is now in nixpkgs with version `%s` (detected %s)",
+				event.PackageName,
+				event.PackageBranch,
+				event.NewVersion,
+				event.DetectedAt.UTC().Format(time.RFC3339),
+			)
+		} else {
+			text = fmt.Sprintf(
+				"**Nixpkgs update:** `%s` on branch `%s` - `%s` -> `%s` (detected %s)",
+				event.PackageName,
+				event.PackageBranch,
+				event.OldVersion,
+				event.NewVersion,
+				event.DetectedAt.UTC().Format(time.RFC3339),
+			)
 		}
+
+		payload := mattermostPayload{Text: text}
 
 		if event.WebhookUsername != "" {
 			payload.Username = event.WebhookUsername
@@ -168,29 +190,37 @@ func (s *WebhookSender) Send(ctx context.Context, event VersionChangeEvent) erro
 			payload.Channel = event.WebhookChannel
 		}
 		if event.WebhookPriority != "" {
-			payload.Priority = &mattermostPriority{
-				Priority: event.WebhookPriority,
-			}
+			payload.Priority = &mattermostPriority{Priority: event.WebhookPriority}
 			if event.WebhookRequestAck {
 				payload.Priority.RequestedAck = true
 			}
 		}
 
 		data, err = json.Marshal(payload)
-	default: // "generic"
-		data, err = json.Marshal(webhookPayload{
-			Package:    event.PackageName,
-			Branch:     event.PackageBranch,
-			OldVersion: event.OldVersion,
-			NewVersion: event.NewVersion,
-			DetectedAt: event.DetectedAt.UTC().Format(time.RFC3339),
-		})
+	default:
+		if event.IsFirstAppearance {
+			data, err = json.Marshal(webhookFirstAppearancePayload{
+				EventType:  "first_appearance",
+				Package:    event.PackageName,
+				Branch:     event.PackageBranch,
+				Version:    event.NewVersion,
+				DetectedAt: event.DetectedAt.UTC().Format(time.RFC3339),
+			})
+		} else {
+			data, err = json.Marshal(webhookPayloadVersionChange{
+				EventType:  "version_update",
+				Package:    event.PackageName,
+				Branch:     event.PackageBranch,
+				OldVersion: event.OldVersion,
+				NewVersion: event.NewVersion,
+				DetectedAt: event.DetectedAt.UTC().Format(time.RFC3339),
+			})
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("notify.WebhookSender: marshal payload: %w", err)
 	}
 
-	// POST to webhook URL
 	return s.post(ctx, event.RecipientAddress, data)
 }
 

@@ -590,13 +590,12 @@ templ NewChannelError(chType string, address string, message string) {
 
             <!-- Column 6: Submit and Cancel Buttons -->
             <div class="col-2 d-flex align-items-center justify-content-end gap-2">
-                <button type="submit" class="btn btn-sm rounded-5 px-4" style="border: 1px solid #68FF90; color: #68FF90;">
+                <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-4">
                     <i class="bi bi-check-lg"></i>
                 </button>
                 <button
                     type="button"
-                    class="btn btn-sm rounded-5 px-3"
-                    style="background: #6C6C6C; color: white; border: none;"
+                    class="btn-outline-basic btn btn-sm rounded-5 px-3"
                     hx-get="/channel/add/cancel"
                     hx-target="#new-channel-slot"
                     hx-swap="innerHTML"

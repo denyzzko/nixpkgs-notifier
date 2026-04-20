@@ -4,6 +4,10 @@
 // CreatePendingNotifications finds all users tracking that package
 // and creates one notification job per active channel of each found user.
 //
+// When a watched package appears in nixpkgs for the first time, CreatePendingNotificationsFirstAppearance
+// is used instead - it skips the duplicate-version check and always sets OldVersion="" so the
+// notification message reads "package appeared" rather than "updated from X to Y".
+//
 // Each channel has a flag (NotifyOnManualVerify) that controls whether
 // a user's own manual check sends a notification to that channel.
 //
@@ -25,7 +29,10 @@ import (
 // user is not authenticated error
 var ErrNotAuthenticated = errors.New("not authenticated")
 
-// triggerUserID is 0 when triggered by the system
+// CreatePendingNotifications creates one pending notification per active channel for every user
+// tracking the given package, if their last notified version is different from newVersion.
+// triggerUserID is 0 for system-triggered checks. When non-zero, channels with
+// NotifyOnManualVerify=false are skipped for the triggering user.
 func CreatePendingNotifications(ctx context.Context, db *database.Store, packageID int64, packageName string, packageBranch string, newVersion string, triggerUserID int64) {
 	detectedAt := time.Now().UTC()
 
@@ -75,7 +82,53 @@ func CreatePendingNotifications(ctx context.Context, db *database.Store, package
 	log.Printf("[INFO] notifications: %d pending notification(s) created for %s/%s new version: %s", len(jobs), packageName, packageBranch, newVersion)
 }
 
-// Returns all notification records for the user
+// CreatePendingNotificationsFirstAppearance is like CreatePendingNotifications but used exclusively
+// when a watchlist package first appears in nixpkgs.
+// It skips lnv == newVersion duplicate-check because lnv was set to newVersion at
+// promotion time (so tracking is immediately usable), and it always sets OldVersion=""
+// so notification message correctly reads "package appeared" rather than "updated from X to Y".
+func CreatePendingNotificationsFirstAppearance(ctx context.Context, db *database.Store, packageID int64, packageName string, packageBranch string, newVersion string, triggerUserID int64) {
+	detectedAt := time.Now().UTC()
+
+	// find all trackings for this package
+	trackings, err := db.QueryTrackingsByPackageID(ctx, packageID)
+	if err != nil {
+		log.Printf("[ERROR] notifications: query trackings (packageID=%d): %v", packageID, err)
+		return
+	}
+
+	// build one notification job per active channel for each tracking
+	var jobs []database.ChannelNotification
+	for _, t := range trackings {
+		// get all active channels for this user
+		channels, err := db.QueryActiveChannelsByUserID(ctx, t.UserID)
+		if err != nil {
+			log.Printf("[WARN] notifications: query channels (userID=%d): %v", t.UserID, err)
+			continue
+		}
+		for _, ch := range channels {
+			// skip channels where the triggering user has NotifyOnManualVerify turned off
+			if triggerUserID != 0 && t.UserID == triggerUserID && !ch.NotifyOnManualVerify {
+				continue
+			}
+			jobs = append(jobs, database.ChannelNotification{
+				Channel:    ch,
+				OldVersion: "", // always empty - package is appearing for the first time
+			})
+		}
+	}
+
+	// insert pending notifications atomically
+	err = db.CreateNotificationsForFirstAppearance(ctx, newVersion, packageID, jobs, detectedAt)
+	if err != nil {
+		log.Printf("[ERROR] notifications: store first appearance (packageID=%d): %v", packageID, err)
+		return
+	}
+
+	log.Printf("[INFO] notifications: %d first-appearance notification(s) created for %s/%s version: %s", len(jobs), packageName, packageBranch, newVersion)
+}
+
+// GetDeliveryLog returns all notification records for the authenticated user.
 func GetDeliveryLog(ctx context.Context, db *database.Store, sm *session.SessionManager) ([]database.UserNotification, error) {
 	const op = "notifications.GetDeliveryLog"
 

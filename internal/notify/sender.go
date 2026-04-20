@@ -23,6 +23,7 @@ type VersionChangeEvent struct {
 	OldVersion        string
 	NewVersion        string
 	DetectedAt        time.Time
+	IsFirstAppearance bool   // true for "package appeared" notifications
 	RecipientAddress  string // email address or webhook URL
 	WebhookType       string // "generic" or "mattermost" - empty for emails
 	WebhookUsername   string // mattermost only

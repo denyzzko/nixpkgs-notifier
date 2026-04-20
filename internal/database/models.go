@@ -162,3 +162,20 @@ type SystemConfig struct {
 	MaxWebhooksPerUser              int
 	MaxEmailsPerUser                int
 }
+
+// WatchlistEntry is package that user watches for future appearance in Nixpkgs.
+type WatchlistEntry struct {
+	ID        int64
+	CreatedAt time.Time
+	UserID    int64
+	Name      string
+	Branch    string
+}
+
+// DistinctWatchlistEntry represents a unique (name, branch) pair from the watchlist.
+// Unlike WatchlistEntry it has no ID, UserID or CreatedAt
+// Used by QueryDistinctWatchlistPackages.
+type DistinctWatchlistEntry struct {
+	Name   string
+	Branch string
+}

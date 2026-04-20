@@ -137,9 +137,15 @@ templ NotificationLogItem(n NotificationLogVM) {
 
             <!-- Version change -->
             <div class="d-flex align-items-center gap-1" style="flex: 5;">
-                <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">v{n.OldVersion}</span>
-                <i class="bi bi-arrow-right" style="color: #AAAAAA;"></i>
-                <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">v{n.NewVersion}</span>
+                if n.OldVersion == "" {
+                    <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">-</span>
+                    <i class="bi bi-arrow-right" style="color: #AAAAAA;"></i>
+                    <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">{n.NewVersion}</span>
+                } else {
+                    <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">{n.OldVersion}</span>
+                    <i class="bi bi-arrow-right" style="color: #AAAAAA;"></i>
+                    <span class="badge" style="border: 1px solid #AAAAAA; color: #AAAAAA;">{n.NewVersion}</span>
+                }
             </div>
 
             <!-- Status -->

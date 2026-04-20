@@ -96,15 +96,28 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 			return
 		}
 
+		// get all watchlist entries for this user
+		watchlist, err := packages.GetWatchedPackages(ctx, db, sessionManager)
+		if err != nil {
+			writeAppErr(w, "web.indexPage", err)
+			return
+		}
+
 		// render response
 		pkgVMs := make([]pages.TrackedPackageVM, 0, len(tracked))
 		for _, t := range tracked {
 			pkgVMs = append(pkgVMs, trackedPackageVMFromTracked(t))
 		}
 
+		watchVMs := make([]pages.WatchlistEntryVM, 0, len(watchlist))
+		for _, e := range watchlist {
+			watchVMs = append(watchVMs, watchlistEntryVM(e))
+		}
+
 		vm := pages.IndexVM{
-			BaseVM:   buildBaseVM(ctx, r, db, sessionManager),
-			Packages: pkgVMs,
+			BaseVM:    buildBaseVM(ctx, r, db, sessionManager),
+			Packages:  pkgVMs,
+			Watchlist: watchVMs,
 		}
 
 		renderHTML(w, ctx, pages.IndexPage(vm))
@@ -398,10 +411,15 @@ func packageTrackStatus(db *database.Store, sessionManager *session.SessionManag
 			renderHTML(w, ctx, pages.TrackedPackageItemLoading(trackedPackageVMFromTracked(status.Package), pollingURL))
 			return
 		}
-		// nix eval failed - show error row with untrack button
+		// nix eval failed - show error row
 		if status.Failed {
 			vm := trackedPackageVMFromTracked(status.Package)
 			vm.ErrMsg = status.ErrMsg
+			// when package doesn't exist yet, offer user to Watch it
+			if status.Watchable {
+				renderHTML(w, ctx, pages.TrackedPackageItemNotFound(vm))
+				return
+			}
 			renderHTML(w, ctx, pages.TrackedPackageItemInitError(vm))
 			return
 		}
@@ -417,6 +435,7 @@ func packageTrackStatus(db *database.Store, sessionManager *session.SessionManag
 // Returns final row (without polling) once operationResults map signals completion.
 func packageCheckStatus(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
@@ -466,37 +485,26 @@ func packageCheckStatus(db *database.Store, sessionManager *session.SessionManag
 	}
 }
 
-// channelsPage renders the notification channels page with all channels current user has configured.
+// channelsPage renders the notification channels page with all channels current user has configured (GET /channels).
 func channelsPage(sessionManager *session.SessionManager, db *database.Store, disp *dispatcher.Dispatcher, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
-		// get all channels this user has
-		chnls, err := channels.GetChannels(ctx, db, sessionManager)
+		// get all channels with email and webhook counts
+		summary, err := channels.GetChannels(ctx, db, sessionManager)
 		if err != nil {
 			writeAppErr(w, "web.channelsPage", err)
 			return
 		}
 
-		// get value of MaxRetries
+		// get current max delivery attempt count from dispatcher config
 		maxRetries := disp.MaxRetries()
 
-		// count webhook and email channels to check against the per-user limit
-		webhookCount := 0
-		emailCount := 0
-		for _, ch := range chnls {
-			if ch.Type == "Webhook" {
-				webhookCount++
-			} else if ch.Type == "Email" {
-				emailCount++
-			}
-		}
-
 		// render response
-		chVMs := make([]pages.ChannelVM, 0, len(chnls))
-		for _, ch := range chnls {
+		chVMs := make([]pages.ChannelVM, 0, len(summary.Channels))
+		for _, ch := range summary.Channels {
 			chVMs = append(chVMs, channelVM(ch, maxRetries))
 		}
 
@@ -504,9 +512,9 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store, di
 			BaseVM:       buildBaseVM(ctx, r, db, sessionManager),
 			Channels:     chVMs,
 			WebhookLimit: cfg.MaxWebhooksPerUser,
-			WebhookCount: webhookCount,
+			WebhookCount: summary.WebhookCount,
 			EmailLimit:   cfg.MaxEmailsPerUser,
-			EmailCount:   emailCount,
+			EmailCount:   summary.EmailCount,
 		}
 
 		renderHTML(w, ctx, pages.ChannelsPage(vm))
@@ -525,7 +533,7 @@ func addChannelForm() http.HandlerFunc {
 // Responds with empty 200 so HTMX removes the form.
 func addChannelFormCancel() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// empty response body — HTMX clears input item slot
+		// empty response body - HTMX clears input item slot
 		w.WriteHeader(http.StatusOK)
 	}
 }
@@ -736,37 +744,21 @@ func testChannel(db *database.Store, sessionManager *session.SessionManager, dis
 			return
 		}
 
-		// fetch channel info
-		ch, err := channels.GetChannelByID(ctx, db, sessionManager, channelID)
+		// fetch channel test payload
+		payload, err := channels.GetChannelTestPayload(ctx, db, sessionManager, channelID)
 		if err != nil {
 			writeAppErr(w, "web.testChannel", err)
 			return
 		}
 
-		// resolve address
-		var email *database.Email
-		var webhook *database.Webhook
-
-		if ch.Type == "Email" {
-			email = &database.Email{Address: ch.Address}
-		} else {
-			webhook = &database.Webhook{
-				URL:        ch.Address,
-				Type:       ch.WebhookType,
-				Username:   ch.WebhookUsername,
-				Channel:    ch.WebhookChannel,
-				Priority:   ch.WebhookPriority,
-				RequestAck: ch.WebhookRequestAck,
-			}
-		}
 		// send test message (sync, no notifications table entry)
-		testErr := disp.Test(ctx, channelID, email, webhook)
+		testErr := disp.Test(ctx, channelID, payload.Email, payload.Webhook)
 
-		// render channel back with the result message
+		// render channel row with the result message
 		if testErr != nil {
-			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(ch, 0), "text-danger small", "Test failed: "+notify.PublicMessage(testErr)))
+			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(payload.Channel, 0), "text-danger small", "Test failed: "+notify.PublicMessage(testErr)))
 		} else {
-			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(ch, 0), "text-success small", "Test message sent successfully."))
+			renderHTML(w, ctx, pages.ChannelItemWithMessage(channelVM(payload.Channel, 0), "text-success small", "Test message sent successfully."))
 		}
 	}
 }
@@ -1020,8 +1012,8 @@ func updateProfile(db *database.Store) http.HandlerFunc {
 	}
 }
 
-// accountsPage renders accounts management page.
-// Shows all accounts attached to the current user and lets him link or unlink them.
+// accountsPage renders accounts management page (GET /accounts).
+// Shows all accounts linked to the current user and allows linking or unlinking them.
 func accountsPage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
@@ -1029,16 +1021,15 @@ func accountsPage(db *database.Store, sessionManager *session.SessionManager) ht
 		defer cancel()
 
 		// get all accounts linked to the current user
-		accs, err := users.GetAccounts(ctx, db, sessionManager)
+		summary, err := users.GetAccounts(ctx, db, sessionManager)
 		if err != nil {
 			writeAppErr(w, "web.accountsPage", err)
 			return
 		}
 
-		// return response (unlink is only allowed when more than one account is linked)
-		canUnlink := len(accs) > 1
-		linkedVMs := make([]pages.LinkedAccountVM, 0, len(accs))
-		for _, a := range accs {
+		// return response
+		linkedVMs := make([]pages.LinkedAccountVM, 0, len(summary.Accounts))
+		for _, a := range summary.Accounts {
 			email := ""
 			if a.Email != nil {
 				email = *a.Email
@@ -1050,7 +1041,7 @@ func accountsPage(db *database.Store, sessionManager *session.SessionManager) ht
 				Email:         email,
 				EmailVerified: a.EmailVerified,
 				LinkedAt:      a.CreatedAt,
-				CanUnlink:     canUnlink,
+				CanUnlink:     summary.CanUnlink,
 			})
 		}
 
@@ -1117,5 +1108,171 @@ func unlinkAccount(db *database.Store, sessionManager *session.SessionManager) h
 		}
 
 		http.Redirect(w, r, "/accounts", http.StatusSeeOther)
+	}
+}
+
+// watchPackage adds package to the user's watchlist (POST /package/watch).
+// Called after a track attempt returns error that package does not yet exist in nixpkgs.
+// Returns OOB response that clears failed tracking item and renders updated watchlist section.
+func watchPackage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// extract package name and branch from submitted form
+		packageName := r.FormValue("name")
+		packageBranch := r.FormValue("branch")
+		if packageName == "" || packageBranch == "" {
+			writeGenericErr(w, "web.watchPackage", "package name and branch are required", errors.New("missing form fields"), http.StatusBadRequest)
+			return
+		}
+
+		// add package to watchlist
+		_, err := packages.Watch(ctx, db, sessionManager, packageName, packageBranch)
+		if err != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_ = pages.NewPackageError(packageName, packageBranch, appError.PublicMessage(err)).Render(ctx, w)
+			return
+		}
+
+		// fetch watched packages for updated list
+		allEntries, err := packages.GetWatchedPackages(ctx, db, sessionManager)
+		if err != nil {
+			writeAppErr(w, "web.watchPackage", err)
+			return
+		}
+
+		// render response
+		watchVMs := make([]pages.WatchlistEntryVM, 0, len(allEntries))
+		for _, e := range allEntries {
+			watchVMs = append(watchVMs, watchlistEntryVM(e))
+		}
+
+		renderHTML(w, ctx, pages.WatchPackageResponse(watchVMs))
+	}
+}
+
+// unwatchPackage removes package from users watchlist (POST /package/unwatch/{id}).
+// Returns OOB response that removes row (and whole watchlist section if it becomes empty).
+func unwatchPackage(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// extract watchlist entry ID from request
+		watchlistIDStr := r.PathValue("id")
+		if watchlistIDStr == "" {
+			writeGenericErr(w, "web.unwatchPackage", "missing watchlist id", errors.New("missing path param id"), http.StatusBadRequest)
+			return
+		}
+
+		// remove watchlist entry
+		if err := packages.Unwatch(ctx, db, sessionManager, watchlistIDStr); err != nil {
+			writeAppErr(w, "web.unwatchPackage", err)
+			return
+		}
+
+		// fetch remaining entries
+		allEntries, err := packages.GetWatchedPackages(ctx, db, sessionManager)
+		if err != nil {
+			writeAppErr(w, "web.unwatchPackage", err)
+			return
+		}
+
+		// render response
+		watchVMs := make([]pages.WatchlistEntryVM, 0, len(allEntries))
+		for _, e := range allEntries {
+			watchVMs = append(watchVMs, watchlistEntryVM(e))
+		}
+
+		renderHTML(w, ctx, pages.UnwatchResponse(watchVMs))
+	}
+}
+
+// checkWatchedPackage handles a manual nix eval check for a watched package (POST /package/watch/check/{id}).
+// Unlike checkTrackedPackage, the SkipInterval check is not applied - watched packages are always checked.
+// A background nix eval is enqueued and a loading row with a polling URL is returned so HTMX
+// can poll the status endpoint until eval completes.
+func checkWatchedPackage(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// extract watchlist entry ID from request
+		watchlistIDStr := r.PathValue("id")
+		if watchlistIDStr == "" {
+			writeGenericErr(w, "web.checkWatchedPackage", "missing watchlist id", errors.New("missing path param id"), http.StatusBadRequest)
+			return
+		}
+
+		// enqueue async check
+		entry, err := packages.WatchCheck(ctx, db, sessionManager, chk, watchlistIDStr)
+		if err != nil {
+			writeAppErr(w, "web.checkWatchedPackage", err)
+			return
+		}
+
+		// build polling URL
+		pollingURL := fmt.Sprintf("/package/watch/status/check/%s", watchlistIDStr)
+
+		// render loading row (HTMX polls pollingURL every 3s until check is done)
+		renderHTML(w, ctx, pages.WatchlistItemLoading(watchlistEntryVM(entry), pollingURL))
+	}
+}
+
+// watchCheckStatus is the polling endpoint for manual watched package checks (GET /package/watch/status/check/{id}).
+// Called every 3s by the loading row rendered after POST /package/watch/check/{id}.
+// It is similar to packageCheckStatus bu no prev query param (there is no prior version), extra StillNotFound branch (package does not exist yet),
+// and Promoted branch instead of success branch (first appearance, not version change).
+func watchCheckStatus(db *database.Store, sessionManager *session.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// extract watchlist entry ID from request
+		watchlistIDStr := r.PathValue("id")
+		if watchlistIDStr == "" {
+			writeGenericErr(w, "web.watchCheckStatus", "missing watchlist id", errors.New("missing path param id"), http.StatusBadRequest)
+			return
+		}
+
+		// get status of check operation
+		status, err := packages.GetWatchCheckStatus(ctx, db, sessionManager, watchlistIDStr)
+		if err != nil {
+			writeAppErr(w, "web.watchCheckStatus", err)
+			return
+		}
+
+		// build polling URL
+		pollingURL := fmt.Sprintf("/package/watch/status/check/%s", watchlistIDStr)
+
+		// still running - render loading row (HTMX will poll again in 3s)
+		if !status.Done {
+			renderHTML(w, ctx, pages.WatchlistItemLoading(watchlistEntryVM(status.Entry), pollingURL))
+			return
+		}
+
+		// nix eval failed - show error row with retry button
+		if status.Failed {
+			vm := watchlistEntryVM(status.Entry)
+			vm.ErrMsg = status.ErrMsg
+			renderHTML(w, ctx, pages.WatchlistItemError(vm))
+			return
+		}
+
+		// package still not in nixpkgs - render normal row with "not found yet"
+		if status.StillNotFound {
+			vm := watchlistEntryVM(status.Entry)
+			vm.CheckedNotFound = true
+			renderHTML(w, ctx, pages.WatchlistItem(vm))
+			return
+		}
+
+		// package appeared - replace watchlist row and place it as new tracking row into tracked list via OOB
+		renderHTML(w, ctx, pages.WatchlistItemPromoted(watchlistIDStr, trackedPackageVMFromTracked(status.PromotedPkg)))
 	}
 }
