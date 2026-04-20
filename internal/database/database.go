@@ -1,10 +1,17 @@
 // Package database provides the data access layer for application.
 //
-// It is organised in four files:
-//   - database.go: opens connection pool and runs migrations
-//   - embeds.go:   embeds all SQL files into the binary at compile time
-//   - models.go:   defines data types returned by queries
-//   - queries.go:  implements all database operations (using embedded SQL)
+// It is organised in these files:
+//   - database.go:              opens connection pool and runs migrations
+//   - embeds.go:                embeds all SQL files into the binary at compile time
+//   - models.go:                defines data types returned by queries
+//   - queries_channels.go:      notification channel operations
+//   - queries_config.go:        system configuration operations
+//   - queries_helpers.go:       shared helpers and sentinel errors used across query files
+//   - queries_notifications.go: notification creation and delivery operations
+//   - queries_packages.go:      package and tracking operations
+//   - queries_users.go:         user and account operations
+//   - queries_watchlist.go:     watchlist operations
+
 package database
 
 import (
