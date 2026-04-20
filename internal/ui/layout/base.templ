@@ -66,7 +66,11 @@ templ Base(title string, base BaseVM, content templ.Component) {
         </head>
 
         <body class="bg-black" data-csrf={ base.CSRFToken }>
-            <nav class="position-relative d-flex align-items-center rounded-5 mx-2 mt-3 px-2" style="background: #252525; height: 48px;">
+            <nav 
+                class="d-flex align-items-center rounded-5 mx-2 mt-3 px-2" 
+                style="background: #252525; height: 48px; position: sticky; top: 8px; z-index: 100; box-shadow: 0 4px 24px 8px rgba(0, 0, 0, 0.85);"
+            >
+                
                 <a class="fw-bold text-white text-decoration-none px-3 flex-shrink-0" href="/">nixpkgsNotifier</a>
                 
                 if base.LoggedIn {

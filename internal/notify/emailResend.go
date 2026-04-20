@@ -76,7 +76,7 @@ func (s *ResendSender) Send(ctx context.Context, event VersionChangeEvent) error
 	var subject, body string
 
 	if event.IsFirstAppearance {
-		subject = fmt.Sprintf("[nixpkgs-notifier] %s appeared in nixpkgs: %s",
+		subject = fmt.Sprintf("%s appeared in nixpkgs: %s",
 			event.PackageName, event.NewVersion)
 
 		body = fmt.Sprintf(
@@ -88,10 +88,10 @@ func (s *ResendSender) Send(ctx context.Context, event VersionChangeEvent) error
 			event.PackageName,
 			event.PackageBranch,
 			event.NewVersion,
-			event.DetectedAt.UTC().Format(time.RFC3339),
+			event.DetectedAt.UTC().Format("2006-01-02 15:04:05 UTC"),
 		)
 	} else {
-		subject = fmt.Sprintf("[nixpkgs-notifier] %s updated: %s → %s",
+		subject = fmt.Sprintf("%s updated: %s → %s",
 			event.PackageName, event.OldVersion, event.NewVersion)
 
 		body = fmt.Sprintf(
@@ -105,7 +105,7 @@ func (s *ResendSender) Send(ctx context.Context, event VersionChangeEvent) error
 			event.PackageBranch,
 			event.OldVersion,
 			event.NewVersion,
-			event.DetectedAt.UTC().Format(time.RFC3339),
+			event.DetectedAt.UTC().Format("2006-01-02 15:04:05 UTC"),
 		)
 	}
 
