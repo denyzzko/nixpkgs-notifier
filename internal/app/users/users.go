@@ -15,7 +15,6 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
 	"github.com/denyzzko/nixpkgs-notifier/internal/auth"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
-	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 )
 
 // user is not authenticated error
@@ -93,14 +92,8 @@ func createNewUser(ctx context.Context, db *database.Store, provider *auth.Provi
 
 // UpdateUsername validates and applies a username change for a user.
 // Returns error if username is empty, exceeds 50 characters, username is already taken or on DB failure.
-func UpdateUsername(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, username string) error {
+func UpdateUsername(ctx context.Context, db *database.Store, userID int64, username string) error {
 	const op = "users.UpdateUsername"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// trim and validate username
 	username = strings.TrimSpace(username)
@@ -272,14 +265,8 @@ func LinkExistingAccount(ctx context.Context, db *database.Store, provider *auth
 }
 
 // GetAccounts returns all OIDC accounts linked to the current user.
-func GetAccounts(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) (AccountsSummary, error) {
+func GetAccounts(ctx context.Context, db *database.Store, userID int64) (AccountsSummary, error) {
 	const op = "users.GetAccounts"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return AccountsSummary{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// fetch all accounts linked to this user
 	accs, err := db.QueryAccountsByUserID(ctx, userID)
@@ -295,14 +282,8 @@ func GetAccounts(ctx context.Context, db *database.Store, sessionManager *sessio
 
 // UnlinkAccount removes a single OIDC account from the current user.
 // Returns appError.Conflict if the account is user's only remaining login method.
-func UnlinkAccount(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, issuer, subject string) error {
+func UnlinkAccount(ctx context.Context, db *database.Store, userID int64, issuer, subject string) error {
 	const op = "users.UnlinkAccount"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// remove the account identified by (issuer, subject) from this user
 	if err := db.DeleteAccountByIssuerSub(ctx, userID, issuer, subject); err != nil {

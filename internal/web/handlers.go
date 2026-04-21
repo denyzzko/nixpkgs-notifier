@@ -89,15 +89,18 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// get all packages this user tracks
-		tracked, err := packages.GetTrackedPackages(ctx, db, sessionManager)
+		tracked, err := packages.GetTrackedPackages(ctx, db, userID)
 		if err != nil {
 			writeAppErr(w, "web.indexPage", err)
 			return
 		}
 
 		// get all watchlist entries for this user
-		watchlist, err := packages.GetWatchedPackages(ctx, db, sessionManager)
+		watchlist, err := packages.GetWatchedPackages(ctx, db, userID)
 		if err != nil {
 			writeAppErr(w, "web.indexPage", err)
 			return
@@ -270,6 +273,9 @@ func checkTrackedPackage(db *database.Store, sessionManager *session.SessionMana
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract package ID from request
 		packageIDStr := r.PathValue("id")
 		if packageIDStr == "" {
@@ -278,7 +284,7 @@ func checkTrackedPackage(db *database.Store, sessionManager *session.SessionMana
 		}
 
 		// enqueue async check
-		outcome, err := packages.Check(ctx, db, sessionManager, chk, packageIDStr)
+		outcome, err := packages.Check(ctx, db, userID, chk, packageIDStr)
 		if err != nil {
 			writeAppErr(w, "web.checkTrackedPackage", err)
 			return
@@ -309,6 +315,9 @@ func untrackPackage(db *database.Store, sessionManager *session.SessionManager) 
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract package ID from request
 		packageIDStr := r.PathValue("id")
 		if packageIDStr == "" {
@@ -317,7 +326,7 @@ func untrackPackage(db *database.Store, sessionManager *session.SessionManager) 
 		}
 
 		// delete tracking
-		if err := packages.Untrack(ctx, db, sessionManager, packageIDStr); err != nil {
+		if err := packages.Untrack(ctx, db, userID, packageIDStr); err != nil {
 			writeAppErr(w, "web.untrackPackage", err)
 			return
 		}
@@ -353,6 +362,9 @@ func trackPackage(db *database.Store, sessionManager *session.SessionManager, ch
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract package name and branch from submitted form
 		packageName := r.FormValue("name")
 		packageBranch := r.FormValue("branch")
@@ -364,7 +376,7 @@ func trackPackage(db *database.Store, sessionManager *session.SessionManager, ch
 		}
 
 		// store tracking immediately - nix eval runs in background goroutine
-		trackedPackage, err := packages.Track(ctx, db, sessionManager, chk, packageName, packageBranch)
+		trackedPackage, err := packages.Track(ctx, db, userID, chk, packageName, packageBranch)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = pages.NewPackageError(packageName, packageBranch, appError.PublicMessage(err)).Render(ctx, w)
@@ -389,6 +401,9 @@ func packageTrackStatus(db *database.Store, sessionManager *session.SessionManag
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract package id
 		packageIDStr := r.PathValue("id")
 		if packageIDStr == "" {
@@ -397,7 +412,7 @@ func packageTrackStatus(db *database.Store, sessionManager *session.SessionManag
 		}
 
 		// get status of package tracking initialization
-		status, err := packages.GetTrackStatus(ctx, db, sessionManager, packageIDStr)
+		status, err := packages.GetTrackStatus(ctx, db, userID, packageIDStr)
 		if err != nil {
 			writeAppErr(w, "web.packageTrackStatus", err)
 			return
@@ -439,6 +454,9 @@ func packageCheckStatus(db *database.Store, sessionManager *session.SessionManag
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract package id
 		packageIDStr := r.PathValue("id")
 		if packageIDStr == "" {
@@ -450,7 +468,7 @@ func packageCheckStatus(db *database.Store, sessionManager *session.SessionManag
 		prev := r.URL.Query().Get("prev")
 
 		// get status of check operation
-		status, err := packages.GetCheckStatus(ctx, db, sessionManager, packageIDStr, prev)
+		status, err := packages.GetCheckStatus(ctx, db, userID, packageIDStr, prev)
 		if err != nil {
 			writeAppErr(w, "web.packageCheckStatus", err)
 			return
@@ -492,8 +510,11 @@ func channelsPage(sessionManager *session.SessionManager, db *database.Store, di
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// get all channels with email and webhook counts
-		summary, err := channels.GetChannels(ctx, db, sessionManager)
+		summary, err := channels.GetChannels(ctx, db, userID)
 		if err != nil {
 			writeAppErr(w, "web.channelsPage", err)
 			return
@@ -624,6 +645,9 @@ func toggleChannelEnabled(db *database.Store, sessionManager *session.SessionMan
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract channel ID and toggle value from request
 		channelIDStr := r.PathValue("id")
 		if channelIDStr == "" {
@@ -640,7 +664,7 @@ func toggleChannelEnabled(db *database.Store, sessionManager *session.SessionMan
 		}
 
 		// toggle enabled flag
-		ch, err := channels.ToggleEnabled(ctx, db, sessionManager, channelID, value)
+		ch, err := channels.ToggleEnabled(ctx, db, userID, channelID, value)
 		if err != nil {
 			writeAppErr(w, "web.toggleChannelEnabled", err)
 			return
@@ -660,6 +684,9 @@ func toggleNotifyOnManualVerify(db *database.Store, sessionManager *session.Sess
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract channel ID and toggle value from request
 		channelIDStr := r.PathValue("id")
 		if channelIDStr == "" {
@@ -676,7 +703,7 @@ func toggleNotifyOnManualVerify(db *database.Store, sessionManager *session.Sess
 		}
 
 		// toggle notify_on_manual_verify flag
-		ch, err := channels.ToggleNotifyOnManualVerify(ctx, db, sessionManager, channelID, value)
+		ch, err := channels.ToggleNotifyOnManualVerify(ctx, db, userID, channelID, value)
 		if err != nil {
 			writeAppErr(w, "web.toggleNotifyOnManualVerify", err)
 			return
@@ -695,6 +722,9 @@ func acknowledgeChannelDisabled(db *database.Store, sessionManager *session.Sess
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract channel ID from request
 		channelIDStr := r.PathValue("id")
 		if channelIDStr == "" {
@@ -710,7 +740,7 @@ func acknowledgeChannelDisabled(db *database.Store, sessionManager *session.Sess
 		}
 
 		// clear "disabled by server" flag
-		ch, err := channels.AcknowledgeDisabled(ctx, db, sessionManager, channelID)
+		ch, err := channels.AcknowledgeDisabled(ctx, db, userID, channelID)
 		if err != nil {
 			writeAppErr(w, "web.acknowledgeChannelDisabled", err)
 			return
@@ -730,6 +760,9 @@ func testChannel(db *database.Store, sessionManager *session.SessionManager, dis
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract channel ID from request
 		channelIDStr := r.PathValue("id")
 		if channelIDStr == "" {
@@ -745,7 +778,7 @@ func testChannel(db *database.Store, sessionManager *session.SessionManager, dis
 		}
 
 		// fetch channel test payload
-		payload, err := channels.GetChannelTestPayload(ctx, db, sessionManager, channelID)
+		payload, err := channels.GetChannelTestPayload(ctx, db, userID, channelID)
 		if err != nil {
 			writeAppErr(w, "web.testChannel", err)
 			return
@@ -770,8 +803,11 @@ func notificationsPage(sessionManager *session.SessionManager, db *database.Stor
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// get all notifications this user has
-		logs, err := notifications.GetDeliveryLog(ctx, db, sessionManager)
+		logs, err := notifications.GetDeliveryLog(ctx, db, userID)
 		if err != nil {
 			writeAppErr(w, "web.notificationsPage", err)
 			return
@@ -849,11 +885,14 @@ func updateProfileUsername(sessionManager *session.SessionManager, db *database.
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract username from submitted form
 		username := r.FormValue("username")
 
 		// update username
-		if err := users.UpdateUsername(ctx, db, sessionManager, username); err != nil {
+		if err := users.UpdateUsername(ctx, db, userID, username); err != nil {
 			writeAppErr(w, "web.updateProfileUsername", err)
 			return
 		}
@@ -1020,8 +1059,11 @@ func accountsPage(db *database.Store, sessionManager *session.SessionManager) ht
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// get all accounts linked to the current user
-		summary, err := users.GetAccounts(ctx, db, sessionManager)
+		summary, err := users.GetAccounts(ctx, db, userID)
 		if err != nil {
 			writeAppErr(w, "web.accountsPage", err)
 			return
@@ -1092,6 +1134,9 @@ func unlinkAccount(db *database.Store, sessionManager *session.SessionManager) h
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract issuer and subject from submitted form
 		issuer := r.FormValue("issuer")
 		subject := r.FormValue("subject")
@@ -1101,7 +1146,7 @@ func unlinkAccount(db *database.Store, sessionManager *session.SessionManager) h
 		}
 
 		// unlink the account
-		err := users.UnlinkAccount(ctx, db, sessionManager, issuer, subject)
+		err := users.UnlinkAccount(ctx, db, userID, issuer, subject)
 		if err != nil {
 			writeAppErr(w, "web.unlinkAccount", err)
 			return
@@ -1120,6 +1165,9 @@ func watchPackage(db *database.Store, sessionManager *session.SessionManager) ht
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract package name and branch from submitted form
 		packageName := r.FormValue("name")
 		packageBranch := r.FormValue("branch")
@@ -1129,7 +1177,7 @@ func watchPackage(db *database.Store, sessionManager *session.SessionManager) ht
 		}
 
 		// add package to watchlist
-		_, err := packages.Watch(ctx, db, sessionManager, packageName, packageBranch)
+		_, err := packages.Watch(ctx, db, userID, packageName, packageBranch)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = pages.NewPackageError(packageName, packageBranch, appError.PublicMessage(err)).Render(ctx, w)
@@ -1137,7 +1185,7 @@ func watchPackage(db *database.Store, sessionManager *session.SessionManager) ht
 		}
 
 		// fetch watched packages for updated list
-		allEntries, err := packages.GetWatchedPackages(ctx, db, sessionManager)
+		allEntries, err := packages.GetWatchedPackages(ctx, db, userID)
 		if err != nil {
 			writeAppErr(w, "web.watchPackage", err)
 			return
@@ -1161,6 +1209,9 @@ func unwatchPackage(db *database.Store, sessionManager *session.SessionManager) 
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract watchlist entry ID from request
 		watchlistIDStr := r.PathValue("id")
 		if watchlistIDStr == "" {
@@ -1169,13 +1220,13 @@ func unwatchPackage(db *database.Store, sessionManager *session.SessionManager) 
 		}
 
 		// remove watchlist entry
-		if err := packages.Unwatch(ctx, db, sessionManager, watchlistIDStr); err != nil {
+		if err := packages.Unwatch(ctx, db, userID, watchlistIDStr); err != nil {
 			writeAppErr(w, "web.unwatchPackage", err)
 			return
 		}
 
 		// fetch remaining entries
-		allEntries, err := packages.GetWatchedPackages(ctx, db, sessionManager)
+		allEntries, err := packages.GetWatchedPackages(ctx, db, userID)
 		if err != nil {
 			writeAppErr(w, "web.unwatchPackage", err)
 			return
@@ -1201,6 +1252,9 @@ func checkWatchedPackage(db *database.Store, sessionManager *session.SessionMana
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract watchlist entry ID from request
 		watchlistIDStr := r.PathValue("id")
 		if watchlistIDStr == "" {
@@ -1209,7 +1263,7 @@ func checkWatchedPackage(db *database.Store, sessionManager *session.SessionMana
 		}
 
 		// enqueue async check
-		entry, err := packages.WatchCheck(ctx, db, sessionManager, chk, watchlistIDStr)
+		entry, err := packages.WatchCheck(ctx, db, userID, chk, watchlistIDStr)
 		if err != nil {
 			writeAppErr(w, "web.checkWatchedPackage", err)
 			return
@@ -1233,6 +1287,9 @@ func watchCheckStatus(db *database.Store, sessionManager *session.SessionManager
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract watchlist entry ID from request
 		watchlistIDStr := r.PathValue("id")
 		if watchlistIDStr == "" {
@@ -1241,7 +1298,7 @@ func watchCheckStatus(db *database.Store, sessionManager *session.SessionManager
 		}
 
 		// get status of check operation
-		status, err := packages.GetWatchCheckStatus(ctx, db, sessionManager, watchlistIDStr)
+		status, err := packages.GetWatchCheckStatus(ctx, db, userID, watchlistIDStr)
 		if err != nil {
 			writeAppErr(w, "web.watchCheckStatus", err)
 			return

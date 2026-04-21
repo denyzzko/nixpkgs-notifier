@@ -23,7 +23,6 @@ import (
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
-	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 )
 
 // user is not authenticated error
@@ -129,13 +128,8 @@ func CreatePendingNotificationsFirstAppearance(ctx context.Context, db *database
 }
 
 // GetDeliveryLog returns all notification records for the authenticated user.
-func GetDeliveryLog(ctx context.Context, db *database.Store, sm *session.SessionManager) ([]database.UserNotification, error) {
+func GetDeliveryLog(ctx context.Context, db *database.Store, userID int64) ([]database.UserNotification, error) {
 	const op = "notifications.GetDeliveryLog"
-
-	userID := sm.GetUserID(ctx)
-	if userID == 0 {
-		return nil, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	logs, err := db.QueryNotificationsByUserID(ctx, userID)
 	if err != nil {

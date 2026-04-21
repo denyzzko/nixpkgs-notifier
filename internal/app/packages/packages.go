@@ -33,7 +33,6 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
-	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 )
 
 // user is not authenticated error
@@ -113,14 +112,8 @@ type WatchlistCheckStatus struct {
 }
 
 // Retrieves all packages that user tracks by his ID.
-func GetTrackedPackages(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) ([]database.TrackedPackage, error) {
+func GetTrackedPackages(ctx context.Context, db *database.Store, userID int64) ([]database.TrackedPackage, error) {
 	const op = "packages.GetTrackedPackages"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return nil, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// get all tracked packages
 	trackedPackages, err := db.QueryUsersTrackedPackages(ctx, userID)
@@ -136,15 +129,10 @@ func GetTrackedPackages(ctx context.Context, db *database.Store, sessionManager 
 // Tracking is stored with empty last_notified_version.
 // A goroutine is launched to run the nix eval and set the version.
 // Polling endpoint (GET /package/status/track/{id}) checks operationResults map to detect completion.
-func Track(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker, packageName string, packageBranch string) (database.TrackedPackage, error) {
+func Track(ctx context.Context, db *database.Store, userID int64, chk *checker.Checker, packageName string, packageBranch string) (database.TrackedPackage, error) {
 	const op = "packages.Track"
 
 	var trackedPackage database.TrackedPackage
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return trackedPackage, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// get or create package id by name and branch
 	var packageID int64
@@ -286,14 +274,8 @@ func initializePackageBaseline(db *database.Store, chk *checker.Checker, userID 
 // Called every 3s by the loading row after Track.
 // Checks operationResults map (keyed by userID:packageID) to detect when the goroutine finishes.
 // Returns whether tracking initialization is done, if it failed, and current package state.
-func GetTrackStatus(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, packageIDStr string) (TrackStatus, error) {
+func GetTrackStatus(ctx context.Context, db *database.Store, userID int64, packageIDStr string) (TrackStatus, error) {
 	const op = "packages.GetTrackStatus"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return TrackStatus{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// convert package ID string to int64
 	packageID, err := strconv.ParseInt(packageIDStr, 10, 64)
@@ -341,14 +323,8 @@ func GetTrackStatus(ctx context.Context, db *database.Store, sessionManager *ses
 }
 
 // Untrack deletes a tracking record for a user.
-func Untrack(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, packageIDStr string) error {
+func Untrack(ctx context.Context, db *database.Store, userID int64, packageIDStr string) error {
 	const op = "packages.Untrack"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// convert package ID string to int64
 	packageID, err := strconv.ParseInt(packageIDStr, 10, 64)
@@ -373,16 +349,10 @@ func Untrack(ctx context.Context, db *database.Store, sessionManager *session.Se
 // If skipped: Skipped=true, no goroutine is launched, handler renders the result row directly (no polling needed).
 // If not skipped: a goroutine (checkPackageAsync) runs the eval, compares versions, fires notifications if changed.
 // The polling endpoint GET /package/status/check/{id}?prev=V checks operationResults map to detect completion.
-func Check(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker, packageIDStr string) (CheckOutcome, error) {
+func Check(ctx context.Context, db *database.Store, userID int64, chk *checker.Checker, packageIDStr string) (CheckOutcome, error) {
 	const op = "packages.Check"
 
 	var empty CheckOutcome
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return empty, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// convert package ID string to int64
 	packageID, err := strconv.ParseInt(packageIDStr, 10, 64)
@@ -503,14 +473,8 @@ func classifyNixError(err error) string {
 // Called every 3s by the checking row after Check.
 // Checks operationResults map (keyed by userID:packageID) to detect when the goroutine finishes.
 // Returns whether the check is done and what the result was (version changed, error, or no change).
-func GetCheckStatus(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, packageIDStr string, prev string) (CheckStatus, error) {
+func GetCheckStatus(ctx context.Context, db *database.Store, userID int64, packageIDStr string, prev string) (CheckStatus, error) {
 	const op = "packages.GetCheckStatus"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return CheckStatus{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// convert package ID string to int64
 	packageID, err := strconv.ParseInt(packageIDStr, 10, 64)
@@ -598,14 +562,8 @@ func StartResultCleanup(ctx context.Context) {
 }
 
 // GetWatchedPackages returns all watchlist entries for authenticated user.
-func GetWatchedPackages(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) ([]database.WatchlistEntry, error) {
+func GetWatchedPackages(ctx context.Context, db *database.Store, userID int64) ([]database.WatchlistEntry, error) {
 	const op = "packages.GetWatchedPackages"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return nil, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// get all watchlist entries for user
 	entries, err := db.QueryWatchlistByUserID(ctx, userID)
@@ -618,14 +576,8 @@ func GetWatchedPackages(ctx context.Context, db *database.Store, sessionManager 
 
 // Watch adds a package to the authenticated user's watchlist.
 // No nix eval - package is assumed not existing.
-func Watch(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, packageName, packageBranch string) (database.WatchlistEntry, error) {
+func Watch(ctx context.Context, db *database.Store, userID int64, packageName, packageBranch string) (database.WatchlistEntry, error) {
 	const op = "packages.Watch"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return database.WatchlistEntry{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// add to watchlist
 	entry, err := db.CreateWatchlistEntry(ctx, userID, packageName, packageBranch)
@@ -640,14 +592,8 @@ func Watch(ctx context.Context, db *database.Store, sessionManager *session.Sess
 }
 
 // Unwatch removes watchlist entry for the authenticated user.
-func Unwatch(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, watchlistIDStr string) error {
+func Unwatch(ctx context.Context, db *database.Store, userID int64, watchlistIDStr string) error {
 	const op = "packages.Unwatch"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// convert watchlist ID string to int64
 	watchlistID, err := strconv.ParseInt(watchlistIDStr, 10, 64)
@@ -671,14 +617,8 @@ func Unwatch(ctx context.Context, db *database.Store, sessionManager *session.Se
 // Returns watchlist entry immediately. A goroutine (watchCheckAsync) runs eval and
 // signals completion via watchlistCheckResults.
 // The polling endpoint GET /package/watch/status/check/{id} reads that map to detect completion.
-func WatchCheck(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker, watchlistIDStr string) (database.WatchlistEntry, error) {
+func WatchCheck(ctx context.Context, db *database.Store, userID int64, chk *checker.Checker, watchlistIDStr string) (database.WatchlistEntry, error) {
 	const op = "packages.WatchCheck"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return database.WatchlistEntry{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// convert watchlist ID string to int64
 	watchlistID, err := strconv.ParseInt(watchlistIDStr, 10, 64)
@@ -781,14 +721,8 @@ func watchCheckAsync(db *database.Store, userID int64, entry database.WatchlistE
 // Called every 3s by the loading row rendered after POST /package/watch/check/{id}.
 // Checks watchlistCheckResults map (keyed by userID:watchlistID) to detect when the goroutine finishes.
 // Returns whether the check is done and what the result was (promoted, still not found, error, or still running).
-func GetWatchCheckStatus(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, watchlistIDStr string) (WatchlistCheckStatus, error) {
+func GetWatchCheckStatus(ctx context.Context, db *database.Store, userID int64, watchlistIDStr string) (WatchlistCheckStatus, error) {
 	const op = "packages.GetWatchCheckStatus"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return WatchlistCheckStatus{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// convert watchlist ID string to int64
 	watchlistID, err := strconv.ParseInt(watchlistIDStr, 10, 64)

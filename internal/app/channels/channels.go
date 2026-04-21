@@ -49,14 +49,8 @@ type ChannelTestPayload struct {
 }
 
 // GetChannels returns all channels for a user with resolved type, address and per-type counts.
-func GetChannels(ctx context.Context, db *database.Store, sessionManager *session.SessionManager) (ChannelsSummary, error) {
+func GetChannels(ctx context.Context, db *database.Store, userID int64) (ChannelsSummary, error) {
 	const op = "channels.GetChannels"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return ChannelsSummary{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// get user channels
 	rows, err := db.QueryChannelsByUserID(ctx, userID)
@@ -81,14 +75,8 @@ func GetChannels(ctx context.Context, db *database.Store, sessionManager *sessio
 }
 
 // GetChannelByID returns a single channel by its ID.
-func GetChannelByID(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, channelID int64) (ChannelResult, error) {
+func GetChannelByID(ctx context.Context, db *database.Store, userID int64, channelID int64) (ChannelResult, error) {
 	const op = "channels.GetChannelByID"
-
-	// get user ID
-	userID := sessionManager.GetUserID(ctx)
-	if userID == 0 {
-		return ChannelResult{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// get channel
 	row, err := db.QueryChannelByID(ctx, channelID, userID)
@@ -270,50 +258,32 @@ func DeleteChannel(ctx context.Context, db *database.Store, sm *session.SessionM
 }
 
 // ToggleEnabled updates is_enabled flag on a channel and returns the updated channel.
-func ToggleEnabled(ctx context.Context, db *database.Store, sm *session.SessionManager, channelID int64, value bool) (ChannelResult, error) {
+func ToggleEnabled(ctx context.Context, db *database.Store, userID int64, channelID int64, value bool) (ChannelResult, error) {
 	const op = "channels.ToggleEnabled"
-
-	// get user ID
-	userID := sm.GetUserID(ctx)
-	if userID == 0 {
-		return ChannelResult{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// update is_enabled flag
 	if err := db.UpdateChannelEnabled(ctx, channelID, userID, value); err != nil {
 		return ChannelResult{}, appError.NewAppError(op, appError.Internal, "failed to update channel", err)
 	}
 
-	return GetChannelByID(ctx, db, sm, channelID)
+	return GetChannelByID(ctx, db, userID, channelID)
 }
 
 // ToggleNotifyOnManualVerify updates notify_on_manual_verify flag on a channel and returns the updated channel.
-func ToggleNotifyOnManualVerify(ctx context.Context, db *database.Store, sm *session.SessionManager, channelID int64, value bool) (ChannelResult, error) {
+func ToggleNotifyOnManualVerify(ctx context.Context, db *database.Store, userID int64, channelID int64, value bool) (ChannelResult, error) {
 	const op = "channels.ToggleNotifyOnManualVerify"
-
-	// get user ID
-	userID := sm.GetUserID(ctx)
-	if userID == 0 {
-		return ChannelResult{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// update notify_on_manual_verify flag
 	if err := db.UpdateChannelNotifyOnManualVerify(ctx, channelID, userID, value); err != nil {
 		return ChannelResult{}, appError.NewAppError(op, appError.Internal, "failed to update channel", err)
 	}
 
-	return GetChannelByID(ctx, db, sm, channelID)
+	return GetChannelByID(ctx, db, userID, channelID)
 }
 
 // AcknowledgeDisabled clears disabled_by_server flag for channel (channel remains disabled).
-func AcknowledgeDisabled(ctx context.Context, db *database.Store, sm *session.SessionManager, channelID int64) (ChannelResult, error) {
+func AcknowledgeDisabled(ctx context.Context, db *database.Store, userID int64, channelID int64) (ChannelResult, error) {
 	const op = "channels.AcknowledgeDisabled"
-
-	// get user ID
-	userID := sm.GetUserID(ctx)
-	if userID == 0 {
-		return ChannelResult{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// clear "disabled by server" flag
 	if err := db.AcknowledgeChannelDisabled(ctx, channelID, userID); err != nil {
@@ -321,15 +291,15 @@ func AcknowledgeDisabled(ctx context.Context, db *database.Store, sm *session.Se
 	}
 
 	// return updated channel
-	return GetChannelByID(ctx, db, sm, channelID)
+	return GetChannelByID(ctx, db, userID, channelID)
 }
 
 // GetChannelTestPayload fetches channel by ID and resolves it into payload ready for dispatcher.
-func GetChannelTestPayload(ctx context.Context, db *database.Store, sessionManager *session.SessionManager, channelID int64) (ChannelTestPayload, error) {
+func GetChannelTestPayload(ctx context.Context, db *database.Store, userID int64, channelID int64) (ChannelTestPayload, error) {
 	const op = "channels.GetChannelTestPayload"
 
 	// fetch channel
-	ch, err := GetChannelByID(ctx, db, sessionManager, channelID)
+	ch, err := GetChannelByID(ctx, db, userID, channelID)
 	if err != nil {
 		return ChannelTestPayload{}, appError.NewAppError(op, appError.NotFound, "channel not found", err)
 	}
