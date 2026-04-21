@@ -1,11 +1,4 @@
 // Package channels_test contains integration tests for the channels app layer.
-//
-// What is not tested and why:
-//
-//   - AddChannel (webhook happy path) - AddChannel calls ValidateWebhookURL which performs
-//     DNS lookup, making the test network dependent and thus fragile.
-//     Other then happy paths are still tested because they return early before
-//     ValidateWebhookURL is ever called (guards: duplicate URL, limit reached).
 package channels_test
 
 import (
@@ -32,7 +25,7 @@ func TestMain(m *testing.M) {
 }
 
 // webhookURL is URL used in webhook tests.
-// ValidateWebhookURL performs DNS resolution so we need a hostname that resolves to a public IP.
+// ValidateWebhookURL performs DNS resolution - this URL should always resolve to public IP.
 const webhookURL = "https://example.com/webhook"
 
 // addEmail is test helper that inserts email channel row.
@@ -75,6 +68,31 @@ func TestAddChannel_Email_HappyPath(t *testing.T) {
 	}
 	if result.Address != "user@example.com" {
 		t.Errorf("Address = %q, want %q", result.Address, "user@example.com")
+	}
+	if !result.IsEnabled {
+		t.Error("IsEnabled should be true for a newly created channel")
+	}
+	if result.ID <= 0 {
+		t.Error("expected positive channel ID")
+	}
+}
+
+func TestAddChannel_Webhook_HappyPath(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	result, err := channels.AddChannel(ctx, testStore, userID, "webhook", webhookURL, "generic", false, "", "", "", false, 0, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Type != "Webhook" {
+		t.Errorf("Type = %q, want %q", result.Type, "Webhook")
+	}
+	if result.Address != webhookURL {
+		t.Errorf("Address = %q, want %q", result.Address, webhookURL)
+	}
+	if result.WebhookType != "generic" {
+		t.Errorf("WebhookType = %q, want %q", result.WebhookType, "generic")
 	}
 	if !result.IsEnabled {
 		t.Error("IsEnabled should be true for a newly created channel")
