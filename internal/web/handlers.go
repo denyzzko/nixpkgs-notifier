@@ -569,6 +569,9 @@ func addChannel(db *database.Store, sessionManager *session.SessionManager, cfg 
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract channel type, adress, notify_on_manual_verify flag and mattermost webhook info value from submitted form
 		rawType := r.FormValue("type")
 		address := r.FormValue("address")
@@ -599,7 +602,7 @@ func addChannel(db *database.Store, sessionManager *session.SessionManager, cfg 
 		}
 
 		// add channel
-		ch, err := channels.AddChannel(ctx, db, sessionManager, chType, address, webhookType, notifyOnManualVerify, username, channel, priority, requestAck, cfg.MaxWebhooksPerUser, cfg.MaxEmailsPerUser)
+		ch, err := channels.AddChannel(ctx, db, userID, chType, address, webhookType, notifyOnManualVerify, username, channel, priority, requestAck, cfg.MaxWebhooksPerUser, cfg.MaxEmailsPerUser)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = pages.NewChannelError(rawType, address, appError.PublicMessage(err)).Render(ctx, w)
@@ -619,6 +622,9 @@ func deleteChannel(db *database.Store, sessionManager *session.SessionManager) h
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
 		// extract channel ID from request
 		channelID := r.PathValue("id")
 		if channelID == "" {
@@ -627,7 +633,7 @@ func deleteChannel(db *database.Store, sessionManager *session.SessionManager) h
 		}
 
 		// delete channel
-		if err := channels.DeleteChannel(ctx, db, sessionManager, channelID); err != nil {
+		if err := channels.DeleteChannel(ctx, db, userID, channelID); err != nil {
 			writeAppErr(w, "web.deleteChannel", err)
 			return
 		}

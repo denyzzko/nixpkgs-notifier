@@ -583,7 +583,7 @@ func Watch(ctx context.Context, db *database.Store, userID int64, packageName, p
 	entry, err := db.CreateWatchlistEntry(ctx, userID, packageName, packageBranch)
 	if err != nil {
 		if errors.Is(err, database.ErrConflict) {
-			return database.WatchlistEntry{}, appError.NewAppError(op, appError.Invalid, "You are already watching this package", err)
+			return database.WatchlistEntry{}, appError.NewAppError(op, appError.Conflict, "You are already watching this package", err)
 		}
 		return database.WatchlistEntry{}, appError.NewAppError(op, appError.Internal, "failed to add to watchlist", err)
 	}

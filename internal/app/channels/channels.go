@@ -12,7 +12,6 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/notify"
-	"github.com/denyzzko/nixpkgs-notifier/internal/session"
 )
 
 // user is not authenticated error
@@ -119,14 +118,8 @@ func channelResultFromRow(row database.UserChannel) ChannelResult {
 
 // AddChannel creates a new notification channel of the given type ("email" or "webhook") for current user.
 // Returns the newly created channel ready to render.
-func AddChannel(ctx context.Context, db *database.Store, sm *session.SessionManager, chType string, address string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool, maxWebhooks int, maxEmails int) (ChannelResult, error) {
+func AddChannel(ctx context.Context, db *database.Store, userID int64, chType string, address string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool, maxWebhooks int, maxEmails int) (ChannelResult, error) {
 	const op = "channels.Add"
-
-	// get user ID
-	userID := sm.GetUserID(ctx)
-	if userID == 0 {
-		return ChannelResult{}, appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// guard: if user already has a channel with this address, return error
 	existingChannels, err := db.QueryChannelsByUserID(ctx, userID)
@@ -232,14 +225,8 @@ func addWebhookChannel(ctx context.Context, db *database.Store, userID int64, we
 }
 
 // DeleteChannel removes a channel owned by the current user.
-func DeleteChannel(ctx context.Context, db *database.Store, sm *session.SessionManager, channelIDStr string) error {
+func DeleteChannel(ctx context.Context, db *database.Store, userID int64, channelIDStr string) error {
 	const op = "channels.DeleteChannel"
-
-	// get user ID
-	userID := sm.GetUserID(ctx)
-	if userID == 0 {
-		return appError.NewAppError(op, appError.Unauthenticated, "not authenticated", ErrNotAuthenticated)
-	}
 
 	// convert channel ID string to int64
 	channelID, err := strconv.ParseInt(channelIDStr, 10, 64)
