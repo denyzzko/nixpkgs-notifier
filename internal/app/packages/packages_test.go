@@ -2,11 +2,9 @@
 //
 // What is not tested and why:
 //
-//   - Track, Check, WatchCheck - These functions require Checker and they launch goroutine that calls nix binary
+//   - Track, Check, WatchCheck - These functions require Checker with workers that call nix binary
 //     to evaluate package version. Testing them would require nix installation and non-deterministic goroutine timing.
-//
-//   - GetTrackStatus, GetCheckStatus, GetWatchCheckStatus - These poll in-memory sync.Map that is populated by
-//     goroutines launched by Track, Check and WatchCheck.
+//     Nix evaluation can take long time which is not suitable for tests.
 //
 //   - StartResultCleanup - Background goroutine with 60 minute ticker - not meaningful for test...
 package packages_test
@@ -275,6 +273,289 @@ func TestGetTrackedPackages_IsolatedPerUser(t *testing.T) {
 	}
 	if len(tracked) != 0 {
 		t.Errorf("expected user2 to have no tracked packages, got %d", len(tracked))
+	}
+}
+
+// ----------------------------------------------------------------
+// ------------------- GetTrackStatus -----------------------------
+// ----------------------------------------------------------------
+
+func TestGetTrackStatus_InvalidID(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	_, err := packages.GetTrackStatus(ctx, testStore, userID, "not-a-number")
+	assertError(t, err, true, appError.Invalid)
+}
+
+func TestGetTrackStatus_NotDone(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID)
+
+	// no result in map - goroutine hasn't finished yet
+	status, err := packages.GetTrackStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status.Done {
+		t.Error("expected Done=false when result not in map yet")
+	}
+}
+
+func TestGetTrackStatus_DoneWithFailure(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID)
+
+	// simulate goroutine finishing with failure
+	packages.SetOperationResult(userID, pkgID, true, true, "Invalid package name or branch", "badpkg", "nixpkgs-unstable")
+
+	status, err := packages.GetTrackStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.Done {
+		t.Error("expected Done=true")
+	}
+	if !status.Failed {
+		t.Error("expected Failed=true")
+	}
+	if !status.Watchable {
+		t.Error("expected Watchable=true")
+	}
+	if status.ErrMsg != "Invalid package name or branch" {
+		t.Errorf("ErrMsg = %q, want %q", status.ErrMsg, "Invalid package name or branch")
+	}
+}
+
+func TestGetTrackStatus_DoneWithSuccess(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID)
+
+	// simulate goroutine finishing successfully
+	packages.SetOperationResult(userID, pkgID, false, false, "", "", "")
+
+	status, err := packages.GetTrackStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.Done {
+		t.Error("expected Done=true")
+	}
+	if status.Failed {
+		t.Error("expected Failed=false")
+	}
+	if status.Package.PackageID != pkgID {
+		t.Errorf("Package.PackageID = %d, want %d", status.Package.PackageID, pkgID)
+	}
+}
+
+// ----------------------------------------------------------------
+// ------------------- GetCheckStatus -----------------------------
+// ----------------------------------------------------------------
+
+func TestGetCheckStatus_InvalidID(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	_, err := packages.GetCheckStatus(ctx, testStore, userID, "not-a-number", "1.0.0")
+	assertError(t, err, true, appError.Invalid)
+}
+
+func TestGetCheckStatus_NotDone(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID)
+
+	// no result in map - goroutine hasn't finished yet
+	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10), "1.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status.Done {
+		t.Error("expected Done=false when result not in map yet")
+	}
+	if status.Prev != "1.0.0" {
+		t.Errorf("Prev = %q, want %q", status.Prev, "1.0.0")
+	}
+}
+
+func TestGetCheckStatus_DoneWithFailure(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID)
+
+	// simulate goroutine finishing with failure
+	packages.SetOperationResult(userID, pkgID, true, false, "Nix evaluation failed - try again later", "", "")
+
+	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10), "1.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.Done {
+		t.Error("expected Done=true")
+	}
+	if !status.Failed {
+		t.Error("expected Failed=true")
+	}
+	if status.ErrMsg != "Nix evaluation failed - try again later" {
+		t.Errorf("ErrMsg = %q, want %q", status.ErrMsg, "Nix evaluation failed - try again later")
+	}
+}
+
+func TestGetCheckStatus_DoneVersionChanged(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	// insert package with version 2.0.0 (simulates goroutine having updated it)
+	name := fmt.Sprintf("testpkg-%d", testutil.NextID())
+	pkgID, err := testStore.StorePackage(ctx, name, "nixpkgs-unstable", "2.0.0")
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := testStore.StoreTracking(ctx, userID, pkgID, "2.0.0"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	// simulate goroutine finishing successfully
+	packages.SetOperationResult(userID, pkgID, false, false, "", "", "")
+
+	// prev was 1.0.0, DB now has 2.0.0 -> version changed
+	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10), "1.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.Done {
+		t.Error("expected Done=true")
+	}
+	if !status.VersionChanged {
+		t.Error("expected VersionChanged=true when prev differs from current LastNotifiedVersion")
+	}
+}
+
+func TestGetCheckStatus_DoneVersionUnchanged(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID) // version is 1.0.0
+
+	// simulate goroutine finishing successfully
+	packages.SetOperationResult(userID, pkgID, false, false, "", "", "")
+
+	// prev matches current version -> no change
+	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10), "1.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.Done {
+		t.Error("expected Done=true")
+	}
+	if status.VersionChanged {
+		t.Error("expected VersionChanged=false when prev matches current LastNotifiedVersion")
+	}
+}
+
+// ----------------------------------------------------------------
+// ----------------- GetWatchCheckStatus --------------------------
+// ----------------------------------------------------------------
+
+func TestGetWatchCheckStatus_InvalidID(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	_, err := packages.GetWatchCheckStatus(ctx, testStore, userID, "not-a-number")
+	assertError(t, err, true, appError.Invalid)
+}
+
+func TestGetWatchCheckStatus_NotDone(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	entry := addWatchlistEntry(t, userID)
+
+	// no result in map - goroutine hasn't finished yet
+	status, err := packages.GetWatchCheckStatus(ctx, testStore, userID, strconv.FormatInt(entry.ID, 10))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status.Done {
+		t.Error("expected Done=false when result not in map yet")
+	}
+	if status.Entry.ID != entry.ID {
+		t.Errorf("Entry.ID = %d, want %d", status.Entry.ID, entry.ID)
+	}
+}
+
+func TestGetWatchCheckStatus_StillNotFound(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	entry := addWatchlistEntry(t, userID)
+
+	// simulate goroutine: package still not in nixpkgs
+	packages.SetWatchlistCheckResult(userID, entry.ID, false, false, true, "", database.TrackedPackage{})
+
+	status, err := packages.GetWatchCheckStatus(ctx, testStore, userID, strconv.FormatInt(entry.ID, 10))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.Done {
+		t.Error("expected Done=true")
+	}
+	if !status.StillNotFound {
+		t.Error("expected StillNotFound=true")
+	}
+}
+
+func TestGetWatchCheckStatus_Failed(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	entry := addWatchlistEntry(t, userID)
+
+	// simulate goroutine: nix eval failed
+	packages.SetWatchlistCheckResult(userID, entry.ID, true, false, false, "Nix evaluation failed - try again later", database.TrackedPackage{})
+
+	status, err := packages.GetWatchCheckStatus(ctx, testStore, userID, strconv.FormatInt(entry.ID, 10))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.Done {
+		t.Error("expected Done=true")
+	}
+	if !status.Failed {
+		t.Error("expected Failed=true")
+	}
+	if status.ErrMsg != "Nix evaluation failed - try again later" {
+		t.Errorf("ErrMsg = %q, want %q", status.ErrMsg, "Nix evaluation failed - try again later")
+	}
+}
+
+func TestGetWatchCheckStatus_Promoted(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	entry := addWatchlistEntry(t, userID)
+
+	promotedPkg := database.TrackedPackage{
+		PackageID:           999,
+		Name:                entry.Name,
+		Branch:              entry.Branch,
+		LastNotifiedVersion: "1.0.0",
+	}
+
+	// simulate goroutine: package appeared in nixpkgs and was promoted
+	packages.SetWatchlistCheckResult(userID, entry.ID, false, true, false, "", promotedPkg)
+
+	status, err := packages.GetWatchCheckStatus(ctx, testStore, userID, strconv.FormatInt(entry.ID, 10))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.Done {
+		t.Error("expected Done=true")
+	}
+	if !status.Promoted {
+		t.Error("expected Promoted=true")
+	}
+	if status.PromotedPkg.LastNotifiedVersion != "1.0.0" {
+		t.Errorf("PromotedPkg.LastNotifiedVersion = %q, want %q", status.PromotedPkg.LastNotifiedVersion, "1.0.0")
 	}
 }
 
