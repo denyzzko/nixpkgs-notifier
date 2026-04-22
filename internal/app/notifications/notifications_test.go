@@ -1,4 +1,4 @@
-// Package packages_test contains integration tests for the notifications app layer.
+// Package notifications_test contains integration tests for the notifications app layer.
 package notifications_test
 
 import (
@@ -173,6 +173,19 @@ func TestCreatePendingNotificationsFirstAppearance_SkipsVersionCheck(t *testing.
 	}
 }
 
+func TestCreatePendingNotificationsFirstAppearance_ManualTrigger_ChannelOptedOut_SkipsNotification(t *testing.T) {
+	ctx := context.Background()
+	// channel has notifyOnManualVerify=false - manual trigger should skip it
+	s := newSetup(t, false, "1.0.0")
+
+	notifications.CreatePendingNotificationsFirstAppearance(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "1.0.0", s.userID)
+
+	count := notificationCount(t, s.userID)
+	if count != 0 {
+		t.Errorf("expected 0 notifications for manual trigger with opted-out channel, got %d", count)
+	}
+}
+
 func TestCreatePendingNotificationsFirstAppearance_OldVersionIsEmpty(t *testing.T) {
 	ctx := context.Background()
 	s := newSetup(t, true, "1.0.0")
@@ -227,16 +240,35 @@ func TestGetDeliveryLog_ReturnsNotificationsForUser(t *testing.T) {
 func TestGetDeliveryLog_IsolatedPerUser(t *testing.T) {
 	ctx := context.Background()
 	s1 := newSetup(t, true, "1.0.0")
-	user2ID, _, _ := testutil.CreateTestUser(t, testStore, "user")
 
+	// user2 also tracks the same package and has a channel - so they also get notification
+	user2ID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	err := testStore.StoreTracking(ctx, user2ID, s1.packageID, "1.0.0")
+	if err != nil {
+		t.Fatalf("setup user2 tracking: %v", err)
+	}
+	_, err = testStore.CreateEmailChannel(ctx, user2ID, fmt.Sprintf("user2-%d@example.com", testutil.NextID()), true)
+	if err != nil {
+		t.Fatalf("setup user2 channel: %v", err)
+	}
+
+	// system check creates one notification per user
 	notifications.CreatePendingNotifications(ctx, testStore, s1.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
 
-	// user2 should see empty log - notifications belong to user1
-	logs, err := notifications.GetDeliveryLog(ctx, testStore, user2ID)
+	// each user must only see their own entry - not each other's
+	logs1, err := notifications.GetDeliveryLog(ctx, testStore, s1.userID)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("user1 query: %v", err)
 	}
-	if len(logs) != 0 {
-		t.Errorf("expected user2 to have empty delivery log, got %d entries", len(logs))
+	if len(logs1) != 1 {
+		t.Errorf("expected user1 to have 1 delivery log entry, got %d", len(logs1))
+	}
+
+	logs2, err := notifications.GetDeliveryLog(ctx, testStore, user2ID)
+	if err != nil {
+		t.Fatalf("user2 query: %v", err)
+	}
+	if len(logs2) != 1 {
+		t.Errorf("expected user2 to have 1 delivery log entry, got %d", len(logs2))
 	}
 }

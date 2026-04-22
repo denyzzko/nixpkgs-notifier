@@ -26,6 +26,68 @@ func TestMain(m *testing.M) {
 }
 
 // ----------------------------------------------------------------
+// ---------------------- GetUserByID -----------------------------
+// ----------------------------------------------------------------
+
+func TestGetUserByID_Success(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	u, err := users.GetUserByID(ctx, testStore, userID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if u.ID != userID {
+		t.Errorf("ID = %d, want %d", u.ID, userID)
+	}
+}
+
+func TestGetUserByID_NotFound(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := users.GetUserByID(ctx, testStore, 999999999)
+	assertError(t, err, true, appError.NotFound)
+}
+
+// ----------------------------------------------------------------
+// ------------------------- GetUser ------------------------------
+// ----------------------------------------------------------------
+
+func TestGetUser_ExistingAccount_ReturnsExistingUserID(t *testing.T) {
+	ctx := context.Background()
+	userID, issuer, subject := testutil.CreateTestUser(t, testStore, "user")
+
+	provider := &auth.Provider{Issuer: issuer}
+	claims := auth.UserClaims{Subject: subject}
+
+	got, err := users.GetUser(ctx, testStore, provider, claims)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != userID {
+		t.Errorf("userID = %d, want %d", got, userID)
+	}
+}
+
+func TestGetUser_NewAccount_CreatesUser(t *testing.T) {
+	ctx := context.Background()
+
+	provider := &auth.Provider{Issuer: "https://test.issuer", Name: "test"}
+	claims := auth.UserClaims{
+		Subject:           fmt.Sprintf("new-sub-%d", testutil.NextID()),
+		PreferredUsername: fmt.Sprintf("newuser%d", testutil.NextID()),
+	}
+
+	got, err := users.GetUser(ctx, testStore, provider, claims)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got <= 0 {
+		t.Errorf("expected positive userID for new account, got %d", got)
+	}
+}
+
+// ----------------------------------------------------------------
 // --------------------- UpdateUsername ---------------------------
 // ----------------------------------------------------------------
 func TestUpdateUsername(t *testing.T) {

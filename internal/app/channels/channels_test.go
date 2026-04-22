@@ -284,6 +284,14 @@ func TestToggleEnabled(t *testing.T) {
 	}
 }
 
+func TestToggleEnabled_NotFound(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	_, err := channels.ToggleEnabled(ctx, testStore, userID, 999999999, false)
+	assertError(t, err, true, appError.NotFound)
+}
+
 // ----------------------------------------------------------------
 // --------------- ToggleNotifyOnManualVerify ---------------------
 // ----------------------------------------------------------------
@@ -309,6 +317,126 @@ func TestToggleNotifyOnManualVerify(t *testing.T) {
 	}
 	if result.NotifyOnManualVerify {
 		t.Error("expected NotifyOnManualVerify=false after toggling off")
+	}
+}
+
+func TestToggleNotifyOnManualVerify_NotFound(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	_, err := channels.ToggleNotifyOnManualVerify(ctx, testStore, userID, 999999999, true)
+	assertError(t, err, true, appError.NotFound)
+}
+
+// ----------------------------------------------------------------
+// -------------------- GetChannelByID ----------------------------
+// ----------------------------------------------------------------
+
+func TestGetChannelByID_Success(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	chID := addEmail(t, userID, "byid@example.com")
+
+	result, err := channels.GetChannelByID(ctx, testStore, userID, chID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ID != chID {
+		t.Errorf("ID = %d, want %d", result.ID, chID)
+	}
+	if result.Type != "Email" {
+		t.Errorf("Type = %q, want %q", result.Type, "Email")
+	}
+}
+
+func TestGetChannelByID_NotFound(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	_, err := channels.GetChannelByID(ctx, testStore, userID, 999999999)
+	assertError(t, err, true, appError.NotFound)
+}
+
+func TestGetChannelByID_CannotSeeOtherUsersChannel(t *testing.T) {
+	ctx := context.Background()
+	owner, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	other, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	chID := addEmail(t, owner, "owner-byid@example.com")
+
+	_, err := channels.GetChannelByID(ctx, testStore, other, chID)
+	assertError(t, err, true, appError.NotFound)
+}
+
+// ----------------------------------------------------------------
+// ------------------ AcknowledgeDisabled -------------------------
+// ----------------------------------------------------------------
+
+func TestAcknowledgeDisabled_ClearsFlag(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	chID := addEmail(t, userID, "ackdisabled@example.com")
+
+	// set both is_enabled=false and disabled_by_server=true,
+	err := testStore.DisableChannelByServer(ctx, chID, userID)
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	result, err := channels.AcknowledgeDisabled(ctx, testStore, userID, chID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// disabled_by_server flag must be cleared
+	if result.DisabledByServer {
+		t.Error("expected DisabledByServer=false after acknowledgement")
+	}
+	// channel must remain disabled - AcknowledgeDisabled must not re-enable it
+	if result.IsEnabled {
+		t.Error("expected IsEnabled=false - channel should remain disabled after acknowledgement")
+	}
+}
+
+// ----------------------------------------------------------------
+// --------------- GetChannelTestPayload -------------------------
+// ----------------------------------------------------------------
+
+func TestGetChannelTestPayload_Email(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	chID := addEmail(t, userID, "payload@example.com")
+
+	payload, err := channels.GetChannelTestPayload(ctx, testStore, userID, chID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if payload.Email == nil {
+		t.Fatal("expected Email to be non-nil for email channel")
+	}
+	if payload.Webhook != nil {
+		t.Error("expected Webhook to be nil for email channel")
+	}
+	if payload.Email.Address != "payload@example.com" {
+		t.Errorf("Email.Address = %q, want %q", payload.Email.Address, "payload@example.com")
+	}
+}
+
+func TestGetChannelTestPayload_Webhook(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	chID := addWebhook(t, userID, webhookURL)
+
+	payload, err := channels.GetChannelTestPayload(ctx, testStore, userID, chID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if payload.Webhook == nil {
+		t.Fatal("expected Webhook to be non-nil for webhook channel")
+	}
+	if payload.Email != nil {
+		t.Error("expected Email to be nil for webhook channel")
+	}
+	if payload.Webhook.URL != webhookURL {
+		t.Errorf("Webhook.URL = %q, want %q", payload.Webhook.URL, webhookURL)
 	}
 }
 

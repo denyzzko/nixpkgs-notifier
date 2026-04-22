@@ -48,7 +48,9 @@ go build ./cmd/server
 
 ## Testing
 
-Project includes black-box integration tests that use PostgreSQL container via [testcontainers-go](https://golang.testcontainers.org). Docker must be running for it to work. These tests validate application and database layer covering business logic in users, channels, packages and notifications packages.
+Project includes two kinds of tests:
+  - **Black-box integration tests** that use PostgreSQL container via [testcontainers-go](https://golang.testcontainers.org) and require Docker to be running. These tests validate application and database layer covering business logic in users, channels, packages and notifications packages.
+  - **Unit tests** that test HTTP middleware such as authentication guards and rate limiting.
 
 ```bash
 go test ./...
