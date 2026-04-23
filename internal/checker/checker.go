@@ -84,6 +84,8 @@ type Checker struct {
 
 	highQ chan CheckJob // user-triggered checks -> high priority
 	lowQ  chan CheckJob // periodic background checks -> low priority
+
+	nixEval func(ctx context.Context, name string, branch string) (string, error)
 }
 
 // Constructs a Checker
@@ -91,10 +93,11 @@ type Checker struct {
 // lowQ  (512 slots) - periodic bulk enqueue of all packages, can produce many jobs at once (logs if queue gets full -> that means this capacity should also be increased)
 func New(db *database.Store, cfg Config) *Checker {
 	return &Checker{
-		db:    db,
-		cfg:   cfg,
-		highQ: make(chan CheckJob, 128),
-		lowQ:  make(chan CheckJob, 512),
+		db:      db,
+		cfg:     cfg,
+		highQ:   make(chan CheckJob, 128),
+		lowQ:    make(chan CheckJob, 512),
+		nixEval: nix.GetPackageVersionByNameAndBranch,
 	}
 }
 
@@ -339,14 +342,14 @@ func (ch *Checker) dispatch(ctx context.Context, job CheckJob) {
 // Runs nix eval and sends the raw result (possibly including error) back through the reply channel.
 // All DB operations (including last_checked_at update) are the responsibility of the caller's goroutine (packages layer).
 func (ch *Checker) processUserJob(ctx context.Context, job CheckJob) {
-	version, err := nix.GetPackageVersionByNameAndBranch(ctx, job.Name, job.Branch)
+	version, err := ch.nixEval(ctx, job.Name, job.Branch)
 	job.Result <- NixResult{Version: version, Err: err}
 }
 
 // processSystemTrackedJob handles a periodic background check for a tracked package (Result == nil, IsWatchlistCheck == false).
 // Runs nix eval, updates last_checked_at, and calls CreatePendingNotifications if a version change is detected.
 func (ch *Checker) processSystemTrackedJob(ctx context.Context, job CheckJob) {
-	version, err := nix.GetPackageVersionByNameAndBranch(ctx, job.Name, job.Branch)
+	version, err := ch.nixEval(ctx, job.Name, job.Branch)
 
 	if err != nil {
 		if errors.Is(err, nix.ErrAttrNotFound) {
@@ -383,7 +386,7 @@ func (ch *Checker) processSystemTrackedJob(ctx context.Context, job CheckJob) {
 // Runs nix eval and if package appears calls PromoteWatchlistEntries to create package and tracking rows
 // for all users who had it in their watchlist, removes their watchlist entries, and queues notifications.
 func (ch *Checker) processSystemWatchlistJob(ctx context.Context, job CheckJob) {
-	version, err := nix.GetPackageVersionByNameAndBranch(ctx, job.Name, job.Branch)
+	version, err := ch.nixEval(ctx, job.Name, job.Branch)
 	if err != nil {
 		if errors.Is(err, nix.ErrAttrNotFound) {
 			// still not in nixpkgs

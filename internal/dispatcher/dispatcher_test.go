@@ -59,9 +59,9 @@ func (f *FakeSender) lastTestCall() notify.VersionChangeEvent {
 	return f.TestCalls[len(f.TestCalls)-1]
 }
 
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------
+// 							Test helpers
+// ----------------------------------------------------------------
 
 var testStore *database.Store
 
@@ -73,11 +73,9 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// defaultCfg returns dispatcher.Config suitable for tests:
-// single worker, short interval.
+// defaultCfg returns dispatcher.Config suitable for tests with single worker.
 func defaultCfg() dispatcher.Config {
 	return dispatcher.Config{
-		Interval:            time.Second,
 		MaxRetries:          3,
 		WorkerCount:         1,
 		DisableOnMaxRetries: false,
@@ -198,9 +196,9 @@ func isChannelDisabledByServer(t *testing.T, userID, channelID int64) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------
+// ------------------------ Dispatch ------------------------------
+// ----------------------------------------------------------------
 
 // TestDispatch_EmailNotification_MarkedSent verifies that pending email
 // notification is delivered via FakeSender and marked as "sent".
@@ -318,6 +316,10 @@ func TestDispatch_MaxRetries_ChannelDisabled(t *testing.T) {
 		t.Fatal("channel should be disabled after reaching MaxRetries")
 	}
 }
+
+// ----------------------------------------------------------------
+// ---------------------- Dispatch - Test -------------------------
+// ----------------------------------------------------------------
 
 // TestDispatchTest_Email_CallsSendTest verifies that dispatcher.Test() routes
 // to FakeSender.SendTest (not Send) for email channel.
