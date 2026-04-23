@@ -343,6 +343,7 @@ func TestEnqueueHighOrSkip_SkipsRecentlyChecked(t *testing.T) {
 func TestEnqueueHighOrSkip_EvaluatesPackage(t *testing.T) {
 	cfg := defaultCfg()
 	cfg.SkipInterval = time.Hour
+	cfg.Interval = time.Minute
 	c := checker.NewWithNixEval(nil, cfg, fakeNix("2.0.0", nil))
 
 	result := make(chan checker.NixResult, 1)
