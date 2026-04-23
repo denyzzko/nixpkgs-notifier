@@ -440,7 +440,7 @@ func checkPackageAsync(db *database.Store, userID int64, pckg database.TrackedPa
 		}
 
 		// version changed - notify all users tracking this package
-		go notifications.CreatePendingNotifications(bgCtx, db, pckg.PackageID, pckg.Name, pckg.Branch, currentVersion, userID)
+		notifications.CreatePendingNotifications(bgCtx, db, pckg.PackageID, pckg.Name, pckg.Branch, currentVersion, userID)
 
 		// update last_notified_version for triggering user
 		err = db.StoreTracking(bgCtx, userID, pckg.PackageID, currentVersion)
