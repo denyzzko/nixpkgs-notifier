@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.0...v1.5.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* make CreatePendingNotifications sync inside checkPackageAsync ([61d154a](https://github.com/denyzzko/nixpkgs-notifier/commit/61d154a15e6af2d1de086a1c4365363c9a3482e5))
+
 # [1.5.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.4.0...v1.5.0) (2026-04-20)
 
 
