@@ -209,17 +209,6 @@ func initializePackageBaseline(db *database.Store, chk *checker.Checker, userID 
 	if nixResult.Err != nil {
 		log.Printf("[WARN] %s: nix eval failed for %q/%q: %v", op, packageName, packageBranch, nixResult.Err)
 
-		// rollback: remove the tracking record that was created
-		if err := db.DeleteTracking(bgCtx, userID, packageID); err != nil && !errors.Is(err, database.ErrNotFound) {
-			log.Printf("[WARN] %s: rollback tracking delete failed (%q/%q): %v", op, packageName, packageBranch, err)
-		}
-		// if the package was newly created in the system by this Track call -> also remove it
-		if newPackage {
-			if err := db.DeletePackage(bgCtx, packageID); err != nil {
-				log.Printf("[WARN] %s: rollback package delete failed (%q/%q): %v", op, packageName, packageBranch, err)
-			}
-		}
-
 		// signal polling endpoint that operation failed
 		watchable := errors.Is(nixResult.Err, nix.ErrAttrNotFound)
 		operationResults.Store(resultKey, operationResult{
@@ -230,6 +219,17 @@ func initializePackageBaseline(db *database.Store, chk *checker.Checker, userID 
 			branch:    packageBranch,
 			createdAt: time.Now(),
 		})
+
+		// rollback: remove the tracking record that was created
+		if err := db.DeleteTracking(bgCtx, userID, packageID); err != nil && !errors.Is(err, database.ErrNotFound) {
+			log.Printf("[WARN] %s: rollback tracking delete failed (%q/%q): %v", op, packageName, packageBranch, err)
+		}
+		// if the package was newly created in the system by this Track call -> also remove it
+		if newPackage {
+			if err := db.DeletePackage(bgCtx, packageID); err != nil {
+				log.Printf("[WARN] %s: rollback package delete failed (%q/%q): %v", op, packageName, packageBranch, err)
+			}
+		}
 		return
 	}
 
