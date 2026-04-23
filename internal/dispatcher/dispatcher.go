@@ -45,21 +45,24 @@ type EmailConfig struct {
 // It is created once in main.go on startup
 type Dispatcher struct {
 	db            *database.Store
-	emailProvider string // "resend" or "smtp"
-	resendSender  *notify.ResendSender
-	smtpSender    *notify.SMTPSender
-	webhookSender *notify.WebhookSender
+	emailSender   notify.Sender // resend or smtp
+	webhookSender notify.Sender
 	cfg           Config
 	cfgMu         sync.RWMutex // config guard mutex
 }
 
 // Constructs a Dispatcher
 func New(db *database.Store, cfg Config, emailCfg EmailConfig) *Dispatcher {
+	var emailSender notify.Sender
+	if emailCfg.Provider == "smtp" {
+		emailSender = notify.NewSMTPSender(emailCfg.SMTPHost, emailCfg.SMTPPort, emailCfg.SMTPUser, emailCfg.SMTPPass, emailCfg.SMTPFrom)
+	} else {
+		emailSender = notify.NewResendSender(emailCfg.ResendKey, emailCfg.FromAddr)
+	}
+
 	return &Dispatcher{
 		db:            db,
-		emailProvider: emailCfg.Provider,
-		resendSender:  notify.NewResendSender(emailCfg.ResendKey, emailCfg.FromAddr),
-		smtpSender:    notify.NewSMTPSender(emailCfg.SMTPHost, emailCfg.SMTPPort, emailCfg.SMTPUser, emailCfg.SMTPPass, emailCfg.SMTPFrom),
+		emailSender:   emailSender,
 		webhookSender: notify.NewWebhookSender(),
 		cfg:           cfg,
 	}
@@ -216,14 +219,7 @@ func (d *Dispatcher) resolveSender(n database.PendingFailedNotification) (notify
 	case n.Email != nil:
 		// email channel
 		event.RecipientAddress = n.Email.Address
-		var sender notify.Sender
-		// based on emailProvider (env var) decide if SMTP or Resend is used
-		if d.emailProvider == "smtp" {
-			sender = d.smtpSender
-		} else {
-			sender = d.resendSender
-		}
-		return sender, event, nil
+		return d.emailSender, event, nil
 	case n.Webhook != nil:
 		// webhook channel
 		event.RecipientAddress = n.Webhook.URL
