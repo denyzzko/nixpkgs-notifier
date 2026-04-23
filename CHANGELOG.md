@@ -1,3 +1,10 @@
+## [1.5.2](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.1...v1.5.2) (2026-04-23)
+
+
+### Bug Fixes
+
+* first signal then rollback ([f3fa5d6](https://github.com/denyzzko/nixpkgs-notifier/commit/f3fa5d66a5c8ff64e4e5280cfc0698b5a992c7e6))
+
 ## [1.5.1](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.0...v1.5.1) (2026-04-23)
 
 
