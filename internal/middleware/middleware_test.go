@@ -1,4 +1,4 @@
-package web_test
+package middleware_test
 
 import (
 	"net/http"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/middleware"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
-	"github.com/denyzzko/nixpkgs-notifier/internal/web"
 	"golang.org/x/time/rate"
 )
 
@@ -40,93 +39,6 @@ func requestWithSession(t *testing.T, sm *session.SessionManager, userID int64, 
 	})).ServeHTTP(rr, req)
 
 	return req
-}
-
-// ----------------------------------------------------------------
-// ---------------------- requireAuth -----------------------------
-// ----------------------------------------------------------------
-
-func TestRequireAuth_UnauthenticatedRedirectsToLogin(t *testing.T) {
-	sm := newSession()
-	req := requestWithSession(t, sm, 0, "") // no userID in session
-
-	rr := httptest.NewRecorder()
-	web.ExportRequireAuth(sm, okHandler).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusFound {
-		t.Errorf("status = %d, want %d (Found)", rr.Code, http.StatusFound)
-	}
-	loc := rr.Header().Get("Location")
-	if loc != "/login" {
-		t.Errorf("Location = %q, want %q", loc, "/login")
-	}
-}
-
-func TestRequireAuth_AuthenticatedPassesThrough(t *testing.T) {
-	sm := newSession()
-	req := requestWithSession(t, sm, 1, "user")
-
-	rr := httptest.NewRecorder()
-	web.ExportRequireAuth(sm, okHandler).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d (OK)", rr.Code, http.StatusOK)
-	}
-}
-
-// ----------------------------------------------------------------
-// --------------------- requireAdmin -----------------------------
-// ----------------------------------------------------------------
-
-func TestRequireAdmin_UnauthenticatedRedirectsToLogin(t *testing.T) {
-	sm := newSession()
-	req := requestWithSession(t, sm, 0, "")
-
-	rr := httptest.NewRecorder()
-	web.ExportRequireAdmin(sm, okHandler).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusFound {
-		t.Errorf("status = %d, want %d (Found)", rr.Code, http.StatusFound)
-	}
-	if loc := rr.Header().Get("Location"); loc != "/login" {
-		t.Errorf("Location = %q, want %q", loc, "/login")
-	}
-}
-
-func TestRequireAdmin_AuthenticatedNonAdminForbidden(t *testing.T) {
-	sm := newSession()
-	req := requestWithSession(t, sm, 1, "user")
-
-	rr := httptest.NewRecorder()
-	web.ExportRequireAdmin(sm, okHandler).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want %d (Forbidden)", rr.Code, http.StatusForbidden)
-	}
-}
-
-func TestRequireAdmin_AuthenticatedEmptyRoleForbidden(t *testing.T) {
-	sm := newSession()
-	req := requestWithSession(t, sm, 1, "") // role not set
-
-	rr := httptest.NewRecorder()
-	web.ExportRequireAdmin(sm, okHandler).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want %d (Forbidden)", rr.Code, http.StatusForbidden)
-	}
-}
-
-func TestRequireAdmin_AdminPassesThrough(t *testing.T) {
-	sm := newSession()
-	req := requestWithSession(t, sm, 1, "admin")
-
-	rr := httptest.NewRecorder()
-	web.ExportRequireAdmin(sm, okHandler).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d (OK)", rr.Code, http.StatusOK)
-	}
 }
 
 // ----------------------------------------------------------------
