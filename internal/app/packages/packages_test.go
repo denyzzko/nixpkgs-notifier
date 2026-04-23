@@ -1,24 +1,22 @@
 // Package packages_test contains integration tests for the packages app layer.
-//
-// What is not tested and why:
-//
-//   - Track, Check, WatchCheck - These functions require Checker with workers that call nix binary
-//     to evaluate package version. Testing them would require nix installation and non-deterministic goroutine timing.
-//     Nix evaluation can take long time which is not suitable for tests.
-//
-//   - StartResultCleanup - Background goroutine with 60 minute ticker - not meaningful for test...
+// StartResultCleanup is not tested because it is background goroutine with 60 minute ticker
+// that just cleanes forgotten operationResult and watchlistCheckResult - not meaningful for test...
 package packages_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/packages"
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
+	"github.com/denyzzko/nixpkgs-notifier/internal/checker"
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
+	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 	"github.com/denyzzko/nixpkgs-notifier/internal/testutil"
 )
 
@@ -58,6 +56,78 @@ func addWatchlistEntry(t *testing.T, userID int64) database.WatchlistEntry {
 		t.Fatalf("addWatchlistEntry: %v", err)
 	}
 	return entry
+}
+
+// fakeNix returns nix eval function that always returns specified version or error.
+func fakeNix(version string, err error) func(ctx context.Context, name, branch string) (string, error) {
+	return func(_ context.Context, _, _ string) (string, error) {
+		return version, err
+	}
+}
+
+// startChecker creates and starts a Checker with fakeNixFn.
+// Checker is automatically stopped when the test ends.
+func startChecker(t *testing.T, version string, nixErr error) *checker.Checker {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	c := checker.NewWithNixEval(testStore, checker.Config{WorkerCount: 1, Interval: time.Minute}, fakeNix(version, nixErr))
+	c.Start(ctx)
+	return c
+}
+
+// pollTrackStatus polls GetTrackStatus until Done=true or 1s timeout.
+func pollTrackStatus(t *testing.T, userID, pkgID int64) packages.TrackStatus {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		status, err := packages.GetTrackStatus(context.Background(), testStore, userID, strconv.FormatInt(pkgID, 10))
+		if err != nil {
+			t.Fatalf("pollTrackStatus: %v", err)
+		}
+		if status.Done {
+			return status
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("pollTrackStatus: timed out waiting for Done=true")
+	return packages.TrackStatus{}
+}
+
+// pollCheckStatus polls GetCheckStatus until Done=true or 1s timeout.
+func pollCheckStatus(t *testing.T, userID, pkgID int64, prev string) packages.CheckStatus {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		status, err := packages.GetCheckStatus(context.Background(), testStore, userID, strconv.FormatInt(pkgID, 10), prev)
+		if err != nil {
+			t.Fatalf("pollCheckStatus: %v", err)
+		}
+		if status.Done {
+			return status
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("pollCheckStatus: timed out waiting for Done=true")
+	return packages.CheckStatus{}
+}
+
+// pollWatchCheckStatus polls GetWatchCheckStatus until Done=true or 1s timeout.
+func pollWatchCheckStatus(t *testing.T, userID, watchlistID int64) packages.WatchlistCheckStatus {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		status, err := packages.GetWatchCheckStatus(context.Background(), testStore, userID, strconv.FormatInt(watchlistID, 10))
+		if err != nil {
+			t.Fatalf("pollWatchCheckStatus: %v", err)
+		}
+		if status.Done {
+			return status
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("pollWatchCheckStatus: timed out waiting for Done=true")
+	return packages.WatchlistCheckStatus{}
 }
 
 // ----------------------------------------------------------------
@@ -415,7 +485,8 @@ func TestGetCheckStatus_DoneVersionChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	if err := testStore.StoreTracking(ctx, userID, pkgID, "2.0.0"); err != nil {
+	err = testStore.StoreTracking(ctx, userID, pkgID, "2.0.0")
+	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -576,5 +647,361 @@ func assertError(t *testing.T, err error, wantErr bool, wantCause appError.Cause
 		if err != nil {
 			t.Errorf("expected no error but got: %v", err)
 		}
+	}
+}
+
+// ----------------------------------------------------------------
+// -------------------------- Track -------------------------------
+// ----------------------------------------------------------------
+
+// TestTrack_HappyPath verifies that Track creates a tracking row, launches the
+// goroutine that evaluates the version baseline, and GetTrackStatus eventually
+// returns Done with LastNotifiedVersion set.
+func TestTrack_HappyPath(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	chk := startChecker(t, "1.0.0", nil)
+
+	pkgName := fmt.Sprintf("testpkg-%d", testutil.NextID())
+	pkg, err := packages.Track(ctx, testStore, userID, chk, pkgName, "nixpkgs-unstable")
+	if err != nil {
+		t.Fatalf("Track: unexpected error: %v", err)
+	}
+
+	status := pollTrackStatus(t, userID, pkg.PackageID)
+	if status.Failed {
+		t.Fatalf("expected success, got failure: %s", status.ErrMsg)
+	}
+	if status.Package.LastNotifiedVersion != "1.0.0" {
+		t.Errorf("LastNotifiedVersion = %q, want %q", status.Package.LastNotifiedVersion, "1.0.0")
+	}
+}
+
+// TestTrack_AlreadyTracking verifies that tracking the same package twice
+// returns Invalid error.
+func TestTrack_AlreadyTracking(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	chk := startChecker(t, "1.0.0", nil)
+
+	pkgName := fmt.Sprintf("testpkg-%d", testutil.NextID())
+	pkgID, err := testStore.StorePackage(ctx, pkgName, "nixpkgs-unstable", "1.0.0")
+	if err != nil {
+		t.Fatalf("setup StorePackage: %v", err)
+	}
+	err = testStore.StoreTracking(ctx, userID, pkgID, "1.0.0")
+	if err != nil {
+		t.Fatalf("setup StoreTracking: %v", err)
+	}
+
+	_, err = packages.Track(ctx, testStore, userID, chk, pkgName, "nixpkgs-unstable")
+	assertError(t, err, true, appError.Invalid)
+}
+
+// TestTrack_NixAttrNotFound verifies that when nix returns ErrAttrNotFound,
+// the goroutine rolls back tracking and GetTrackStatus reports Failed+Watchable.
+func TestTrack_NixAttrNotFound(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	chk := startChecker(t, "", nix.ErrAttrNotFound)
+
+	pkgName := fmt.Sprintf("testpkg-%d", testutil.NextID())
+	pkg, err := packages.Track(ctx, testStore, userID, chk, pkgName, "nixpkgs-unstable")
+	if err != nil {
+		t.Fatalf("Track: unexpected error: %v", err)
+	}
+
+	status := pollTrackStatus(t, userID, pkg.PackageID)
+	if !status.Failed {
+		t.Error("expected Failed=true")
+	}
+	if !status.Watchable {
+		t.Error("expected Watchable=true for ErrAttrNotFound")
+	}
+
+	// tracking should be rolled back
+	tracked, err := testStore.QueryUsersTrackedPackages(ctx, userID)
+	if err != nil {
+		t.Fatalf("QueryUsersTrackedPackages: %v", err)
+	}
+	if len(tracked) != 0 {
+		t.Errorf("expected tracking to be rolled back, got %d", len(tracked))
+	}
+}
+
+// TestTrack_NixEvalFailed verifies that when nix returns ErrEvalFailed,
+// the goroutine rolls back tracking and GetTrackStatus reports Failed but not Watchable.
+func TestTrack_NixEvalFailed(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	chk := startChecker(t, "", errors.Join(nix.ErrEvalFailed, errors.New("timeout")))
+
+	pkgName := fmt.Sprintf("testpkg-%d", testutil.NextID())
+	pkg, err := packages.Track(ctx, testStore, userID, chk, pkgName, "nixpkgs-unstable")
+	if err != nil {
+		t.Fatalf("Track: unexpected error: %v", err)
+	}
+
+	status := pollTrackStatus(t, userID, pkg.PackageID)
+	if !status.Failed {
+		t.Error("expected Failed=true")
+	}
+	if status.Watchable {
+		t.Error("expected Watchable=false for ErrEvalFailed")
+	}
+
+	// tracking should be rolled back
+	tracked, err := testStore.QueryUsersTrackedPackages(ctx, userID)
+	if err != nil {
+		t.Fatalf("QueryUsersTrackedPackages: %v", err)
+	}
+	if len(tracked) != 0 {
+		t.Errorf("expected tracking to be rolled back, got %d", len(tracked))
+	}
+}
+
+// ----------------------------------------------------------------
+// -------------------------- Check -------------------------------
+// ----------------------------------------------------------------
+
+// TestCheck_VersionUnchanged verifies that when nix returns the same version,
+// GetCheckStatus reports Done with VersionChanged=false.
+func TestCheck_VersionUnchanged(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID) // version 1.0.0
+	chk := startChecker(t, "1.0.0", nil)
+
+	outcome, err := packages.Check(ctx, testStore, userID, chk, strconv.FormatInt(pkgID, 10))
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if outcome.Skipped {
+		t.Fatal("expected Skipped=false")
+	}
+
+	status := pollCheckStatus(t, userID, pkgID, "1.0.0")
+	if status.Failed {
+		t.Errorf("expected success, got failure: %s", status.ErrMsg)
+	}
+	if status.VersionChanged {
+		t.Error("expected VersionChanged=false")
+	}
+}
+
+// TestCheck_VersionChanged verifies that when nix returns new version,
+// GetCheckStatus reports Done with VersionChanged=true and notification is created.
+func TestCheck_VersionChanged(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID) // version 1.0.0
+
+	addr := fmt.Sprintf("user%d@example.com", testutil.NextID())
+	_, err := testStore.CreateEmailChannel(ctx, userID, addr, true)
+	if err != nil {
+		t.Fatalf("CreateEmailChannel: %v", err)
+	}
+
+	chk := startChecker(t, "2.0.0", nil)
+
+	outcome, err := packages.Check(ctx, testStore, userID, chk, strconv.FormatInt(pkgID, 10))
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if outcome.Skipped {
+		t.Fatal("expected Skipped=false")
+	}
+
+	status := pollCheckStatus(t, userID, pkgID, "1.0.0")
+	if status.Failed {
+		t.Errorf("expected success, got failure: %s", status.ErrMsg)
+	}
+	if !status.VersionChanged {
+		t.Error("expected VersionChanged=true")
+	}
+
+	// notification should be created
+	rows, err := testStore.QueryNotificationsByUserID(ctx, userID)
+	if err != nil {
+		t.Fatalf("QueryNotificationsByUserID: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("expected 1 notification, got %d", len(rows))
+	}
+}
+
+// TestCheck_Skipped verifies that when LastCheckedAt is within SkipInterval
+// and Check returns Skipped=true.
+func TestCheck_Skipped(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID)
+
+	err := testStore.UpdatePackageLastCheckedAt(ctx, pkgID)
+	if err != nil {
+		t.Fatalf("UpdatePackageLastCheckedAt: %v", err)
+	}
+
+	// start checker with SkipInterval = 1 hour
+	ctxChk, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	chk := checker.NewWithNixEval(testStore,
+		checker.Config{WorkerCount: 1, Interval: time.Minute, SkipInterval: time.Hour},
+		fakeNix("1.0.0", nil),
+	)
+	chk.Start(ctxChk)
+
+	outcome, err := packages.Check(ctx, testStore, userID, chk, strconv.FormatInt(pkgID, 10))
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if !outcome.Skipped {
+		t.Error("expected Skipped=true when recently checked")
+	}
+}
+
+// TestCheck_NixFailed verifies that when nix returns an error,
+// GetCheckStatus reports Done with Failed=true.
+func TestCheck_NixFailed(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	pkgID := addTracking(t, userID)
+	chk := startChecker(t, "", errors.Join(nix.ErrEvalFailed, errors.New("timeout")))
+
+	outcome, err := packages.Check(ctx, testStore, userID, chk, strconv.FormatInt(pkgID, 10))
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if outcome.Skipped {
+		t.Fatal("expected Skipped=false")
+	}
+
+	status := pollCheckStatus(t, userID, pkgID, "1.0.0")
+	if !status.Failed {
+		t.Error("expected Failed=true on nix error")
+	}
+}
+
+// TestCheck_UninitializedPackage verifies that Check returns early without
+// enqueueing when LastNotifiedVersion is empty (package not yet initialized).
+func TestCheck_UninitializedPackage(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	pkgName := fmt.Sprintf("testpkg-%d", testutil.NextID())
+	pkgID, err := testStore.StorePackage(ctx, pkgName, "nixpkgs-unstable", "")
+	if err != nil {
+		t.Fatalf("StorePackage: %v", err)
+	}
+	err = testStore.StoreTracking(ctx, userID, pkgID, "")
+	if err != nil {
+		t.Fatalf("StoreTracking: %v", err)
+	}
+
+	chk := startChecker(t, "1.0.0", nil)
+	outcome, err := packages.Check(ctx, testStore, userID, chk, strconv.FormatInt(pkgID, 10))
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if outcome.Skipped {
+		t.Error("expected Skipped=false for uninitialized package")
+	}
+	if outcome.Package.PackageID != pkgID {
+		t.Errorf("Package.PackageID = %d, want %d", outcome.Package.PackageID, pkgID)
+	}
+}
+
+// ----------------------------------------------------------------
+// ----------------------- WatchCheck -----------------------------
+// ----------------------------------------------------------------
+
+// TestWatchCheck_StillNotFound verifies that when nix returns ErrAttrNotFound,
+// GetWatchCheckStatus reports Done with StillNotFound=true.
+func TestWatchCheck_StillNotFound(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	entry := addWatchlistEntry(t, userID)
+	chk := startChecker(t, "", nix.ErrAttrNotFound)
+
+	_, err := packages.WatchCheck(ctx, testStore, userID, chk, strconv.FormatInt(entry.ID, 10))
+	if err != nil {
+		t.Fatalf("WatchCheck: %v", err)
+	}
+
+	status := pollWatchCheckStatus(t, userID, entry.ID)
+	if !status.StillNotFound {
+		t.Error("expected StillNotFound=true")
+	}
+	if status.Failed {
+		t.Error("expected Failed=false")
+	}
+}
+
+// TestWatchCheck_Promoted verifies that when the watched package appears in nixpkgs,
+// GetWatchCheckStatus reports Done with Promoted=true and tracking row is created.
+func TestWatchCheck_Promoted(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	entry := addWatchlistEntry(t, userID)
+
+	addr := fmt.Sprintf("user%d@example.com", testutil.NextID())
+	_, err := testStore.CreateEmailChannel(ctx, userID, addr, true)
+	if err != nil {
+		t.Fatalf("CreateEmailChannel: %v", err)
+	}
+
+	chk := startChecker(t, "1.0.0", nil)
+
+	_, err = packages.WatchCheck(ctx, testStore, userID, chk, strconv.FormatInt(entry.ID, 10))
+	if err != nil {
+		t.Fatalf("WatchCheck: %v", err)
+	}
+
+	status := pollWatchCheckStatus(t, userID, entry.ID)
+	if !status.Promoted {
+		t.Error("expected Promoted=true")
+	}
+	if status.PromotedPkg.Name != entry.Name {
+		t.Errorf("PromotedPkg.Name = %q, want %q", status.PromotedPkg.Name, entry.Name)
+	}
+
+	// tracking row should be created
+	tracked, err := testStore.QueryUsersTrackedPackages(ctx, userID)
+	if err != nil {
+		t.Fatalf("QueryUsersTrackedPackages: %v", err)
+	}
+	if len(tracked) != 1 {
+		t.Fatalf("expected 1 tracked package after promotion, got %d", len(tracked))
+	}
+	if tracked[0].Name != entry.Name {
+		t.Errorf("tracked package name = %q, want %q", tracked[0].Name, entry.Name)
+	}
+
+	// notification should be created
+	rows, err := testStore.QueryNotificationsByUserID(ctx, userID)
+	if err != nil {
+		t.Fatalf("QueryNotificationsByUserID: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("expected 1 notification, got %d", len(rows))
+	}
+}
+
+// TestWatchCheck_Failed verifies that when nix returns a non AttrNotFound error,
+// GetWatchCheckStatus reports Done with Failed=true.
+func TestWatchCheck_Failed(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	entry := addWatchlistEntry(t, userID)
+	chk := startChecker(t, "", errors.Join(nix.ErrEvalFailed, errors.New("timeout")))
+
+	_, err := packages.WatchCheck(ctx, testStore, userID, chk, strconv.FormatInt(entry.ID, 10))
+	if err != nil {
+		t.Fatalf("WatchCheck: %v", err)
+	}
+
+	status := pollWatchCheckStatus(t, userID, entry.ID)
+	if !status.Failed {
+		t.Error("expected Failed=true")
 	}
 }
