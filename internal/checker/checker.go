@@ -77,6 +77,7 @@ type CheckJob struct {
 // Checker with all resources it needs.
 // It is created once in main.go on startup.
 // It manages worker pool and priority queues for nix eval jobs.
+// NEEDS CHANGE?
 type Checker struct {
 	db    *database.Store
 	cfg   Config
@@ -86,6 +87,10 @@ type Checker struct {
 	lowQ  chan CheckJob // periodic background checks -> low priority
 
 	nixEval func(ctx context.Context, name string, branch string) (string, error)
+
+	workerCancels []context.CancelFunc // cancel functions for each running worker
+	workerMu      sync.Mutex           // guard for workerCancels
+	parentCtx     context.Context      // root context from Start()
 }
 
 // Constructs a Checker
@@ -102,10 +107,13 @@ func New(db *database.Store, cfg Config) *Checker {
 }
 
 // Config helper that replaces config at runtime.
+// Adjusts number of running workers if WorkerCount changed.
 func (ch *Checker) UpdateConfig(cfg Config) {
 	ch.cfgMu.Lock()
 	defer ch.cfgMu.Unlock()
 	ch.cfg = cfg
+
+	ch.setWorkerCount(cfg.WorkerCount)
 }
 
 // Config helper that returns current config.
@@ -121,15 +129,42 @@ func (ch *Checker) GetConfig() Config {
 	return ch.config()
 }
 
-// Launches N worker goroutines (where N is WorkerCount) and the schedule loop.
+// Launches initial N worker goroutines (where N is WorkerCount) and the schedule loop.
 // All goroutines run until ctx is cancelled (SIGTERM/SIGINT).
 func (ch *Checker) Start(ctx context.Context) {
+	ch.parentCtx = ctx
 	cfg := ch.config()
-	for i := 0; i < cfg.WorkerCount; i++ {
-		go ch.worker(ctx)
-	}
+	ch.setWorkerCount(cfg.WorkerCount)
 	go ch.scheduleLoop(ctx)
 	log.Println("[INFO] checker: started")
+}
+
+// Adjusts number of running worker goroutines to match target.
+// Spawns additional workers if target > current or cancels workers if target < current.
+// Nothing if target == current.
+func (ch *Checker) setWorkerCount(target int) {
+	ch.workerMu.Lock()
+	defer ch.workerMu.Unlock()
+
+	current := len(ch.workerCancels)
+
+	if target > current {
+		// spawn additional workers
+		for i := current; i < target; i++ {
+			ctx, cancel := context.WithCancel(ch.parentCtx)
+			ch.workerCancels = append(ch.workerCancels, cancel)
+			go ch.worker(ctx)
+		}
+		log.Printf("[INFO] checker: increased number of workers %d -> %d", current, target)
+
+	} else if target < current {
+		// cancel excess workers
+		for _, cancel := range ch.workerCancels[target:] {
+			cancel()
+		}
+		ch.workerCancels = ch.workerCancels[:target]
+		log.Printf("[INFO] checker: decreased number of workers %d -> %d", current, target)
+	}
 }
 
 // Background goroutine responsible for periodic scheduling.

@@ -140,7 +140,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, cfg Config) {
 	// --GO SEMAPHORE PATTER WITH BUFFERED CHANNEL--
 	// idea: https://dev.to/siffiyan_assauri_51ec6d1b/controlling-concurrency-in-go-with-the-semaphore-pattern-24in
 	//
-	// sem is a buffered channel used as a semaphore (capacity equals WorkerCount — max number of goroutines allowed to run at once)
+	// sem is a buffered channel used as a semaphore (capacity equals WorkerCount - max number of goroutines allowed to run at once)
 	// sending into sem acquires a slot, receiving from sem releases it
 	// if all slots are taken, the next send blocks until one goroutine finishes and releases its slot
 	sem := make(chan struct{}, cfg.WorkerCount)
