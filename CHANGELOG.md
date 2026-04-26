@@ -1,3 +1,10 @@
+## [1.5.3](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.2...v1.5.3) (2026-04-26)
+
+
+### Bug Fixes
+
+* update number of running checker workers during runtime ([765a37f](https://github.com/denyzzko/nixpkgs-notifier/commit/765a37f7fa69528e109eaa5ab9ccee19464ac96f))
+
 ## [1.5.2](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.1...v1.5.2) (2026-04-23)
 
 
