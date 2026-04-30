@@ -12,8 +12,9 @@ package notify
 import (
 	"context"
 	"fmt"
-	"net/smtp"
-	"time"
+	"strconv"
+
+	gomail "github.com/wneessen/go-mail"
 )
 
 // Delivers email by direct SMTP server use (uses Go stdlib)
@@ -21,28 +22,32 @@ import (
 // Single instance is created on startup in dispatcher.New() and it is reused for all email deliveries
 // Destination email address is stored in event.RecipientAddress
 type SMTPSender struct {
-	host     string
-	port     string
-	username string
-	password string
-	from     string
+	host         string
+	port         string
+	username     string
+	password     string
+	from         string
+	heloHostname string // defaults to host if empty
 }
 
 // Constructs an SMTPSender from environment variables passed from dispatcher.New()
-func NewSMTPSender(host, port, username, password, from string) *SMTPSender {
+func NewSMTPSender(host, port, username, password, from, heloHostname string) *SMTPSender {
+	if heloHostname == "" {
+		heloHostname = host
+	}
+
 	return &SMTPSender{
-		host:     host,
-		port:     port,
-		username: username,
-		password: password,
-		from:     from,
+		host:         host,
+		port:         port,
+		username:     username,
+		password:     password,
+		from:         from,
+		heloHostname: heloHostname,
 	}
 }
 
 // Sends notification email via SMTP
-// Builds RFC 2822 plain-text message
-// smtp.SendMail handles STARTTLS negotiation and PLAIN AUTH
-func (s *SMTPSender) Send(_ context.Context, event VersionChangeEvent) error {
+func (s *SMTPSender) Send(ctx context.Context, event VersionChangeEvent) error {
 	var subject, body string
 
 	if event.IsFirstAppearance {
@@ -79,49 +84,71 @@ func (s *SMTPSender) Send(_ context.Context, event VersionChangeEvent) error {
 		)
 	}
 
-	msg := s.buildMessage(event.RecipientAddress, subject, body)
-	return s.sendMail(event.RecipientAddress, msg)
+	return s.sendMail(ctx, event.RecipientAddress, subject, body)
 }
 
 // Sends testing email via SMTP to test configured channel
 // Called by Dispatcher.Test when the user clicks "Test" in UI
-func (s *SMTPSender) SendTest(_ context.Context, event VersionChangeEvent) error {
-	msg := s.buildMessage(
+func (s *SMTPSender) SendTest(ctx context.Context, event VersionChangeEvent) error {
+	return s.sendMail(ctx,
 		event.RecipientAddress,
 		"Email channel test SUCCESSFUL!",
 		"Congratulations !!!\r\n\r\nThe email channel you have configured is working :)\r\n",
 	)
-	return s.sendMail(event.RecipientAddress, msg)
 }
 
-// Helper to build RFC 2822 email as a raw byte string
-func (s *SMTPSender) buildMessage(to, subject, body string) string {
-	return "From: " + s.from + "\r\n" +
-		"To: " + to + "\r\n" +
-		"Date: " + time.Now().UTC().Format(time.RFC1123Z) + "\r\n" +
-		"Subject: " + subject + "\r\n" +
-		"MIME-Version: 1.0\r\n" +
-		"Content-Type: text/plain; charset=UTF-8\r\n" +
-		"\r\n" +
-		body
-}
-
-// sendMail delivers an email via smtp.SendMail.
-// Opens TCP connection to SMTP server and negotiates STARTTLS if the server supports it.
-// Authenticates with PLAIN auth (if credentials are configured), delivers message and closes connection.
-func (s *SMTPSender) sendMail(to, msg string) error {
-	var auth smtp.Auth
-	if s.username != "" && s.password != "" {
-		auth = smtp.PlainAuth("", s.username, s.password, s.host)
-	}
-	addr := s.host + ":" + s.port
-
-	err := smtp.SendMail(addr, auth, s.from, []string{to}, []byte(msg))
+// sendMail builds and delivers email via go-mail package.
+// go-mail handles EHLO hostname, Message-Id generation, STARTTLS and AUTH automatically.
+func (s *SMTPSender) sendMail(ctx context.Context, to string, subject string, body string) error {
+	// build message
+	m := gomail.NewMsg()
+	err := m.From(s.from)
 	if err != nil {
-		return &SenderError{
-			PublicMsg: fmt.Sprintf("failed to send email via SMTP: %v", err),
-			Err:       fmt.Errorf("notify.SMTPSender: send failed: %w", err),
-		}
+		return s.wrapErr("invalid from address", err)
+	}
+	err = m.To(to)
+	if err != nil {
+		return s.wrapErr("invalid to address", err)
+	}
+	m.Subject(subject)
+	m.SetBodyString(gomail.TypeTextPlain, body)
+
+	// build client options
+	port, err := strconv.Atoi(s.port)
+	if err != nil {
+		return s.wrapErr("invalid port", err)
+	}
+
+	opts := []gomail.Option{
+		gomail.WithPort(port),
+		gomail.WithHELO(s.heloHostname),
+		gomail.WithTLSPolicy(gomail.TLSOpportunistic), // use STARTTLS if available
+	}
+	if s.username != "" && s.password != "" {
+		opts = append(opts,
+			gomail.WithSMTPAuth(gomail.SMTPAuthPlain),
+			gomail.WithUsername(s.username),
+			gomail.WithPassword(s.password),
+		)
+	}
+
+	// create client with configured options
+	c, err := gomail.NewClient(s.host, opts...)
+	if err != nil {
+		return s.wrapErr("failed to create SMTP client", err)
+	}
+
+	// open connection, deliver message and close connection
+	err = c.DialAndSendWithContext(ctx, m)
+	if err != nil {
+		return s.wrapErr("failed to send email", err)
 	}
 	return nil
+}
+
+func (s *SMTPSender) wrapErr(context string, err error) *SenderError {
+	return &SenderError{
+		PublicMsg: fmt.Sprintf("failed to send email via SMTP: %s: %v", context, err),
+		Err:       fmt.Errorf("notify.SMTPSender: %s: %w", context, err),
+	}
 }

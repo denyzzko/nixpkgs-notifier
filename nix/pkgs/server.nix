@@ -10,7 +10,7 @@
         src = ../..;
         subPackages = [ "cmd/server" ];
 
-        vendorHash = "sha256-8CF0etq/ZTj5mgJfnIDSArCZ4IuBSiVM823Iip2WuZw=";
+        vendorHash = "sha256-5FEeJRmoEp5yVPwRrLjf7XuBy1NHKwdH/Um+GTAkPqI=";
 
         nativeBuildInputs = [ pkgs.templ ];
 

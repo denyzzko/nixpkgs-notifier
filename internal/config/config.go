@@ -81,11 +81,12 @@ type Config struct {
 	OIDCProviders []OIDCProviderConfig
 
 	// SMTP Email
-	SMTPHost string
-	SMTPPort string
-	SMTPUser string
-	SMTPPass string
-	SMTPFrom string
+	SMTPHost         string
+	SMTPPort         string
+	SMTPUser         string
+	SMTPPass         string
+	SMTPFrom         string
+	SMTPHeloHostname string
 
 	// Resend Email
 	ResendAPIKey  string
@@ -182,6 +183,7 @@ func LoadEnvConfig() (*Config, error) {
 		SMTPUser:                        os.Getenv("SMTP_USER"),
 		SMTPPass:                        os.Getenv("SMTP_PASS"),
 		SMTPFrom:                        os.Getenv("SMTP_FROM"),
+		SMTPHeloHostname:                os.Getenv("SMTP_HELO_HOSTNAME"),
 		ResendAPIKey:                    os.Getenv("RESEND_API_KEY"),
 		EmailFromAddr:                   os.Getenv("EMAIL_FROM_ADDR"),
 		NotificationDispatchInterval:    dispatchInterval,

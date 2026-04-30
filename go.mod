@@ -11,6 +11,7 @@ require (
 	github.com/justinas/nosurf v1.2.0
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
+	github.com/wneessen/go-mail v0.7.2
 	golang.org/x/oauth2 v0.32.0
 	golang.org/x/sync v0.20.0
 	golang.org/x/time v0.15.0

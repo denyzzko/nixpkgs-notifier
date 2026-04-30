@@ -19,9 +19,10 @@
             SMTP_HOST = cfg.email.host;
             SMTP_PORT = toString cfg.email.port;
             SMTP_FROM = cfg.email.from;
+            SMTP_HELO_HOSTNAME = cfg.email.heloHostname;
           } // lib.optionalAttrs cfg.email.auth.enable {
-            SMTP_USERNAME = cfg.email.auth.username;
-            SMTP_PASSWORD = cfg.email.auth.password;
+            SMTP_USER = cfg.email.auth.username;
+            SMTP_PASS = cfg.email.auth.password;
           }
         );
         sqlEsc = s: builtins.replaceStrings [ "'" ] [ "''" ] s;
@@ -70,6 +71,7 @@
                 SMTP_HOST = "localhost";
                 SMTP_PORT = "25";
                 SMTP_FROM = "noreply@example.com";
+                SMTP_HELO_HOSTNAME = "notifier.example.com";
               }
             '';
           };
@@ -153,6 +155,12 @@
               default = "";
               description = "Email address to use as 'From' header in notifications.";
               example = "notifier@example.com";
+            };
+
+            heloHostname = mkOption {
+              type = lib.types.str;
+              default = cfg.email.host;
+              description = "Hostname sent in SMTP EHLO/HELO.";
             };
 
             auth = {

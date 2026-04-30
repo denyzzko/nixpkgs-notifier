@@ -97,14 +97,15 @@ func main() {
 			DisableOnMaxRetries: cfg.NotificationDisableOnMaxRetries,
 		},
 		dispatcher.EmailConfig{
-			Provider:  cfg.EmailProvider,
-			ResendKey: cfg.ResendAPIKey,
-			FromAddr:  cfg.EmailFromAddr,
-			SMTPHost:  cfg.SMTPHost,
-			SMTPPort:  cfg.SMTPPort,
-			SMTPUser:  cfg.SMTPUser,
-			SMTPPass:  cfg.SMTPPass,
-			SMTPFrom:  cfg.SMTPFrom,
+			Provider:         cfg.EmailProvider,
+			ResendKey:        cfg.ResendAPIKey,
+			FromAddr:         cfg.EmailFromAddr,
+			SMTPHost:         cfg.SMTPHost,
+			SMTPPort:         cfg.SMTPPort,
+			SMTPUser:         cfg.SMTPUser,
+			SMTPPass:         cfg.SMTPPass,
+			SMTPFrom:         cfg.SMTPFrom,
+			SMTPHeloHostname: cfg.SMTPHeloHostname,
 		},
 	)
 	disp.Start(appCtx)

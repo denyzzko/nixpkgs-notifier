@@ -61,12 +61,12 @@ templ DeliveryLogContent(vm DeliveryLogVM) {
                 <div class="card-body p-4">
 
                     <div class="ps-3 pe-2 mb-1" style="white-space: nowrap;">
-                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 340px;">Channel</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 344px;">Channel</span>
                         <span class="small" style="color: #AAAAAA; display: inline-block; width: 110px;">Detected at</span>
                         <span class="small" style="color: #AAAAAA; display: inline-block; width: 285px;">Package</span>
-                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 280px;">Version change</span>
-                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 45px;">Status</span>
-                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 60px;">Attempts</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 285px;">Version change</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 52px;">Status</span>
+                        <span class="small" style="color: #AAAAAA; display: inline-block; width: 60px;">Retries</span>
                         <span class="small" style="color: #AAAAAA; display: inline-block; width: 80px;">Error</span>
                     </div>
 
@@ -167,9 +167,9 @@ templ NotificationLogItem(n NotificationLogVM) {
             <!-- Error -->
             <div class="d-flex align-items-center gap-1" style="flex: 2;">
                 if n.ErrorMessage == "" {
-                    <span class="small w-100" style="color: #AAAAAA;">-</span>
+                    <span class="small w-100 ps-2" style="color: #AAAAAA;">-</span>
                 } else {
-                    <span class="small text-truncate" style="color: #AAAAAA; max-width: 80px;">{n.ErrorMessage}</span>
+                    <span class="small text-truncate ps-1" style="color: #AAAAAA; max-width: 80px;">{n.ErrorMessage}</span>
                     <button
                         class="btn btn-sm d-flex align-items-center justify-content-center js-expand p-0 pe-1 ms-auto flex-shrink-0"
                         style="border: none; color: #FF6B6B; background: transparent;"

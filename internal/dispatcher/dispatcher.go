@@ -31,14 +31,15 @@ type Config struct {
 
 // Email variables (config) loaded from env on startup
 type EmailConfig struct {
-	Provider  string // "resend" or "smtp"
-	ResendKey string
-	FromAddr  string
-	SMTPHost  string
-	SMTPPort  string
-	SMTPUser  string
-	SMTPPass  string
-	SMTPFrom  string
+	Provider         string // "resend" or "smtp"
+	ResendKey        string
+	FromAddr         string
+	SMTPHost         string
+	SMTPPort         string
+	SMTPUser         string
+	SMTPPass         string
+	SMTPFrom         string
+	SMTPHeloHostname string
 }
 
 // Dispatcher with all resources it needs
@@ -55,7 +56,7 @@ type Dispatcher struct {
 func New(db *database.Store, cfg Config, emailCfg EmailConfig) *Dispatcher {
 	var emailSender notify.Sender
 	if emailCfg.Provider == "smtp" {
-		emailSender = notify.NewSMTPSender(emailCfg.SMTPHost, emailCfg.SMTPPort, emailCfg.SMTPUser, emailCfg.SMTPPass, emailCfg.SMTPFrom)
+		emailSender = notify.NewSMTPSender(emailCfg.SMTPHost, emailCfg.SMTPPort, emailCfg.SMTPUser, emailCfg.SMTPPass, emailCfg.SMTPFrom, emailCfg.SMTPHeloHostname)
 	} else {
 		emailSender = notify.NewResendSender(emailCfg.ResendKey, emailCfg.FromAddr)
 	}
