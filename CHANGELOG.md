@@ -1,3 +1,10 @@
+## [1.5.4](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.3...v1.5.4) (2026-04-30)
+
+
+### Bug Fixes
+
+* set EHLO hostname and Message-Id to improve deliverability (switched to go-mail) ([8373265](https://github.com/denyzzko/nixpkgs-notifier/commit/8373265977f6ed77da8c0214a8a79e066b1c6fa5))
+
 ## [1.5.3](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.2...v1.5.3) (2026-04-26)
 
 
