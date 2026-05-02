@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -106,21 +107,28 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 			return
 		}
 
-		// render response
-		pkgVMs := make([]pages.TrackedPackageVM, 0, len(tracked))
+		// merge tracked packages and watchlist entries into a single sorted slice
+		items := make([]pages.PackageRowVM, 0, len(tracked)+len(watchlist))
 		for _, t := range tracked {
-			pkgVMs = append(pkgVMs, trackedPackageVMFromTracked(t))
+			items = append(items, pages.PackageRowVM{
+				Kind:    pages.PackageRowKindTracked,
+				Tracked: trackedPackageVMFromTracked(t),
+			})
 		}
-
-		watchVMs := make([]pages.WatchlistEntryVM, 0, len(watchlist))
 		for _, e := range watchlist {
-			watchVMs = append(watchVMs, watchlistEntryVM(e))
+			items = append(items, pages.PackageRowVM{
+				Kind:    pages.PackageRowKindWatching,
+				Watched: watchlistEntryVM(e),
+			})
 		}
+		sort.Slice(items, func(i, j int) bool {
+			return itemName(items[i]) < itemName(items[j])
+		})
 
+		// render response
 		vm := pages.IndexVM{
-			BaseVM:    buildBaseVM(ctx, r, db, sessionManager),
-			Packages:  pkgVMs,
-			Watchlist: watchVMs,
+			BaseVM: buildBaseVM(ctx, r, db, sessionManager),
+			Items:  items,
 		}
 
 		renderHTML(w, ctx, pages.IndexPage(vm))
@@ -1183,27 +1191,15 @@ func watchPackage(db *database.Store, sessionManager *session.SessionManager) ht
 		}
 
 		// add package to watchlist
-		_, err := packages.Watch(ctx, db, userID, packageName, packageBranch)
+		entry, err := packages.Watch(ctx, db, userID, packageName, packageBranch)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = pages.NewPackageError(packageName, packageBranch, appError.PublicMessage(err)).Render(ctx, w)
 			return
 		}
 
-		// fetch watched packages for updated list
-		allEntries, err := packages.GetWatchedPackages(ctx, db, userID)
-		if err != nil {
-			writeAppErr(w, "web.watchPackage", err)
-			return
-		}
-
 		// render response
-		watchVMs := make([]pages.WatchlistEntryVM, 0, len(allEntries))
-		for _, e := range allEntries {
-			watchVMs = append(watchVMs, watchlistEntryVM(e))
-		}
-
-		renderHTML(w, ctx, pages.WatchPackageResponse(watchVMs))
+		renderHTML(w, ctx, pages.WatchPackageResponse(watchlistEntryVM(entry)))
 	}
 }
 
@@ -1231,20 +1227,8 @@ func unwatchPackage(db *database.Store, sessionManager *session.SessionManager) 
 			return
 		}
 
-		// fetch remaining entries
-		allEntries, err := packages.GetWatchedPackages(ctx, db, userID)
-		if err != nil {
-			writeAppErr(w, "web.unwatchPackage", err)
-			return
-		}
-
-		// render response
-		watchVMs := make([]pages.WatchlistEntryVM, 0, len(allEntries))
-		for _, e := range allEntries {
-			watchVMs = append(watchVMs, watchlistEntryVM(e))
-		}
-
-		renderHTML(w, ctx, pages.UnwatchResponse(watchVMs))
+		// empty response body - HTMX clears the item
+		w.WriteHeader(http.StatusOK)
 	}
 }
 

@@ -45,11 +45,26 @@ type WatchlistEntryVM struct {
     CheckedNotFound bool // set after a manual check confirmed package still not in nixpkgs
 }
 
+// PackageRowKind distinguishes a tracked package from a watchlist entry.
+type PackageRowKind string
+
+const (
+    PackageRowKindTracked  PackageRowKind = "tracked"
+    PackageRowKindWatching PackageRowKind = "watching"
+)
+
+// PackageRowVM is the view model for a single row in the unified package list.
+// Exactly one of Tracked or Watched is populated, determined by Kind.
+type PackageRowVM struct {
+    Kind    PackageRowKind
+    Tracked TrackedPackageVM
+    Watched WatchlistEntryVM
+}
+
 // IndexVM is the top level view model for the home page.
 type IndexVM struct {
     layout.BaseVM
-    Packages  []TrackedPackageVM
-    Watchlist []WatchlistEntryVM
+    Items []PackageRowVM
 }
 
 // IndexPage is the home page wrapped in the base layout.
@@ -58,11 +73,11 @@ templ IndexPage(vm IndexVM) {
 }
 
 // IndexContent renders the main content area of home page.
-// Header row with "Check All" and "+" buttons, followed by the tracked packages card.
+// Header row with "Check All" and "+" buttons, followed by the package list card 
+// that holds both tracked packages and watchlist entries sorted by name.
 templ IndexContent(vm IndexVM) {
     <div style="padding-top: 5rem; padding-bottom: 2rem;">
         <div style="max-width: 900px; width: 100%; margin: 0 auto;">
-
             <!-- Above card -->
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <!-- Card heading -->
@@ -72,7 +87,7 @@ templ IndexContent(vm IndexVM) {
                     <!-- Check all button -->
                     <button
                         class="btn-outline-brand-fill btn btn-sm rounded-5 px-3"
-                        onclick="htmx.trigger(document.getElementById('tracked-list'), 'checkAll')"
+                        onclick="htmx.trigger(document.getElementById('package-list'), 'checkAll')"
                     >
                         Check All
                     </button>
@@ -90,68 +105,27 @@ templ IndexContent(vm IndexVM) {
             </div>
 
             <!-- Card -->
-            <div class="card shadow-sm rounded-5 mb-4" style="background: #252525; border: 1px solid #5A5A5A;">
+            <div class="card shadow-sm rounded-5" style="background: #252525; border: 1px solid #5A5A5A;">
                 <div class="card-body p-4">
                     <!-- Column names -->
                     <div class="d-flex ps-3 pe-2 align-items-end">
                         <!-- Package name -->
-                        <div style="flex: 2;">
-                            <span class="small" style="color: #AAAAAA;">Name</span>
-                        </div>
+                        <div style="flex: 2;"><span class="small" style="color: #AAAAAA;">Name</span></div>
                         <!-- - -->
                         <div style="flex: 1;"></div>
                         <!-- Package Branch -->
-                        <div style="flex: 2;">
-                            <span class="small" style="color: #AAAAAA;">Branch</span>
-                        </div>
+                        <div style="flex: 2;"><span class="small" style="color: #AAAAAA;">Branch</span></div>
                         <!-- Package version -->
-                        <div style="flex: 2;">
-                            <span class="small" style="color: #AAAAAA;">Version</span>
-                        </div>
+                        <div style="flex: 2;"><span class="small" style="color: #AAAAAA;">Version</span></div>
                         <!-- - -->
                         <div style="flex: 2;"></div>
                     </div>
-                    <!-- Tracked packages -->
-                    <div id="tracked-list" style="max-height: 60vh; overflow-y: auto;">
-                        @TrackedPackageList(vm.Packages)
+
+                    <!-- Package list: tracked + watchlist entries -->
+                    <div id="package-list">
+                        @PackageList(vm.Items)
                     </div>
                 </div>
-            </div>
-            
-            <!-- Watchlist -->
-            <div id="watchlist-section">
-                if len(vm.Watchlist) > 0 {
-                    @WatchlistSection(vm.Watchlist)
-                }
-            </div>
-
-        </div>
-    </div>
-}
-
-// WatchlistSection renders watchlist card.
-templ WatchlistSection(entries []WatchlistEntryVM) {
-    <!-- Above card -->
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <!-- Card heading -->
-        <h2 class="h5 text-white mb-0">Watching for future packages</h2>
-    </div>
-    <!-- Card -->
-    <div class="card shadow-sm rounded-5" style="background: #252525; border: 1px solid #5A5A5A;">
-        <div class="card-body p-4">
-            <!-- Column names -->
-            <div class="d-flex ps-3 pe-2 align-items-end mb-1">
-                <div style="flex: 2;"><span class="small" style="color: #AAAAAA;">Name</span></div>
-                <div style="flex: 1;"></div>
-                <div style="flex: 2;"><span class="small" style="color: #AAAAAA;">Branch</span></div>
-                <div style="flex: 2;"><span class="small" style="color: #AAAAAA;">Status</span></div>
-                <div style="flex: 2;"></div>
-            </div>
-            <!-- Watched packages -->
-            <div id="watchlist-entries" class="d-flex flex-column gap-2">
-                for _, entry := range entries {
-                    @WatchlistItem(entry)
-                }
             </div>
         </div>
     </div>
@@ -159,7 +133,12 @@ templ WatchlistSection(entries []WatchlistEntryVM) {
 
 // WatchlistItem renders a single watchlist row.
 templ WatchlistItem(entry WatchlistEntryVM) {
-    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={ fmt.Sprintf("watchlist-%d", entry.ID) }>
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={ fmt.Sprintf("watchlist-%d", entry.ID) }
+        hx-post={ fmt.Sprintf("/package/watch/check/%d", entry.ID) }
+        hx-trigger="checkAll from:#package-list"
+        hx-target={ fmt.Sprintf("#watchlist-%d", entry.ID) }
+        hx-swap="outerHTML"
+    >
         <div style="flex: 2;"><strong class="text-white">{ entry.Name }</strong></div>
         <div style="flex: 1;"></div>
         <div style="flex: 2;"><span class="small text-white">{ entry.Branch }</span></div>
@@ -181,6 +160,7 @@ templ WatchlistItem(entry WatchlistEntryVM) {
             </button>
             <button
                 class="btn-outline-danger-custom btn btn-sm rounded-5"
+                style="min-width: 75px"
                 hx-post={ fmt.Sprintf("/package/unwatch/%d", entry.ID) }
                 hx-target={ fmt.Sprintf("#watchlist-%d", entry.ID) }
                 hx-swap="outerHTML"
@@ -205,8 +185,19 @@ templ WatchlistItemLoading(entry WatchlistEntryVM, pollingURL string) {
             <span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
         </div>
         <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
-            <button class="btn-outline-brand btn btn-sm rounded-5" disabled>Check</button>
-            <button class="btn-outline-danger-custom btn btn-sm rounded-5" disabled>Unwatch</button>
+            <button
+                class="btn-outline-brand btn btn-sm rounded-5"
+                disabled
+            >
+                Check
+            </button>
+            <button
+                class="btn-outline-danger-custom btn btn-sm rounded-5"
+                style="min-width: 75px"
+                disabled
+            >
+                Unwatch
+            </button>
         </div>
     </div>
 }
@@ -225,13 +216,18 @@ templ WatchlistItemError(entry WatchlistEntryVM) {
                     hx-post={ fmt.Sprintf("/package/watch/check/%d", entry.ID) }
                     hx-target={ fmt.Sprintf("#watchlist-%d", entry.ID) }
                     hx-swap="outerHTML"
-                >Retry</button>
+                >
+                    Retry
+                </button>
                 <button
                     class="btn-outline-danger-custom btn btn-sm rounded-5"
+                    style="min-width: 75px"
                     hx-post={ fmt.Sprintf("/package/unwatch/%d", entry.ID) }
                     hx-target={ fmt.Sprintf("#watchlist-%d", entry.ID) }
                     hx-swap="outerHTML"
-                >Unwatch</button>
+                >
+                    Unwatch
+                </button>
             </div>
         </div>
         <!-- Error message below -->
@@ -256,41 +252,35 @@ templ WatchlistItemPromoted(watchlistIDStr string, pkg TrackedPackageVM) {
             <span class="small" style="color: #51ca71;">Package appeared in nixpkgs - now tracking</span>
         </div>
     </div>
-    <div hx-swap-oob="afterbegin:#tracked-list">
+    <div hx-swap-oob="afterbegin:#package-list">
         @TrackedPackageItem(pkg)
     </div>
 }
 
 // WatchPackageResponse is returned by POST /package/watch.
-// Main body is empty so HTMX clears #new-package-slot (removing the NotFound row in Tracked packages).
-// OOB swap re-renders #watchlist-section with all current entries including new one.
-templ WatchPackageResponse(entries []WatchlistEntryVM) {
-    <div id="watchlist-section" hx-swap-oob="innerHTML">
-        @WatchlistSection(entries)
+// Main body is empty so HTMX clears #new-package-slot (removing the NotFound row).
+// OOB swap prepends new watchlist row into the unified #package-list.
+templ WatchPackageResponse(entry WatchlistEntryVM) {
+    <div hx-swap-oob="afterbegin:#package-list">
+        @WatchlistItem(entry)
     </div>
 }
 
-// UnwatchResponse is returned by POST /package/unwatch/{id}.
-// OOB swap re-renders #watchlist-section -> removes it entirely when no entries remain.
-templ UnwatchResponse(entries []WatchlistEntryVM) {
-    <div id="watchlist-section" hx-swap-oob="innerHTML">
-        if len(entries) > 0 {
-            @WatchlistSection(entries)
-        }
-    </div>
-}
-
-// TrackedPackageList renders list of tracked package rows inside the card.
+// PackageList renders unified list of tracked packages and watchlist entries.
 // It includes #new-package-slot div where inline add form is injected by HTMX.
 // If the list is empty a message is shown.
-templ TrackedPackageList(packages []TrackedPackageVM) {
+templ PackageList(items []PackageRowVM) {
     <div class="d-flex flex-column gap-2">
         <div id="new-package-slot"></div>
-        for _, pckg := range packages {
-            @TrackedPackageItem(pckg)
+        for _, item := range items {
+            if item.Kind == PackageRowKindTracked {
+                @TrackedPackageItem(item.Tracked)
+            } else {
+                @WatchlistItem(item.Watched)
+            }
         }
     </div>
-    if len(packages) == 0 {
+    if len(items) == 0 {
         <p class="text-center text-secondary mt-2">You are not tracking any packages yet. Add them by clicking "+" button.</p>
     }
 }
@@ -305,7 +295,7 @@ templ TrackedPackageList(packages []TrackedPackageVM) {
 templ TrackedPackageItem(pckg TrackedPackageVM) {
     <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}
         hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
-        hx-trigger="checkAll from:#tracked-list"
+        hx-trigger="checkAll from:#package-list"
         hx-swap="outerHTML"
     >
         <!-- Package name -->
@@ -344,6 +334,7 @@ templ TrackedPackageItem(pckg TrackedPackageVM) {
             <!-- Untrack buttons -->
             <button
                 class="btn-outline-danger-custom btn btn-sm rounded-5"
+                style="min-width: 75px"
                 hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
                 hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
                 hx-swap="outerHTML"
@@ -377,14 +368,17 @@ templ TrackedPackageItemLoading(pckg TrackedPackageVM, pollingURL string) {
         </div>
         <div class="d-flex gap-2 justify-content-end" style="flex: 2;">
             <!-- Check disabled until initialized -->
-            <button class="btn-outline-brand btn btn-sm rounded-5" disabled>
+            <button 
+                class="btn-outline-brand btn btn-sm rounded-5"
+                disabled
+            >
                 Check
             </button>
             <button
                 class="btn-outline-danger-custom btn btn-sm rounded-5"
-                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
-                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
-                hx-swap="outerHTML" disabled>
+                style="min-width: 75px"
+                disabled
+            >
                 Untrack
             </button>
         </div>
@@ -487,6 +481,7 @@ templ TrackedPackageItemCheckError(pckg TrackedPackageVM, errMsg string) {
                 </button>
                 <button
                     class="btn-outline-danger-custom btn btn-sm rounded-5"
+                    style="min-width: 75px"
                     hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
                     hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
                     hx-swap="outerHTML"

@@ -23,6 +23,15 @@ import (
 	"github.com/justinas/nosurf"
 )
 
+// itemName is helper that returns package name from PackageRowVM regardless of kind.
+// Used for sorting when merging tracked packages and watchlist entries.
+func itemName(item pages.PackageRowVM) string {
+	if item.Kind == pages.PackageRowKindTracked {
+		return item.Tracked.Name
+	}
+	return item.Watched.Name
+}
+
 // channelVM maps a channels.ChannelResult to the pages.ChannelVM used by channel templates.
 func channelVM(ch channels.ChannelResult, maxRetries int) pages.ChannelVM {
 	return pages.ChannelVM{
