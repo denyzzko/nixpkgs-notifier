@@ -128,7 +128,7 @@ func main() {
 	nix.StartBranchFetcher(appCtx)
 
 	// start cleanup goroutine for stale operation results (entries left behind when user closes browser mid-check)
-	packages.StartResultCleanup(appCtx)
+	packages.StartBackgroundCleanup(appCtx, db)
 
 	// new request multiplexer
 	mux := http.NewServeMux()

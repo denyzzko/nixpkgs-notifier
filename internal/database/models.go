@@ -5,10 +5,12 @@
 //   - embeds.go:                embeds all SQL files into the binary at compile time
 //   - models.go:                defines data types returned by queries
 //   - queries_channels.go:      notification channel operations
+//   - queries_check_state.go:   check state operations (pending/done/failed/not_found rows written by check goroutines and read by polling endpoints)
 //   - queries_config.go:        system configuration operations
 //   - queries_helpers.go:       shared helpers and sentinel errors used across query files
 //   - queries_notifications.go: notification creation and delivery operations
-//   - queries_packages.go:      package and tracking operations
+//   - queries_packages.go:      package  operations
+//   - queries_trackings.go:      tracking operations
 //   - queries_users.go:         user and account operations
 //   - queries_watchlist.go:     watchlist operations
 package database
@@ -174,14 +176,38 @@ type WatchlistEntry struct {
 	ID        int64
 	CreatedAt time.Time
 	UserID    int64
+	PackageID int64
+}
+
+// WatchedPackage combines watchlist entry with its package details.
+// Non-existing packages have current_version = "".
+type WatchedPackage struct {
+	WatchlistID int64
+	CreatedAt   time.Time
+	UserID      int64
+	PackageID   int64
+	Name        string
+	Branch      string
+}
+
+// DistinctWatchlistEntry represents a unique (package_id, name, branch) from the watchlist.
+// Used by background scheduler.
+type DistinctWatchlistEntry struct {
+	PackageID int64
 	Name      string
 	Branch    string
 }
 
-// DistinctWatchlistEntry represents a unique (name, branch) pair from the watchlist.
-// Unlike WatchlistEntry it has no ID, UserID or CreatedAt
-// Used by QueryDistinctWatchlistPackages.
-type DistinctWatchlistEntry struct {
-	Name   string
-	Branch string
+// CheckState holds the persisted result of a check for one (user, package) pair.
+// Used for both tracked and watched packages.
+// Expires after 1 hour.
+type CheckState struct {
+	UserID     int64
+	PackageID  int64
+	Status     string  // "pending", "done", "failed", "not_found"
+	OldVersion *string // nil for watched packages (no version yet)
+	NewVersion *string // non-nil when done and version changed
+	ErrorMsg   *string
+	StartedAt  time.Time
+	ExpiresAt  time.Time
 }

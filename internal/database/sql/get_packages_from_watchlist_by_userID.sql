@@ -6,5 +6,6 @@ SELECT w.id,
        p.branch
 FROM watchlist w
 JOIN packages p ON p.id = w.package_id
-WHERE w.id = $1 AND w.user_id = $2
+WHERE w.user_id = $1
+ORDER BY w.created_at DESC
 ;

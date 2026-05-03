@@ -107,7 +107,13 @@ func setupWatchedPackage(t *testing.T) (userID int64, job checker.CheckJob) {
 	userID, _, _ = testutil.CreateTestUser(t, testStore, "user")
 
 	pkgName := fmt.Sprintf("watchpkg-%d", testutil.NextID())
-	_, err := testStore.CreateWatchlistEntry(ctx, userID, pkgName, "nixpkgs-unstable")
+
+	pkgID, err := testStore.StorePackage(ctx, pkgName, "nixpkgs-unstable", "")
+	if err != nil {
+		t.Fatalf("setupWatchedPackage: StorePackage: %v", err)
+	}
+
+	_, err = testStore.CreateWatchlistEntry(ctx, userID, pkgID)
 	if err != nil {
 		t.Fatalf("setupWatchedPackage: CreateWatchlistEntry: %v", err)
 	}
@@ -121,6 +127,7 @@ func setupWatchedPackage(t *testing.T) (userID int64, job checker.CheckJob) {
 	job = checker.CheckJob{
 		Name:             pkgName,
 		Branch:           "nixpkgs-unstable",
+		PackageID:        pkgID,
 		IsWatchlistCheck: true,
 	}
 

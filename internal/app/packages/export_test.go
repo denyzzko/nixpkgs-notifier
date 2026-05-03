@@ -7,8 +7,6 @@ package packages
 import (
 	"fmt"
 	"time"
-
-	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 )
 
 // SetOperationResult populates operationResults map for given user+package pair.
@@ -21,18 +19,5 @@ func SetOperationResult(userID, packageID int64, failed, watchable bool, errMsg,
 		name:      name,
 		branch:    branch,
 		createdAt: time.Now(),
-	})
-}
-
-// SetWatchlistCheckResult populates watchlistCheckResults map for given user+watchlist pair.
-// Used by tests for GetWatchCheckStatus.
-func SetWatchlistCheckResult(userID, watchlistID int64, failed, promoted, stillNotFound bool, errMsg string, promotedPkg database.TrackedPackage) {
-	watchlistCheckResults.Store(fmt.Sprintf("%d:%d", userID, watchlistID), watchlistCheckResult{
-		failed:        failed,
-		promoted:      promoted,
-		stillNotFound: stillNotFound,
-		errMsg:        errMsg,
-		promotedPkg:   promotedPkg,
-		createdAt:     time.Now(),
 	})
 }

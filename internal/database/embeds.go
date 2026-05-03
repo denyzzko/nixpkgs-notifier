@@ -5,10 +5,12 @@
 //   - embeds.go:                embeds all SQL files into the binary at compile time
 //   - models.go:                defines data types returned by queries
 //   - queries_channels.go:      notification channel operations
+//   - queries_check_state.go:   check state operations (pending/done/failed/not_found rows written by check goroutines and read by polling endpoints)
 //   - queries_config.go:        system configuration operations
 //   - queries_helpers.go:       shared helpers and sentinel errors used across query files
 //   - queries_notifications.go: notification creation and delivery operations
-//   - queries_packages.go:      package and tracking operations
+//   - queries_packages.go:      package  operations
+//   - queries_trackings.go:      tracking operations
 //   - queries_users.go:         user and account operations
 //   - queries_watchlist.go:     watchlist operations
 package database
@@ -75,14 +77,20 @@ var qGetAccountsByUserID string
 //go:embed sql/get_oldest_notification_created_at.sql
 var qGetOldestNotificationCreatedAt string
 
-//go:embed sql/get_watchlist_by_userID.sql
-var qGetWatchlistByUserID string
+//go:embed sql/get_packages_from_watchlist_by_userID.sql
+var qGetUsersWatchedPackages string
 
 //go:embed sql/get_watchlist_entry_by_ID.sql
 var qGetWatchlistEntryByID string
 
 //go:embed sql/get_distinct_watchlist_name_branch.sql
 var qGetDistinctWatchlistNameBranch string
+
+//go:embed sql/get_check_state_by_userID_packageID.sql
+var qGetCheckStateByUserPackage string
+
+//go:embed sql/get_check_states_by_userID.sql
+var qGetCheckStatesByUserID string
 
 //go:embed sql/insert_tracking.sql
 var sInsertTracking string
@@ -114,6 +122,9 @@ var sInsertTrackingsFromUser string
 //go:embed sql/insert_watchlist_entry.sql
 var sInsertWatchlistEntry string
 
+//go:embed sql/insert_check_state.sql
+var sInsertCheckState string
+
 //go:embed sql/remove_tracking.sql
 var dRemoveTracking string
 
@@ -135,8 +146,20 @@ var dRemoveExpiredNotifications string
 //go:embed sql/remove_watchlist_entry.sql
 var dRemoveWatchlistEntry string
 
-//go:embed sql/remove_watchlist_by_name_branch.sql
-var dRemoveWatchlistByNameBranch string
+//go:embed sql/remove_watchlist_by_packageID.sql
+var dRemoveWatchlistByPackageID string
+
+//go:embed sql/remove_check_state_by_userID_packageID.sql
+var dRemoveCheckStateByPackage string
+
+//go:embed sql/remove_check_states_by_userID.sql
+var dRemoveCheckStatesByUserID string
+
+//go:embed sql/remove_expired_check_states.sql
+var dRemoveExpiredCheckStates string
+
+//go:embed sql/remove_orphan_package.sql
+var dRemoveOrphanPackage string
 
 //go:embed sql/update_notification_status_to_sent_by_ID.sql
 var sUpdateNotificationToSent string
@@ -152,6 +175,9 @@ var sUpdateNotifyOnManualVerify string
 
 //go:embed sql/update_package_last_checked_at.sql
 var sUpdatePackageLastCheckedAt string
+
+//go:embed sql/update_package_current_version.sql
+var sUpdatePackageCurrentVersion string
 
 //go:embed sql/update_system_config.sql
 var sUpdateSystemConfig string
@@ -176,6 +202,15 @@ var sUpdateAccountUserByIssuerSubject string
 
 //go:embed sql/update_channels_user_by_userID.sql
 var sUpdateChannelsUserByUserID string
+
+//go:embed sql/update_check_state_done.sql
+var qUpdateCheckStateDone string
+
+//go:embed sql/update_check_state_failed.sql
+var qUpdateCheckStateFailed string
+
+//go:embed sql/update_check_state_not_found.sql
+var qUpdateCheckStateNotFound string
 
 //go:embed sql/count_accounts_by_userID.sql
 var qCountAccountsByUserID string

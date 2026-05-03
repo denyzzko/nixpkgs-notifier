@@ -21,28 +21,41 @@ import (
 )
 
 // TrackedPackageVM is the view model for a single tracked package row.
-// LastNotifiedVersion holds version from before the most recent check.
-// CurrentVersion holds freshly resolved version (set only after a successful nix eval).
-// VersionChanged is true when CurrentVersion differs from LastNotifiedVersion.
-// Verified is true once a nix eval has confirmed the version (i.e. row is not in a loading/unresolved state).
+//
+// Version display logic:
+//   - IsPending=true:                        spinner row, nix eval in flight
+//   - ErrMsg != "":                          error row, nix eval failed
+//   - Verified=true, VersionChanged=false:   green badge, CurrentVersion
+//   - Verified=true, VersionChanged=true:    orange badges, LastNotifiedVersion -> CurrentVersion
+//   - all false:                             neutral badge, LastNotifiedVersion (not yet checked)
 type TrackedPackageVM struct {
-    PackageID           int64
+    ID                  int64
     Name                string
     Branch              string
-    LastNotifiedVersion string
-    CurrentVersion      string
-    VersionChanged      bool
-	Verified            bool
-    ErrMsg              string
+    LastNotifiedVersion string // version before the most recent check - shown on the "before" side of version change
+    CurrentVersion      string // version confirmed by nix eval - shown on green badge or "after" side of version change
+    VersionChanged      bool   // true when nix confirmed a newer version than LastNotifiedVersion
+    Verified            bool   // true when nix eval completed successfully (whether version changed or not)
+    ErrMsg              string // non-empty when when nix eval failed
+    IsPending           bool   // true while a nix eval is in flight - renders spinner row
+    PollingURL          string // endpoint the spinner row polls every 3s
 }
 
 // WatchlistEntryVM is the view model for a single watchlist row.
+//
+// State display logic:
+//   - IsPending=true:        spinner row, nix eval in flight
+//   - ErrMsg != "":          error row, nix eval failed
+//   - CheckedNotFound=true:  normal row with "still not there" badge
+//   - all false:             normal row with "watching" badge
 type WatchlistEntryVM struct {
     ID              int64
     Name            string
     Branch          string
-    ErrMsg          string
-    CheckedNotFound bool // set after a manual check confirmed package still not in nixpkgs
+    ErrMsg          string // non-empty when nix eval failed; renders error row
+    CheckedNotFound bool   // true when nix confirmed package is still absent from nixpkgs
+    IsPending       bool   // true while a nix eval is in flight; renders spinner row
+    PollingURL      string // endpoint the spinner row polls every 3s
 }
 
 // PackageRowKind distinguishes a tracked package from a watchlist entry.
@@ -87,7 +100,10 @@ templ IndexContent(vm IndexVM) {
                     <!-- Check all button -->
                     <button
                         class="btn-outline-brand-fill btn btn-sm rounded-5 px-3"
-                        onclick="htmx.trigger(document.getElementById('package-list'), 'checkAll')"
+                        hx-post="/packages/check-all"
+                        hx-target="#package-list"
+                        hx-swap="outerHTML"
+                        hx-disabled-elt="this"
                     >
                         Check All
                     </button>
@@ -122,9 +138,7 @@ templ IndexContent(vm IndexVM) {
                     </div>
 
                     <!-- Package list: tracked + watchlist entries -->
-                    <div id="package-list">
-                        @PackageList(vm.Items)
-                    </div>
+                    @PackageList(vm.Items)
                 </div>
             </div>
         </div>
@@ -270,19 +284,40 @@ templ WatchPackageResponse(entry WatchlistEntryVM) {
 // It includes #new-package-slot div where inline add form is injected by HTMX.
 // If the list is empty a message is shown.
 templ PackageList(items []PackageRowVM) {
-    <div class="d-flex flex-column gap-2">
-        <div id="new-package-slot"></div>
-        for _, item := range items {
-            if item.Kind == PackageRowKindTracked {
-                @TrackedPackageItem(item.Tracked)
-            } else {
-                @WatchlistItem(item.Watched)
+    <div id="package-list">
+        <div class="d-flex flex-column gap-2">
+            <!-- Slot for add-package form -->
+            <div id="new-package-slot"></div>
+            for _, item := range items {
+                if item.Kind == PackageRowKindTracked {
+                    <!-- Tracked package - nix eval in flight -->
+                    if item.Tracked.IsPending {
+                        @TrackedPackageItemLoading(item.Tracked, item.Tracked.PollingURL)
+                    <!-- Tracked package - nix eval failed -->
+                    } else if item.Tracked.ErrMsg != "" {
+                        @TrackedPackageItemCheckError(item.Tracked, item.Tracked.ErrMsg)
+                    <!-- Tracked package - idle or verified -->
+                    } else {
+                        @TrackedPackageItem(item.Tracked)
+                    }
+                } else {
+                    <!-- Watched package - nix eval in flight -->
+                    if item.Watched.IsPending {
+                        @WatchlistItemLoading(item.Watched, item.Watched.PollingURL)
+                    <!-- Watched package - nix eval failed -->
+                    } else if item.Watched.ErrMsg != "" {
+                        @WatchlistItemError(item.Watched)
+                    <!-- Watched package - idle or confirmed still not in nixpkgs -->
+                    } else {
+                        @WatchlistItem(item.Watched)
+                    }
+                }
             }
+        </div>
+        if len(items) == 0 {
+            <p class="text-center text-secondary mt-2">You are not tracking any packages yet. Add them by clicking "+" button.</p>
         }
     </div>
-    if len(items) == 0 {
-        <p class="text-center text-secondary mt-2">You are not tracking any packages yet. Add them by clicking "+" button.</p>
-    }
 }
 
 // TrackedPackageItem renders a single tracked package row in its normal (non-loading) state.
@@ -293,8 +328,8 @@ templ PackageList(items []PackageRowVM) {
 //
 // The row also listens for "checkAll" event from #tracked-list so "Check All" triggers all rows at once.
 templ TrackedPackageItem(pckg TrackedPackageVM) {
-    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}
-        hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.ID)}
+        hx-post={fmt.Sprintf("/package/check/%d", pckg.ID)}
         hx-trigger="checkAll from:#package-list"
         hx-swap="outerHTML"
     >
@@ -325,8 +360,8 @@ templ TrackedPackageItem(pckg TrackedPackageVM) {
             <!-- Check button -->
             <button
                 class="btn-outline-brand btn btn-sm rounded-5"
-                hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
-                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                hx-post={fmt.Sprintf("/package/check/%d", pckg.ID)}
+                hx-target={fmt.Sprintf("#package-%d", pckg.ID)}
                 hx-swap="outerHTML"
             >
                 Check
@@ -335,8 +370,8 @@ templ TrackedPackageItem(pckg TrackedPackageVM) {
             <button
                 class="btn-outline-danger-custom btn btn-sm rounded-5"
                 style="min-width: 75px"
-                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
-                hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                hx-post={fmt.Sprintf("/package/untrack/%d", pckg.ID)}
+                hx-target={fmt.Sprintf("#package-%d", pckg.ID)}
                 hx-swap="outerHTML"
             >
                 Untrack
@@ -350,7 +385,7 @@ templ TrackedPackageItem(pckg TrackedPackageVM) {
 // It displays a spinner and polls pollingURL every 3s.
 // Once the operation completes, status endpoint returns the real row.
 templ TrackedPackageItemLoading(pckg TrackedPackageVM, pollingURL string) {
-    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.PackageID)}
+    <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.ID)}
         hx-get={pollingURL}
         hx-trigger="every 3s"
         hx-swap="outerHTML"
@@ -388,7 +423,7 @@ templ TrackedPackageItemLoading(pckg TrackedPackageVM, pollingURL string) {
 // TrackedPackageItemInitError is shown when nix eval during initialization fails.
 // Error message is shown below and no buttons are available, on next page reload the item will be removed.
 templ TrackedPackageItemInitError(pckg TrackedPackageVM) {
-    <div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #FF6B6B" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
+    <div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #FF6B6B" id={fmt.Sprintf("package-%d", pckg.ID)}>
         <div class="d-flex align-items-center">
             <div style="flex: 2;">
                 <strong class="text-white">{pckg.Name}</strong>
@@ -416,7 +451,7 @@ templ TrackedPackageItemInitError(pckg TrackedPackageVM) {
 // TrackedPackageItemNotFound is shown when nix eval confirms the package does not exist yet.
 // Instead of a plain error in TrackedPackageItemInitError, it offers a "Watch" button.
 templ TrackedPackageItemNotFound(pckg TrackedPackageVM) {
-	<div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #7DAAFF;" id={ fmt.Sprintf("package-%d", pckg.PackageID) }>
+	<div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #7DAAFF;" id={ fmt.Sprintf("package-%d", pckg.ID) }>
 		<div class="d-flex align-items-center">
 			<div style="flex: 2;"><strong class="text-white">{ pckg.Name }</strong></div>
 			<div style="flex: 1;"></div>
@@ -457,7 +492,7 @@ templ TrackedPackageItemNotFound(pckg TrackedPackageVM) {
 // TrackedPackageItemCheckError is shown when nix eval during a manual check fails.
 // Unlike init errors, the package is already tracked with a known version, so Check is available to retry.
 templ TrackedPackageItemCheckError(pckg TrackedPackageVM, errMsg string) {
-    <div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #FF6B6B;" id={fmt.Sprintf("package-%d", pckg.PackageID)}>
+    <div class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #FF6B6B;" id={fmt.Sprintf("package-%d", pckg.ID)}>
         <div class="d-flex align-items-center">
             <div style="flex: 2;">
                 <strong class="text-white">{pckg.Name}</strong>
@@ -473,8 +508,8 @@ templ TrackedPackageItemCheckError(pckg TrackedPackageVM, errMsg string) {
                 <!-- Check button changed to retry -->
                 <button
                     class="btn-outline-brand btn btn-sm rounded-5"
-                    hx-post={fmt.Sprintf("/package/check/%d", pckg.PackageID)}
-                    hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                    hx-post={fmt.Sprintf("/package/check/%d", pckg.ID)}
+                    hx-target={fmt.Sprintf("#package-%d", pckg.ID)}
                     hx-swap="outerHTML"
                 >
                     Retry
@@ -482,8 +517,8 @@ templ TrackedPackageItemCheckError(pckg TrackedPackageVM, errMsg string) {
                 <button
                     class="btn-outline-danger-custom btn btn-sm rounded-5"
                     style="min-width: 75px"
-                    hx-post={fmt.Sprintf("/package/untrack/%d", pckg.PackageID)}
-                    hx-target={fmt.Sprintf("#package-%d", pckg.PackageID)}
+                    hx-post={fmt.Sprintf("/package/untrack/%d", pckg.ID)}
+                    hx-target={fmt.Sprintf("#package-%d", pckg.ID)}
                     hx-swap="outerHTML"
                 >
                     Untrack

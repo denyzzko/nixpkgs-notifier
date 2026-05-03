@@ -27,9 +27,7 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 	// ip rate limiter for unauthenticated auth endpoints
 	ipLimit := middleware.RateLimitIP(rate.Limit(10.0/60), 5) // 10 req/min, burst 5
 
-	// user rate limiter for authenticated write endpoints
-	// explicitly not applied to /package/check/{id} because "Check All" bursts one request per
-	// tracked package in legitimate way (nix evals are already limited by WorkerCount and SkipInterval)
+	// user rate limiter for authenticated write endpoints that trigger expensive operations
 	userLimit := middleware.RateLimitUser(rate.Limit(20.0/60), 10, sessionManager) // 20 req/min, burst 10
 
 	// home page (displays all tracked packages)
@@ -42,7 +40,8 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 	mux.HandleFunc("POST /auth/logout", requireAuth(sessionManager, logout(sessionManager)))
 
 	// routes for package operations (package verifications, track/untrack, watchlist)
-	mux.HandleFunc("POST /package/check/{id}", requireAuth(sessionManager, checkTrackedPackage(db, sessionManager, chk)))
+	mux.HandleFunc("POST /package/check/{id}", requireAuthLimited(sessionManager, userLimit, checkTrackedPackage(db, sessionManager, chk)))
+	mux.HandleFunc("POST /packages/check-all", requireAuthLimited(sessionManager, userLimit, checkAllPackages(db, sessionManager, chk)))
 	mux.HandleFunc("POST /package/untrack/{id}", requireAuth(sessionManager, untrackPackage(db, sessionManager)))
 	mux.HandleFunc("GET /package/track/form", requireAuth(sessionManager, trackPackageForm()))
 	mux.HandleFunc("GET /package/track/cancel", requireAuth(sessionManager, trackPackageFormCancel()))

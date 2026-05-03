@@ -107,20 +107,36 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 			return
 		}
 
-		// merge tracked packages and watchlist entries into a single sorted slice
+		// fetch active check states so spinner/result rows render on page load
+		checkStates, err := db.QueryCheckStatesByUserID(ctx, userID)
+		if err != nil {
+			writeAppErr(w, "web.indexPage", err)
+			return
+		}
+
+		// build a map keyed by package_id
+		csMap := make(map[int64]*database.CheckState, len(checkStates))
+		for i := range checkStates {
+			csMap[checkStates[i].PackageID] = &checkStates[i]
+		}
+
+		// merge tracked packages and watchlist entries into a single slice
+		// check state is applied to each item so the correct row variant is rendered
 		items := make([]pages.PackageRowVM, 0, len(tracked)+len(watchlist))
 		for _, t := range tracked {
 			items = append(items, pages.PackageRowVM{
 				Kind:    pages.PackageRowKindTracked,
-				Tracked: trackedPackageVMFromTracked(t),
+				Tracked: trackedPackageVMWithCheckState(t, csMap[t.PackageID]),
 			})
 		}
 		for _, e := range watchlist {
 			items = append(items, pages.PackageRowVM{
 				Kind:    pages.PackageRowKindWatching,
-				Watched: watchlistEntryVM(e),
+				Watched: watchedPackageVMWithCheckState(e, csMap[e.PackageID]),
 			})
 		}
+
+		// sort slice alphabetically by package name
 		sort.Slice(items, func(i, j int) bool {
 			return itemName(items[i]) < itemName(items[j])
 		})
@@ -220,7 +236,8 @@ func callback(db *database.Store, provMap *auth.ProviderMap, sessionManager *ses
 			switch linkData.Mode {
 			case "new":
 				// attach freshly authenticated OIDC identity to the existing logged-in user
-				if err := users.LinkNewAccount(ctx, db, provider, claims, linkData.UserID); err != nil {
+				err := users.LinkNewAccount(ctx, db, provider, claims, linkData.UserID)
+				if err != nil {
 					writeAppErr(w, "web.callback[link-new]", err)
 					return
 				}
@@ -334,7 +351,8 @@ func untrackPackage(db *database.Store, sessionManager *session.SessionManager) 
 		}
 
 		// delete tracking
-		if err := packages.Untrack(ctx, db, userID, packageIDStr); err != nil {
+		err := packages.Untrack(ctx, db, userID, packageIDStr)
+		if err != nil {
 			writeAppErr(w, "web.untrackPackage", err)
 			return
 		}
@@ -499,11 +517,11 @@ func packageCheckStatus(db *database.Store, sessionManager *session.SessionManag
 
 		// completed with success
 		vm := pages.TrackedPackageVM{
-			PackageID:           status.Package.PackageID,
+			ID:                  status.Package.PackageID,
 			Name:                status.Package.Name,
 			Branch:              status.Package.Branch,
-			LastNotifiedVersion: status.Prev,
-			CurrentVersion:      status.Package.LastNotifiedVersion,
+			LastNotifiedVersion: status.Package.LastNotifiedVersion,
+			CurrentVersion:      status.Package.CurrentVersion,
 			VersionChanged:      status.VersionChanged,
 			Verified:            true,
 		}
@@ -641,7 +659,8 @@ func deleteChannel(db *database.Store, sessionManager *session.SessionManager) h
 		}
 
 		// delete channel
-		if err := channels.DeleteChannel(ctx, db, userID, channelID); err != nil {
+		err := channels.DeleteChannel(ctx, db, userID, channelID)
+		if err != nil {
 			writeAppErr(w, "web.deleteChannel", err)
 			return
 		}
@@ -879,7 +898,8 @@ func updateSystemConfig(db *database.Store, disp *dispatcher.Dispatcher, chk *ch
 		}
 
 		// store config to database and apply to dispatcher, checker and cleaner
-		if err := config.SaveRuntimeConfig(ctx, db, rcfg, disp, chk, clnr); err != nil {
+		err = config.SaveRuntimeConfig(ctx, db, rcfg, disp, chk, clnr)
+		if err != nil {
 			writeAppErr(w, "web.updateSystemConfig", err)
 			return
 		}
@@ -906,7 +926,8 @@ func updateProfileUsername(sessionManager *session.SessionManager, db *database.
 		username := r.FormValue("username")
 
 		// update username
-		if err := users.UpdateUsername(ctx, db, userID, username); err != nil {
+		err := users.UpdateUsername(ctx, db, userID, username)
+		if err != nil {
 			writeAppErr(w, "web.updateProfileUsername", err)
 			return
 		}
@@ -1191,7 +1212,7 @@ func watchPackage(db *database.Store, sessionManager *session.SessionManager) ht
 		}
 
 		// add package to watchlist
-		entry, err := packages.Watch(ctx, db, userID, packageName, packageBranch)
+		wp, err := packages.Watch(ctx, db, userID, packageName, packageBranch)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = pages.NewPackageError(packageName, packageBranch, appError.PublicMessage(err)).Render(ctx, w)
@@ -1199,7 +1220,7 @@ func watchPackage(db *database.Store, sessionManager *session.SessionManager) ht
 		}
 
 		// render response
-		renderHTML(w, ctx, pages.WatchPackageResponse(watchlistEntryVM(entry)))
+		renderHTML(w, ctx, pages.WatchPackageResponse(watchedPackageVMFromWatched(wp)))
 	}
 }
 
@@ -1222,7 +1243,8 @@ func unwatchPackage(db *database.Store, sessionManager *session.SessionManager) 
 		}
 
 		// remove watchlist entry
-		if err := packages.Unwatch(ctx, db, userID, watchlistIDStr); err != nil {
+		err := packages.Unwatch(ctx, db, userID, watchlistIDStr)
+		if err != nil {
 			writeAppErr(w, "web.unwatchPackage", err)
 			return
 		}
@@ -1253,7 +1275,7 @@ func checkWatchedPackage(db *database.Store, sessionManager *session.SessionMana
 		}
 
 		// enqueue async check
-		entry, err := packages.WatchCheck(ctx, db, userID, chk, watchlistIDStr)
+		wp, err := packages.WatchCheck(ctx, db, userID, chk, watchlistIDStr)
 		if err != nil {
 			writeAppErr(w, "web.checkWatchedPackage", err)
 			return
@@ -1263,7 +1285,7 @@ func checkWatchedPackage(db *database.Store, sessionManager *session.SessionMana
 		pollingURL := fmt.Sprintf("/package/watch/status/check/%s", watchlistIDStr)
 
 		// render loading row (HTMX polls pollingURL every 3s until check is done)
-		renderHTML(w, ctx, pages.WatchlistItemLoading(watchlistEntryVM(entry), pollingURL))
+		renderHTML(w, ctx, pages.WatchlistItemLoading(watchedPackageVMFromWatched(wp), pollingURL))
 	}
 }
 
@@ -1299,27 +1321,102 @@ func watchCheckStatus(db *database.Store, sessionManager *session.SessionManager
 
 		// still running - render loading row (HTMX will poll again in 3s)
 		if !status.Done {
-			renderHTML(w, ctx, pages.WatchlistItemLoading(watchlistEntryVM(status.Entry), pollingURL))
+			renderHTML(w, ctx, pages.WatchlistItemLoading(watchedPackageVMFromWatched(status.Entry), pollingURL))
 			return
 		}
 
 		// nix eval failed - show error row with retry button
 		if status.Failed {
-			vm := watchlistEntryVM(status.Entry)
+			vm := watchedPackageVMFromWatched(status.Entry)
 			vm.ErrMsg = status.ErrMsg
 			renderHTML(w, ctx, pages.WatchlistItemError(vm))
 			return
 		}
 
-		// package still not in nixpkgs - render normal row with "not found yet"
+		// package still not in nixpkgs - render normal row with "still not there" badge
 		if status.StillNotFound {
-			vm := watchlistEntryVM(status.Entry)
+			vm := watchedPackageVMFromWatched(status.Entry)
 			vm.CheckedNotFound = true
 			renderHTML(w, ctx, pages.WatchlistItem(vm))
 			return
 		}
 
-		// package appeared - replace watchlist row and place it as new tracking row into tracked list via OOB
-		renderHTML(w, ctx, pages.WatchlistItemPromoted(watchlistIDStr, trackedPackageVMFromTracked(status.PromotedPkg)))
+		// package appeared (promoted) - watchlist row is gone and a tracking row now exists.
+		// Redirect to index page so user sees package in their tracked list.
+		if status.Promoted {
+			w.Header().Set("HX-Redirect", "/")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+}
+
+// checkAllPackages enqueues nix eval for every tracked and watched package (POST /packages/check-all).
+// After persisting pending check_state rows it re-fetches full list and renders PackageList
+// so HTMX swaps in spinner rows without a full page reload.
+func checkAllPackages(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// create context
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+
+		// get user ID
+		userID := sessionManager.GetUserID(r.Context())
+
+		// enqueue nix eval for every tracked and watched package
+		// clears previous check state and persists pending rows before launching goroutines
+		err := packages.CheckAll(ctx, db, userID, chk)
+		if err != nil {
+			writeAppErr(w, "web.checkAllPackages", err)
+			return
+		}
+
+		// fetch package lists and the check states written by CheckAll
+		// to build view models with spinner rows for all pending evals
+		tracked, err := packages.GetTrackedPackages(ctx, db, userID)
+		if err != nil {
+			writeAppErr(w, "web.checkAllPackages", err)
+			return
+		}
+		watchlist, err := packages.GetWatchedPackages(ctx, db, userID)
+		if err != nil {
+			writeAppErr(w, "web.checkAllPackages", err)
+			return
+		}
+		checkStates, err := db.QueryCheckStatesByUserID(ctx, userID)
+		if err != nil {
+			writeAppErr(w, "web.checkAllPackages", err)
+			return
+		}
+
+		// build package_id -> check_state lookup map
+		csMap := make(map[int64]*database.CheckState, len(checkStates))
+		for i := range checkStates {
+			csMap[checkStates[i].PackageID] = &checkStates[i]
+		}
+
+		// merge tracked packages and watchlist entries into a single slice
+		// check state is applied to each item so the correct row variant is rendered
+		items := make([]pages.PackageRowVM, 0, len(tracked)+len(watchlist))
+		for _, t := range tracked {
+			items = append(items, pages.PackageRowVM{
+				Kind:    pages.PackageRowKindTracked,
+				Tracked: trackedPackageVMWithCheckState(t, csMap[t.PackageID]),
+			})
+		}
+		for _, e := range watchlist {
+			items = append(items, pages.PackageRowVM{
+				Kind:    pages.PackageRowKindWatching,
+				Watched: watchedPackageVMWithCheckState(e, csMap[e.PackageID]),
+			})
+		}
+
+		// sort slice alphabetically by package name
+		sort.Slice(items, func(i, j int) bool {
+			return itemName(items[i]) < itemName(items[j])
+		})
+
+		// render PackageList
+		renderHTML(w, ctx, pages.PackageList(items))
 	}
 }

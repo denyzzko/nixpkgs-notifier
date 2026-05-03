@@ -9,6 +9,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -50,23 +51,77 @@ func channelVM(ch channels.ChannelResult, maxRetries int) pages.ChannelVM {
 	}
 }
 
-// watchlistEntryVM maps a database.WatchlistEntry to pages.WatchlistEntryVM.
-func watchlistEntryVM(e database.WatchlistEntry) pages.WatchlistEntryVM {
+// watchedPackageVMFromWatched maps a WatchedPackage to WatchlistEntryVM with no check state applied.
+func watchedPackageVMFromWatched(wp database.WatchedPackage) pages.WatchlistEntryVM {
 	return pages.WatchlistEntryVM{
-		ID:     e.ID,
-		Name:   e.Name,
-		Branch: e.Branch,
+		ID:     wp.WatchlistID,
+		Name:   wp.Name,
+		Branch: wp.Branch,
 	}
 }
 
-// trackedPackageVMFromTracked maps a database.TrackedPackage to pages.TrackedPackageVM.
+// watchedPackageVMWithCheckState builds a WatchlistEntryVM from a watched package and optional check state.
+// When check state is nil result is identical to watchedPackageVMFromWatched.
+func watchedPackageVMWithCheckState(wp database.WatchedPackage, cs *database.CheckState) pages.WatchlistEntryVM {
+	vm := watchedPackageVMFromWatched(wp)
+	if cs == nil {
+		return vm
+	}
+	switch cs.Status {
+	case "pending":
+		vm.IsPending = true
+		vm.PollingURL = fmt.Sprintf("/package/watch/status/check/%d", wp.WatchlistID)
+	case "not_found":
+		vm.CheckedNotFound = true
+	case "failed":
+		if cs.ErrorMsg != nil {
+			vm.ErrMsg = *cs.ErrorMsg
+		}
+	}
+	return vm
+}
+
+// trackedPackageVMFromTracked maps a database.TrackedPackage to pages.TrackedPackageVM with no check state applied..
 func trackedPackageVMFromTracked(t database.TrackedPackage) pages.TrackedPackageVM {
 	return pages.TrackedPackageVM{
-		PackageID:           t.PackageID,
+		ID:                  t.PackageID,
 		Name:                t.Name,
 		Branch:              t.Branch,
 		LastNotifiedVersion: t.LastNotifiedVersion,
+		CurrentVersion:      t.CurrentVersion,
 	}
+}
+
+// trackedPackageVMWithCheckState builds a TrackedPackageVM from a tracked package and optional check state.
+// When check state is nil result is identical to trackedPackageVMFromTracked.
+func trackedPackageVMWithCheckState(t database.TrackedPackage, cs *database.CheckState) pages.TrackedPackageVM {
+	vm := trackedPackageVMFromTracked(t)
+	if cs == nil {
+		return vm
+	}
+	switch cs.Status {
+	case "pending":
+		vm.IsPending = true
+		oldVer := ""
+		if cs.OldVersion != nil {
+			oldVer = *cs.OldVersion
+		}
+		vm.PollingURL = fmt.Sprintf("/package/status/check/%d?prev=%s", t.PackageID, oldVer)
+	case "done":
+		vm.Verified = true
+		if cs.NewVersion != nil {
+			vm.VersionChanged = true
+			if cs.OldVersion != nil {
+				vm.LastNotifiedVersion = *cs.OldVersion
+			}
+			vm.CurrentVersion = *cs.NewVersion
+		}
+	case "failed":
+		if cs.ErrorMsg != nil {
+			vm.ErrMsg = *cs.ErrorMsg
+		}
+	}
+	return vm
 }
 
 // notificationLogVM maps a database.UserNotification to pages.NotificationLogVM.

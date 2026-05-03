@@ -1,6 +1,6 @@
 package checker
 
-// Thios files exists  only to
+// This file exists only to expose NewWithNixEval for use in tests.
 
 import (
 	"context"

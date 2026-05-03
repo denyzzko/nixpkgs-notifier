@@ -252,7 +252,7 @@ func (ch *Checker) enqueueAllWatched(ctx context.Context) {
 	// enqueue to low-priority queue
 	enqueued := 0
 	for _, e := range entries {
-		if ch.EnqueueLow(CheckJob{Name: e.Name, Branch: e.Branch, IsWatchlistCheck: true}) {
+		if ch.EnqueueLow(CheckJob{Name: e.Name, Branch: e.Branch, PackageID: e.PackageID, IsWatchlistCheck: true}) {
 			enqueued++
 		}
 	}
@@ -434,7 +434,7 @@ func (ch *Checker) processSystemWatchlistJob(ctx context.Context, job CheckJob) 
 	log.Printf("[INFO] checker: watched package appeared (%q/%q) version=%s - creating tracking rows", job.Name, job.Branch, version)
 
 	// create package row, tracking rows for all users who had it in their watchlist, remove their watchlist entries
-	packageID, userIDs, err := ch.db.PromoteWatchlistEntries(ctx, job.Name, job.Branch, version)
+	userIDs, err := ch.db.PromoteWatchlistEntries(ctx, job.PackageID, version)
 	if err != nil {
 		log.Printf("[ERROR] checker: promote watchlist entries (%q/%q): %v", job.Name, job.Branch, err)
 		return
@@ -446,5 +446,5 @@ func (ch *Checker) processSystemWatchlistJob(ctx context.Context, job CheckJob) 
 	}
 
 	// notify all users - triggerUserID=0 signals system-triggered check
-	notifications.CreatePendingNotificationsFirstAppearance(ctx, ch.db, packageID, job.Name, job.Branch, version, 0)
+	notifications.CreatePendingNotificationsFirstAppearance(ctx, ch.db, job.PackageID, job.Name, job.Branch, version, 0)
 }

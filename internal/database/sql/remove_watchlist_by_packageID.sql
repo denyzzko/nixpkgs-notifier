@@ -1,4 +1,4 @@
 DELETE FROM watchlist
-WHERE name = $1 AND branch = $2
+WHERE package_id = $1
 RETURNING id, user_id
 ;
