@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.4...v1.6.0) (2026-05-03)
+
+
+### Features
+
+* persistent check state stored in DB and some refactoring ([dbd33c7](https://github.com/denyzzko/nixpkgs-notifier/commit/dbd33c7170b29a8b63c66a92a13eb32c7db8df38))
+
 ## [1.5.4](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.3...v1.5.4) (2026-04-30)
 
 
