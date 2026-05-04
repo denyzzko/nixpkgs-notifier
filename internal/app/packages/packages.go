@@ -88,6 +88,13 @@ type WatchlistCheckStatus struct {
 	Entry         database.WatchedPackage // populated for all non-promoted states
 }
 
+// AllPackagesPage holds one page of tracked and watched package records and pagination info.
+type AllPackagesPage struct {
+	Items       []database.PackageRow
+	TotalPages  int
+	CurrentPage int
+}
+
 // classifyNixError returns a user-friendly error message based on the nix error type.
 func classifyNixError(err error) string {
 	if errors.Is(err, nix.ErrAttrNotFound) {
@@ -134,6 +141,40 @@ func StartBackgroundCleanup(ctx context.Context, db *database.Store) {
 			}
 		}
 	}()
+}
+
+// GetPackagesPage fetches one page of tracked and watched packages, ordered alphabetically by name.
+func GetPackagesPage(ctx context.Context, db *database.Store, userID int64, page int, pageSize int) (AllPackagesPage, error) {
+	const op = "packages.GetPackagesPage"
+
+	// get total count of packages so pages can be capped in case of invalid (too high) page
+	total, err := db.CountAllPackages(ctx, userID)
+	if err != nil {
+		return AllPackagesPage{}, appError.NewAppError(op, appError.Internal, "failed to count packages", err)
+	}
+
+	// cap page to valid range
+	totalPages := 1
+	if total > 0 {
+		totalPages = (int(total) + pageSize - 1) / pageSize
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	offset := (page - 1) * pageSize
+
+	// fetch requested page of packages
+	items, err := db.QueryAllPackagesPaged(ctx, userID, pageSize, offset)
+	if err != nil {
+		return AllPackagesPage{}, appError.NewAppError(op, appError.Internal, "failed to load packages page", err)
+	}
+
+	return AllPackagesPage{
+		Items:       items,
+		TotalPages:  totalPages,
+		CurrentPage: page,
+	}, nil
 }
 
 // CheckAll enqueues a background nix eval for every tracked and watched package belonging to user.

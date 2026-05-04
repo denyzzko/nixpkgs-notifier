@@ -41,6 +41,7 @@ type NotificationLogVM struct {
 type DeliveryLogVM struct {
     layout.BaseVM
     Notifications []NotificationLogVM
+    Pagination    PaginationVM // PaginationVM is defined in index.templ
 }
 
 // DeliveryLogPage is the delivery log page wrapped in base layout.
@@ -70,12 +71,39 @@ templ DeliveryLogContent(vm DeliveryLogVM) {
                         <span class="small" style="color: #AAAAAA; display: inline-block; width: 80px;">Error</span>
                     </div>
 
-                    <div id="log-list"  style="max-height: 60vh; overflow-y: auto;">
+                    <div id="log-list">
                         @NotificationLogList(vm.Notifications)
                     </div>
                 </div>
             </div>
 
+            <!-- Pagination controls -->
+            if vm.Pagination.HasPages() {
+                <div class="d-flex justify-content-center align-items-center gap-3 mt-3">
+                    <!-- Prev button - disabled on first page -->
+                    if vm.Pagination.PrevURL != "" {
+                        <a href={ templ.SafeURL(vm.Pagination.PrevURL) } class="btn-outline-basic-fill btn btn-sm rounded-5 px-3">
+                            <i class="bi bi-chevron-left"></i> Prev
+                        </a>
+                    } else {
+                        <button class="btn btn-sm rounded-5 px-3" style="background: #333333; color: #5A5A5A;" disabled>
+                            <i class="bi bi-chevron-left"></i> Prev
+                        </button>
+                    }
+                    <!-- Page indicator -->
+                    <span class="small" style="color: #AAAAAA;">{ fmt.Sprintf("Page %d of %d", vm.Pagination.CurrentPage, vm.Pagination.TotalPages) }</span>
+                    <!-- Next button - disabled on last page -->
+                    if vm.Pagination.NextURL != "" {
+                        <a href={ templ.SafeURL(vm.Pagination.NextURL) } class="btn-outline-basic-fill btn btn-sm rounded-5 px-3">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </a>
+                    } else {
+                        <button class="btn btn-sm rounded-5 px-3" style="background: #333333; color: #5A5A5A;" disabled>
+                            Next <i class="bi bi-chevron-right"></i>
+                        </button>
+                    }
+                </div>
+            }
         </div>
     </div>
 }

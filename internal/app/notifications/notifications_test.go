@@ -272,3 +272,127 @@ func TestGetDeliveryLog_IsolatedPerUser(t *testing.T) {
 		t.Errorf("expected user2 to have 1 delivery log entry, got %d", len(logs2))
 	}
 }
+
+// ----------------------------------------------------------------
+// ------------------ GetDeliveryLogPage --------------------------
+// ----------------------------------------------------------------
+
+func TestGetDeliveryLogPage_Empty(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	page, err := notifications.GetDeliveryLogPage(ctx, testStore, userID, 1, 25)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(page.Notifications) != 0 {
+		t.Errorf("expected empty notifications, got %d", len(page.Notifications))
+	}
+	if page.TotalPages != 1 {
+		t.Errorf("expected TotalPages=1 for empty list, got %d", page.TotalPages)
+	}
+}
+
+func TestGetDeliveryLogPage_ReturnsNotificationsForUser(t *testing.T) {
+	ctx := context.Background()
+	s := newSetup(t, true, "1.0.0")
+
+	notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
+
+	page, err := notifications.GetDeliveryLogPage(ctx, testStore, s.userID, 1, 25)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(page.Notifications) != 1 {
+		t.Errorf("expected 1 notification, got %d", len(page.Notifications))
+	}
+}
+
+func TestGetDeliveryLogPage_IsolatedPerUser(t *testing.T) {
+	ctx := context.Background()
+	s1 := newSetup(t, true, "1.0.0")
+
+	user2ID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	err := testStore.StoreTracking(ctx, user2ID, s1.packageID, "1.0.0")
+	if err != nil {
+		t.Fatalf("setup user2 tracking: %v", err)
+	}
+	_, err = testStore.CreateEmailChannel(ctx, user2ID, fmt.Sprintf("user2-%d@example.com", testutil.NextID()), true)
+	if err != nil {
+		t.Fatalf("setup user2 channel: %v", err)
+	}
+
+	notifications.CreatePendingNotifications(ctx, testStore, s1.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
+
+	// each user must only see their own notifications
+	page1, err := notifications.GetDeliveryLogPage(ctx, testStore, s1.userID, 1, 25)
+	if err != nil {
+		t.Fatalf("user1 query: %v", err)
+	}
+	if len(page1.Notifications) != 1 {
+		t.Errorf("expected user1 to have 1 notification, got %d", len(page1.Notifications))
+	}
+
+	page2, err := notifications.GetDeliveryLogPage(ctx, testStore, user2ID, 1, 25)
+	if err != nil {
+		t.Fatalf("user2 query: %v", err)
+	}
+	if len(page2.Notifications) != 1 {
+		t.Errorf("expected user2 to have 1 notification, got %d", len(page2.Notifications))
+	}
+}
+
+func TestGetDeliveryLogPage_Pagination(t *testing.T) {
+	ctx := context.Background()
+	s := newSetup(t, true, "1.0.0")
+
+	// create 3 notifications by simulating 3 version changes
+	for _, ver := range []string{"2.0.0", "3.0.0", "4.0.0"} {
+		notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", ver, 0)
+		// update last_notified_version so next version change is valid
+		err := testStore.StoreTracking(ctx, s.userID, s.packageID, ver)
+		if err != nil {
+			t.Fatalf("StoreTracking %s: %v", ver, err)
+		}
+	}
+
+	// fetch with page size 2
+	page1, err := notifications.GetDeliveryLogPage(ctx, testStore, s.userID, 1, 2)
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if len(page1.Notifications) != 2 {
+		t.Errorf("page 1: expected 2 notifications, got %d", len(page1.Notifications))
+	}
+
+	page2, err := notifications.GetDeliveryLogPage(ctx, testStore, s.userID, 2, 2)
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	if len(page2.Notifications) != 1 {
+		t.Errorf("page 2: expected 1 notification, got %d", len(page2.Notifications))
+	}
+
+	if page1.TotalPages != 2 {
+		t.Errorf("TotalPages = %d, want 2", page1.TotalPages)
+	}
+}
+
+func TestGetDeliveryLogPage_PageCappedWhenTooHigh(t *testing.T) {
+	ctx := context.Background()
+	s := newSetup(t, true, "1.0.0")
+
+	notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
+
+	// request page 999 - should be capped to last valid page and return results
+	page, err := notifications.GetDeliveryLogPage(ctx, testStore, s.userID, 999, 25)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if page.CurrentPage != 1 {
+		t.Errorf("expected CurrentPage=1 after cap, got %d", page.CurrentPage)
+	}
+	if len(page.Notifications) == 0 {
+		t.Error("expected notifications after page cap, got empty list")
+	}
+}

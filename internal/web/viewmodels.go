@@ -24,13 +24,44 @@ import (
 	"github.com/justinas/nosurf"
 )
 
-// itemName is helper that returns package name from PackageRowVM regardless of kind.
-// Used for sorting when merging tracked packages and watchlist entries.
-func itemName(item pages.PackageRowVM) string {
-	if item.Kind == pages.PackageRowKindTracked {
-		return item.Tracked.Name
+// packageRowVM converts database.PackageRow into pages.PackageRowVM,
+// applying any in-flight check state for correct spinner/result rendering.
+func packageRowVM(row database.PackageRow, csMap map[int64]*database.CheckState) pages.PackageRowVM {
+	if row.Kind == string(pages.PackageRowKindTracked) {
+		// build TrackedPackage
+		t := database.TrackedPackage{
+			PackageID:      row.PackageID,
+			Name:           row.Name,
+			Branch:         row.Branch,
+			CurrentVersion: row.CurrentVersion,
+		}
+		if row.LastNotifiedVersion != nil {
+			t.LastNotifiedVersion = *row.LastNotifiedVersion
+		}
+		if row.LastCheckedAt != nil {
+			t.LastCheckedAt = row.LastCheckedAt
+		}
+		return pages.PackageRowVM{
+			Kind:    pages.PackageRowKindTracked,
+			Tracked: trackedPackageVMWithCheckState(t, csMap[row.PackageID]),
+		}
 	}
-	return item.Watched.Name
+
+	// build WatchedPackage
+	watchlistID := int64(0)
+	if row.WatchlistID != nil {
+		watchlistID = *row.WatchlistID
+	}
+	wp := database.WatchedPackage{
+		WatchlistID: watchlistID,
+		PackageID:   row.PackageID,
+		Name:        row.Name,
+		Branch:      row.Branch,
+	}
+	return pages.PackageRowVM{
+		Kind:    pages.PackageRowKindWatching,
+		Watched: watchedPackageVMWithCheckState(wp, csMap[row.PackageID]),
+	}
 }
 
 // channelVM maps a channels.ChannelResult to the pages.ChannelVM used by channel templates.

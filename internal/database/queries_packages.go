@@ -23,6 +23,44 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// QueryAllPackagesPaged retrieves one page of tracked and watched packages for user ordered alphabetically by name.
+func (db *Store) QueryAllPackagesPaged(ctx context.Context, userID int64, limit int, offset int) ([]PackageRow, error) {
+	rows, err := db.pool.Query(ctx, qGetAllPackagesPaged, userID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryAllPackagesPaged: query error (userID=%d): %w", userID, err)
+	}
+	defer rows.Close()
+
+	var result []PackageRow
+	for rows.Next() {
+		var r PackageRow
+		err := rows.Scan(
+			&r.Kind, &r.PackageID, &r.Name, &r.Branch,
+			&r.LastNotifiedVersion, &r.LastCheckedAt, &r.CurrentVersion,
+			&r.WatchlistID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("database.QueryAllPackagesPaged: scan error: %w", err)
+		}
+		result = append(result, r)
+	}
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryAllPackagesPaged: incomplete results: %w", err)
+	}
+	return result, nil
+}
+
+// CountAllPackages returns total number of tracked + watched packages for a user.
+func (db *Store) CountAllPackages(ctx context.Context, userID int64) (int64, error) {
+	var count int64
+	err := db.pool.QueryRow(ctx, qCountAllPackages, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("database.CountAllPackages: query error (userID=%d): %w", userID, err)
+	}
+	return count, nil
+}
+
 // QueryAllPackages retrieves all packages from database.
 func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	rows, err := db.pool.Query(ctx, qGetAllPackages)

@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -83,8 +82,9 @@ func renderHTML(w http.ResponseWriter, ctx context.Context, component templ.Comp
 	_ = component.Render(ctx, w)
 }
 
-// indexPage renders the home page with all packages current user is tracking.
+// indexPage renders the home page with one page of packages the current user is tracking or watching.
 func indexPage(sessionManager *session.SessionManager, db *database.Store) http.HandlerFunc {
+	const pageSize = 8
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -93,15 +93,15 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 		// get user ID
 		userID := sessionManager.GetUserID(r.Context())
 
-		// get all packages this user tracks
-		tracked, err := packages.GetTrackedPackages(ctx, db, userID)
-		if err != nil {
-			writeAppErr(w, "web.indexPage", err)
-			return
+		// parse page number from query (defaults to 1)
+		page := 1
+		p, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if err == nil && p > 1 {
+			page = p
 		}
 
-		// get all watchlist entries for this user
-		watchlist, err := packages.GetWatchedPackages(ctx, db, userID)
+		// fetch one page of tracked + watched packages
+		pkgPage, err := packages.GetPackagesPage(ctx, db, userID, page, pageSize)
 		if err != nil {
 			writeAppErr(w, "web.indexPage", err)
 			return
@@ -120,31 +120,31 @@ func indexPage(sessionManager *session.SessionManager, db *database.Store) http.
 			csMap[checkStates[i].PackageID] = &checkStates[i]
 		}
 
-		// merge tracked packages and watchlist entries into a single slice
-		// check state is applied to each item so the correct row variant is rendered
-		items := make([]pages.PackageRowVM, 0, len(tracked)+len(watchlist))
-		for _, t := range tracked {
-			items = append(items, pages.PackageRowVM{
-				Kind:    pages.PackageRowKindTracked,
-				Tracked: trackedPackageVMWithCheckState(t, csMap[t.PackageID]),
-			})
-		}
-		for _, e := range watchlist {
-			items = append(items, pages.PackageRowVM{
-				Kind:    pages.PackageRowKindWatching,
-				Watched: watchedPackageVMWithCheckState(e, csMap[e.PackageID]),
-			})
+		// convert DB rows into view models, applying check state for spinner/result rendering
+		items := make([]pages.PackageRowVM, 0, len(pkgPage.Items))
+		for _, row := range pkgPage.Items {
+			items = append(items, packageRowVM(row, csMap))
 		}
 
-		// sort slice alphabetically by package name
-		sort.Slice(items, func(i, j int) bool {
-			return itemName(items[i]) < itemName(items[j])
-		})
+		// build pagination URLs
+		prevURL, nextURL := "", ""
+		if page > 1 {
+			prevURL = fmt.Sprintf("/?page=%d", page-1)
+		}
+		if page < pkgPage.TotalPages {
+			nextURL = fmt.Sprintf("/?page=%d", page+1)
+		}
 
 		// render response
 		vm := pages.IndexVM{
 			BaseVM: buildBaseVM(ctx, r, db, sessionManager),
 			Items:  items,
+			Pagination: pages.PaginationVM{
+				CurrentPage: pkgPage.CurrentPage,
+				TotalPages:  pkgPage.TotalPages,
+				PrevURL:     prevURL,
+				NextURL:     nextURL,
+			},
 		}
 
 		renderHTML(w, ctx, pages.IndexPage(vm))
@@ -829,8 +829,9 @@ func testChannel(db *database.Store, sessionManager *session.SessionManager, dis
 	}
 }
 
-// notificationsPage renders the delivery log page with all notifications sent to the current user.
+// notificationsPage renders the delivery log page with one page of notifications sent to the current user.
 func notificationsPage(sessionManager *session.SessionManager, db *database.Store, disp *dispatcher.Dispatcher) http.HandlerFunc {
+	const pageSize = 10
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -839,8 +840,15 @@ func notificationsPage(sessionManager *session.SessionManager, db *database.Stor
 		// get user ID
 		userID := sessionManager.GetUserID(r.Context())
 
-		// get all notifications this user has
-		logs, err := notifications.GetDeliveryLog(ctx, db, userID)
+		// parse page number from query (defaults to 1)
+		page := 1
+		p, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if err == nil && p > 1 {
+			page = p
+		}
+
+		// fetch one page of notifications
+		logPage, err := notifications.GetDeliveryLogPage(ctx, db, userID, page, pageSize)
 		if err != nil {
 			writeAppErr(w, "web.notificationsPage", err)
 			return
@@ -849,15 +857,30 @@ func notificationsPage(sessionManager *session.SessionManager, db *database.Stor
 		// get current max retries number from notification dispatcher config
 		maxRetries := disp.MaxRetries()
 
+		// build pagination URLs
+		prevURL, nextURL := "", ""
+		if page > 1 {
+			prevURL = fmt.Sprintf("/log?page=%d", page-1)
+		}
+		if page < logPage.TotalPages {
+			nextURL = fmt.Sprintf("/log?page=%d", page+1)
+		}
+
 		// render response
-		vms := make([]pages.NotificationLogVM, 0, len(logs))
-		for _, n := range logs {
+		vms := make([]pages.NotificationLogVM, 0, len(logPage.Notifications))
+		for _, n := range logPage.Notifications {
 			vms = append(vms, notificationLogVM(n, maxRetries))
 		}
 
 		vm := pages.DeliveryLogVM{
 			BaseVM:        buildBaseVM(ctx, r, db, sessionManager),
 			Notifications: vms,
+			Pagination: pages.PaginationVM{
+				CurrentPage: logPage.CurrentPage,
+				TotalPages:  logPage.TotalPages,
+				PrevURL:     prevURL,
+				NextURL:     nextURL,
+			},
 		}
 
 		renderHTML(w, ctx, pages.DeliveryLogPage(vm))
@@ -1352,9 +1375,10 @@ func watchCheckStatus(db *database.Store, sessionManager *session.SessionManager
 }
 
 // checkAllPackages enqueues nix eval for every tracked and watched package (POST /packages/check-all).
-// After persisting pending check_state rows it re-fetches full list and renders PackageList
+// After persisting pending check_state rows it re-fetches current page and renders PackageList
 // so HTMX swaps in spinner rows without a full page reload.
 func checkAllPackages(db *database.Store, sessionManager *session.SessionManager, chk *checker.Checker) http.HandlerFunc {
+	const pageSize = 8
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create context
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -1363,58 +1387,46 @@ func checkAllPackages(db *database.Store, sessionManager *session.SessionManager
 		// get user ID
 		userID := sessionManager.GetUserID(r.Context())
 
+		// parse current page from query so response shows packages from same page the user is on
+		page := 1
+		p, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if err == nil && p > 1 {
+			page = p
+		}
+
 		// enqueue nix eval for every tracked and watched package
 		// clears previous check state and persists pending rows before launching goroutines
-		err := packages.CheckAll(ctx, db, userID, chk)
+		err = packages.CheckAll(ctx, db, userID, chk)
 		if err != nil {
 			writeAppErr(w, "web.checkAllPackages", err)
 			return
 		}
 
-		// fetch package lists and the check states written by CheckAll
-		// to build view models with spinner rows for all pending evals
-		tracked, err := packages.GetTrackedPackages(ctx, db, userID)
+		// fetch current page of tracked + watched packages
+		pkgPage, err := packages.GetPackagesPage(ctx, db, userID, page, pageSize)
 		if err != nil {
 			writeAppErr(w, "web.checkAllPackages", err)
 			return
 		}
-		watchlist, err := packages.GetWatchedPackages(ctx, db, userID)
-		if err != nil {
-			writeAppErr(w, "web.checkAllPackages", err)
-			return
-		}
+
+		// fetch active check states so spinner/result rows render on page load
 		checkStates, err := db.QueryCheckStatesByUserID(ctx, userID)
 		if err != nil {
 			writeAppErr(w, "web.checkAllPackages", err)
 			return
 		}
 
-		// build package_id -> check_state lookup map
+		// build a map keyed by package_id
 		csMap := make(map[int64]*database.CheckState, len(checkStates))
 		for i := range checkStates {
 			csMap[checkStates[i].PackageID] = &checkStates[i]
 		}
 
-		// merge tracked packages and watchlist entries into a single slice
-		// check state is applied to each item so the correct row variant is rendered
-		items := make([]pages.PackageRowVM, 0, len(tracked)+len(watchlist))
-		for _, t := range tracked {
-			items = append(items, pages.PackageRowVM{
-				Kind:    pages.PackageRowKindTracked,
-				Tracked: trackedPackageVMWithCheckState(t, csMap[t.PackageID]),
-			})
+		// convert DB rows into view models, applying check state for spinner/result rendering
+		items := make([]pages.PackageRowVM, 0, len(pkgPage.Items))
+		for _, row := range pkgPage.Items {
+			items = append(items, packageRowVM(row, csMap))
 		}
-		for _, e := range watchlist {
-			items = append(items, pages.PackageRowVM{
-				Kind:    pages.PackageRowKindWatching,
-				Watched: watchedPackageVMWithCheckState(e, csMap[e.PackageID]),
-			})
-		}
-
-		// sort slice alphabetically by package name
-		sort.Slice(items, func(i, j int) bool {
-			return itemName(items[i]) < itemName(items[j])
-		})
 
 		// render PackageList
 		renderHTML(w, ctx, pages.PackageList(items))

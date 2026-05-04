@@ -74,10 +74,24 @@ type PackageRowVM struct {
     Watched WatchlistEntryVM
 }
 
+// PaginationVM holds data needed to render prev/next pagination controls.
+type PaginationVM struct {
+	CurrentPage int
+	TotalPages  int
+	PrevURL     string
+	NextURL     string
+}
+
+// HasPages returns true when there is more than one page.
+func (p PaginationVM) HasPages() bool {
+	return p.TotalPages > 1
+}
+
 // IndexVM is the top level view model for the home page.
 type IndexVM struct {
     layout.BaseVM
     Items []PackageRowVM
+    Pagination PaginationVM
 }
 
 // IndexPage is the home page wrapped in the base layout.
@@ -100,7 +114,7 @@ templ IndexContent(vm IndexVM) {
                     <!-- Check all button -->
                     <button
                         class="btn-outline-brand-fill btn btn-sm rounded-5 px-3"
-                        hx-post="/packages/check-all"
+                        hx-post={ fmt.Sprintf("/packages/check-all?page=%d", vm.Pagination.CurrentPage) }
                         hx-target="#package-list"
                         hx-swap="outerHTML"
                         hx-disabled-elt="this"
@@ -141,6 +155,34 @@ templ IndexContent(vm IndexVM) {
                     @PackageList(vm.Items)
                 </div>
             </div>
+
+            <!-- Pagination controls -->
+            if vm.Pagination.HasPages() {
+                <div class="d-flex justify-content-center align-items-center gap-3 mt-3">
+                    <!-- Prev button - disabled on first page -->
+                    if vm.Pagination.PrevURL != "" {
+                        <a href={ templ.SafeURL(vm.Pagination.PrevURL) } class="btn-outline-basic-fill btn btn-sm rounded-5 px-3">
+                            <i class="bi bi-chevron-left"></i> Prev
+                        </a>
+                    } else {
+                        <button class="btn btn-sm rounded-5 px-3" style="background: #333333; color: #5A5A5A; border: 1px solid #3A3A3A;" disabled>
+                            <i class="bi bi-chevron-left"></i> Prev
+                        </button>
+                    }
+                    <!-- Page indicator -->
+                    <span class="small" style="color: #AAAAAA;">{ fmt.Sprintf("Page %d of %d", vm.Pagination.CurrentPage, vm.Pagination.TotalPages) }</span>
+                    <!-- Next button - disabled on last page -->
+                    if vm.Pagination.NextURL != "" {
+                        <a href={ templ.SafeURL(vm.Pagination.NextURL) } class="btn-outline-basic-fill btn btn-sm rounded-5 px-3">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </a>
+                    } else {
+                        <button class="btn btn-sm rounded-5 px-3" style="background: #333333; color: #5A5A5A; border: 1px solid #3A3A3A;" disabled>
+                            Next <i class="bi bi-chevron-right"></i>
+                        </button>
+                    }
+                </div>
+            }
         </div>
     </div>
 }

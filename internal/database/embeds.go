@@ -92,6 +92,12 @@ var qGetCheckStateByUserPackage string
 //go:embed sql/get_check_states_by_userID.sql
 var qGetCheckStatesByUserID string
 
+//go:embed sql/get_all_packages_by_userID_paginated.sql
+var qGetAllPackagesPaged string
+
+//go:embed sql/get_notifications_by_userID_paginated.sql
+var qGetNotificationsByUserIDPaged string
+
 //go:embed sql/insert_tracking.sql
 var sInsertTracking string
 
@@ -214,3 +220,9 @@ var qUpdateCheckStateNotFound string
 
 //go:embed sql/count_accounts_by_userID.sql
 var qCountAccountsByUserID string
+
+//go:embed sql/count_all_packages_by_userID.sql
+var qCountAllPackages string
+
+//go:embed sql/count_notifications_by_userID.sql
+var qCountNotificationsByUserID string

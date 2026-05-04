@@ -46,7 +46,8 @@ func (db *Store) CreateNotificationsForVersionChange(ctx context.Context, packag
 	}
 
 	// commit transaction
-	if err := tx.Commit(ctx); err != nil {
+	err = tx.Commit(ctx)
+	if err != nil {
 		return fmt.Errorf("database.CreateNotificationsForVersionChange: commit tx: %w", err)
 	}
 	return nil
@@ -73,7 +74,8 @@ func (db *Store) CreateNotificationsForFirstAppearance(ctx context.Context, newV
 	}
 
 	// commit transaction
-	if err := tx.Commit(ctx); err != nil {
+	err = tx.Commit(ctx)
+	if err != nil {
 		return fmt.Errorf("database.CreateNotificationsForFirstAppearance: commit tx: %w", err)
 	}
 	return nil
@@ -94,18 +96,20 @@ func (db *Store) QueryPendingFailedNotifications(ctx context.Context, maxRetries
 		var emailAddr, webhookURL, webhookType, username, channel, priority *string
 		var requestAck *bool
 
-		if err := rows.Scan(
+		err := rows.Scan(
 			&n.ID, &n.ChannelID, &n.PackageID, &n.PackageName, &n.PackageBranch,
 			&n.OldVersion, &n.NewVersion, &n.DetectedAt, &n.AttemptCount, &n.UserID,
 			&emailAddr, &webhookURL, &webhookType, &username, &channel, &priority, &requestAck,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("database.QueryPendingNotifications: scan error: %w", err)
 		}
 
 		n.Email, n.Webhook = buildEmailWebhook(emailAddr, webhookURL, webhookType, username, channel, priority, requestAck)
 		notifications = append(notifications, n)
 	}
-	if err := rows.Err(); err != nil {
+	err = rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("database.QueryPendingNotifications: incomplete results: %w", err)
 	}
 	return notifications, nil
@@ -126,17 +130,20 @@ func (db *Store) MarkNotificationSent(ctx context.Context, notificationID int64,
 	defer tx.Rollback(ctx)
 
 	// update notification status
-	if _, err = tx.Exec(ctx, sUpdateNotificationToSent, notificationID); err != nil {
+	_, err = tx.Exec(ctx, sUpdateNotificationToSent, notificationID)
+	if err != nil {
 		return fmt.Errorf("database.MarkNotificationSent: update notification: %w", err)
 	}
 
 	// update trackings last_notified_version
-	if _, err = tx.Exec(ctx, sInsertTracking, userID, packageID, newVersion); err != nil {
+	_, err = tx.Exec(ctx, sInsertTracking, userID, packageID, newVersion)
+	if err != nil {
 		return fmt.Errorf("database.MarkNotificationSent: update tracking lnv: %w", err)
 	}
 
 	// commit transaction
-	if err := tx.Commit(ctx); err != nil {
+	err = tx.Commit(ctx)
+	if err != nil {
 		return fmt.Errorf("database.MarkNotificationSent: commit tx: %w", err)
 	}
 	return nil
@@ -150,6 +157,49 @@ func (db *Store) MarkNotificationFailed(ctx context.Context, notificationID int6
 		return fmt.Errorf("database.MarkNotificationFailed: update error (id=%d): %w", notificationID, err)
 	}
 	return nil
+}
+
+// QueryNotificationsByUserIDPaged retrieves one page of notifications for user ordered by detected_at descending.
+func (db *Store) QueryNotificationsByUserIDPaged(ctx context.Context, userID int64, limit int, offset int) ([]UserNotification, error) {
+	rows, err := db.pool.Query(ctx, qGetNotificationsByUserIDPaged, userID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryNotificationsByUserIDPaged: query error (userID=%d): %w", userID, err)
+	}
+	defer rows.Close()
+
+	var notifications []UserNotification
+	for rows.Next() {
+		var n UserNotification
+		var emailAddr, webhookURL, webhookType *string
+
+		err := rows.Scan(
+			&n.ID, &n.DetectedAt, &n.OldVersion, &n.NewVersion,
+			&n.Status, &n.AttemptCount, &n.ErrorMessage,
+			&n.PackageName, &n.PackageBranch,
+			&emailAddr, &webhookURL, &webhookType,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("database.QueryNotificationsByUserIDPaged: scan error: %w", err)
+		}
+
+		n.Email, n.Webhook = buildEmailWebhook(emailAddr, webhookURL, webhookType, nil, nil, nil, nil)
+		notifications = append(notifications, n)
+	}
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryNotificationsByUserIDPaged: incomplete results: %w", err)
+	}
+	return notifications, nil
+}
+
+// CountNotificationsByUserID returns total number of notifications for a user.
+func (db *Store) CountNotificationsByUserID(ctx context.Context, userID int64) (int64, error) {
+	var count int64
+	err := db.pool.QueryRow(ctx, qCountNotificationsByUserID, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("database.CountNotificationsByUserID: query error (userID=%d): %w", userID, err)
+	}
+	return count, nil
 }
 
 // QueryNotificationsByUserID retrieves all notifications for a specific user.
@@ -166,12 +216,13 @@ func (db *Store) QueryNotificationsByUserID(ctx context.Context, userID int64) (
 		var n UserNotification
 		var emailAddr, webhookURL, webhookType *string
 
-		if err := rows.Scan(
+		err := rows.Scan(
 			&n.ID, &n.DetectedAt, &n.OldVersion, &n.NewVersion,
 			&n.Status, &n.AttemptCount, &n.ErrorMessage,
 			&n.PackageName, &n.PackageBranch,
 			&emailAddr, &webhookURL, &webhookType,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("database.QueryNotificationsByUserID: scan error: %w", err)
 		}
 
@@ -180,7 +231,8 @@ func (db *Store) QueryNotificationsByUserID(ctx context.Context, userID int64) (
 		notifications = append(notifications, n)
 	}
 
-	if err := rows.Err(); err != nil {
+	err = rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("database.QueryNotificationsByUserID: incomplete results: %w", err)
 	}
 

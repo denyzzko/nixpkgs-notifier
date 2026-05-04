@@ -211,3 +211,15 @@ type CheckState struct {
 	StartedAt  time.Time
 	ExpiresAt  time.Time
 }
+
+// PackageRow is result row returned by the paginated packages query.
+type PackageRow struct {
+	Kind                string // "tracked" or "watching"
+	PackageID           int64
+	Name                string
+	Branch              string
+	LastNotifiedVersion *string    // non-nil for tracked packages only
+	LastCheckedAt       *time.Time // nil if the package was never checked
+	CurrentVersion      string
+	WatchlistID         *int64 // non-nil for watched packages only
+}

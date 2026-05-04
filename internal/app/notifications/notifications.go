@@ -28,6 +28,59 @@ import (
 // user is not authenticated error
 var ErrNotAuthenticated = errors.New("not authenticated")
 
+// LogPage holds one page of notification records and pagination info.
+type LogPage struct {
+	Notifications []database.UserNotification
+	TotalPages    int
+	CurrentPage   int
+}
+
+// GetDeliveryLogPage fetches one page of notification records for the authenticated user.
+func GetDeliveryLogPage(ctx context.Context, db *database.Store, userID int64, page int, pageSize int) (LogPage, error) {
+	const op = "notifications.GetDeliveryLogPage"
+
+	// get total count of notifications so pages can be capped in case of invalid (too high) page
+	total, err := db.CountNotificationsByUserID(ctx, userID)
+	if err != nil {
+		return LogPage{}, appError.NewAppError(op, appError.Internal, "failed to count notifications", err)
+	}
+
+	// cap page to valid range
+	totalPages := 1
+	if total > 0 {
+		totalPages = (int(total) + pageSize - 1) / pageSize
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	offset := (page - 1) * pageSize
+
+	// fetch requested page of notifications
+	logs, err := db.QueryNotificationsByUserIDPaged(ctx, userID, pageSize, offset)
+	if err != nil {
+		return LogPage{}, appError.NewAppError(op, appError.Internal, "failed to load notification log page", err)
+	}
+
+	return LogPage{
+		Notifications: logs,
+		TotalPages:    totalPages,
+		CurrentPage:   page,
+	}, nil
+}
+
+// GetDeliveryLog returns all notification records for the authenticated user.
+func GetDeliveryLog(ctx context.Context, db *database.Store, userID int64) ([]database.UserNotification, error) {
+	const op = "notifications.GetDeliveryLog"
+
+	logs, err := db.QueryNotificationsByUserID(ctx, userID)
+	if err != nil {
+		return nil, appError.NewAppError(op, appError.Internal, "failed to load delivery log", err)
+	}
+
+	return logs, nil
+}
+
 // CreatePendingNotifications creates one pending notification per active channel for every user
 // tracking the given package, if their last notified version is different from newVersion.
 // triggerUserID is 0 for system-triggered checks. When non-zero, channels with
@@ -125,16 +178,4 @@ func CreatePendingNotificationsFirstAppearance(ctx context.Context, db *database
 	}
 
 	log.Printf("[INFO] notifications: %d first-appearance notification(s) created for %s/%s version: %s", len(jobs), packageName, packageBranch, newVersion)
-}
-
-// GetDeliveryLog returns all notification records for the authenticated user.
-func GetDeliveryLog(ctx context.Context, db *database.Store, userID int64) ([]database.UserNotification, error) {
-	const op = "notifications.GetDeliveryLog"
-
-	logs, err := db.QueryNotificationsByUserID(ctx, userID)
-	if err != nil {
-		return nil, appError.NewAppError(op, appError.Internal, "failed to load delivery log", err)
-	}
-
-	return logs, nil
 }

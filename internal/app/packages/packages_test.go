@@ -1035,3 +1035,157 @@ func TestWatchCheck_Failed(t *testing.T) {
 		t.Error("expected Failed=true")
 	}
 }
+
+// ----------------------------------------------------------------
+// ------------------- GetPackagesPage ----------------------------
+// ----------------------------------------------------------------
+
+func TestGetPackagesPage_Empty(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	page, err := packages.GetPackagesPage(ctx, testStore, userID, 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Errorf("expected empty items, got %d", len(page.Items))
+	}
+	if page.TotalPages != 1 {
+		t.Errorf("expected TotalPages=1 for empty list, got %d", page.TotalPages)
+	}
+}
+
+func TestGetPackagesPage_ReturnsBothTrackedAndWatched(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	addTracking(t, userID)
+	addWatchlistEntry(t, userID)
+
+	page, err := packages.GetPackagesPage(ctx, testStore, userID, 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Errorf("expected 2 items (1 tracked + 1 watched), got %d", len(page.Items))
+	}
+}
+
+func TestGetPackagesPage_IsolatedPerUser(t *testing.T) {
+	ctx := context.Background()
+	user1, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	user2, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	addTracking(t, user1)
+	addWatchlistEntry(t, user1)
+
+	// user2 should see an empty page
+	page, err := packages.GetPackagesPage(ctx, testStore, user2, 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Errorf("expected user2 to see no items, got %d", len(page.Items))
+	}
+}
+
+func TestGetPackagesPage_OrderedAlphabetically(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	// insert packages out of alphabetical order
+	for _, name := range []string{"zzz-pkg", "aaa-pkg", "mmm-pkg"} {
+		id, err := testStore.StorePackage(ctx, name, "nixpkgs-unstable", "1.0.0")
+		if err != nil {
+			t.Fatalf("StorePackage %q: %v", name, err)
+		}
+		err = testStore.StoreTracking(ctx, userID, id, "1.0.0")
+		if err != nil {
+			t.Fatalf("StoreTracking %q: %v", name, err)
+		}
+	}
+
+	page, err := packages.GetPackagesPage(ctx, testStore, userID, 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(page.Items) < 3 {
+		t.Fatalf("expected at least 3 items, got %d", len(page.Items))
+	}
+
+	// find packages and verify order
+	var names []string
+	for _, item := range page.Items {
+		if item.Name == "aaa-pkg" || item.Name == "mmm-pkg" || item.Name == "zzz-pkg" {
+			names = append(names, item.Name)
+		}
+	}
+	if len(names) != 3 {
+		t.Fatalf("expected to find all 3 packages, found %d", len(names))
+	}
+	if names[0] != "aaa-pkg" || names[1] != "mmm-pkg" || names[2] != "zzz-pkg" {
+		t.Errorf("wrong order: %v, want [aaa-pkg mmm-pkg zzz-pkg]", names)
+	}
+}
+
+func TestGetPackagesPage_Pagination(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+
+	// create 5 tracked packages
+	for i := range 5 {
+		name := fmt.Sprintf("pagpkg-%02d-%d", i, testutil.NextID())
+		id, err := testStore.StorePackage(ctx, name, "nixpkgs-unstable", "1.0.0")
+		if err != nil {
+			t.Fatalf("StorePackage: %v", err)
+		}
+		err = testStore.StoreTracking(ctx, userID, id, "1.0.0")
+		if err != nil {
+			t.Fatalf("StoreTracking: %v", err)
+		}
+	}
+
+	// fetch with page size 2
+	page1, err := packages.GetPackagesPage(ctx, testStore, userID, 1, 2)
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if len(page1.Items) != 2 {
+		t.Errorf("page 1: expected 2 items, got %d", len(page1.Items))
+	}
+
+	page2, err := packages.GetPackagesPage(ctx, testStore, userID, 2, 2)
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	if len(page2.Items) != 2 {
+		t.Errorf("page 2: expected 2 items, got %d", len(page2.Items))
+	}
+
+	// pages should not overlap
+	for _, i1 := range page1.Items {
+		for _, i2 := range page2.Items {
+			if i1.PackageID == i2.PackageID {
+				t.Errorf("page 1 and page 2 contain the same package ID %d", i1.PackageID)
+			}
+		}
+	}
+}
+
+func TestGetPackagesPage_PageCappedWhenTooHigh(t *testing.T) {
+	ctx := context.Background()
+	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
+	addTracking(t, userID)
+	addTracking(t, userID)
+
+	// request page 999 - should be capped to last valid page and return results
+	page, err := packages.GetPackagesPage(ctx, testStore, userID, 999, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if page.CurrentPage != 1 {
+		t.Errorf("expected CurrentPage=1 after cap, got %d", page.CurrentPage)
+	}
+	if len(page.Items) == 0 {
+		t.Error("expected items after page cap, got empty list")
+	}
+}
