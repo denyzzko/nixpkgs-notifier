@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.6.0...v1.7.0) (2026-05-04)
+
+
+### Features
+
+* pagination for packages and delivery log tables ([#9](https://github.com/denyzzko/nixpkgs-notifier/issues/9)) ([fa909bf](https://github.com/denyzzko/nixpkgs-notifier/commit/fa909bf2092c8000dbd6c43cf3dcc63c500b6614))
+
 # [1.6.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.5.4...v1.6.0) (2026-05-03)
 
 
