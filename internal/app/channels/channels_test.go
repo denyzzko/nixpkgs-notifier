@@ -43,7 +43,7 @@ func addEmail(t *testing.T, userID int64, address string) int64 {
 // Used to set up existing channels for guard tests.
 func addWebhook(t *testing.T, userID int64, url string) int64 {
 	t.Helper()
-	id, err := testStore.CreateWebhookChannel(context.Background(), userID, url, "generic", false, "", "", "", false)
+	id, err := testStore.CreateWebhookChannel(context.Background(), userID, url, "generic", false, database.MattermostParams{})
 	if err != nil {
 		t.Fatalf("addWebhook setup: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestAddChannel_Email_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
 
-	result, err := channels.AddChannel(ctx, testStore, userID, "email", "user@example.com", "", false, "", "", "", false, 0, 0)
+	result, err := channels.AddChannel(ctx, testStore, userID, channels.ChannelParams{Type: "email", Address: "user@example.com"}, channels.ChannelLimits{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestAddChannel_Webhook_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
 
-	result, err := channels.AddChannel(ctx, testStore, userID, "webhook", webhookURL, "generic", false, "", "", "", false, 0, 0)
+	result, err := channels.AddChannel(ctx, testStore, userID, channels.ChannelParams{Type: "webhook", Address: webhookURL, WebhookType: "generic"}, channels.ChannelLimits{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestAddChannel_UnknownType(t *testing.T) {
 	ctx := context.Background()
 	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
 
-	_, err := channels.AddChannel(ctx, testStore, userID, "telegram", "someaddress", "", false, "", "", "", false, 0, 0)
+	_, err := channels.AddChannel(ctx, testStore, userID, channels.ChannelParams{Type: "telegram", Address: "someaddress"}, channels.ChannelLimits{})
 	assertError(t, err, true, appError.Invalid)
 }
 
@@ -116,7 +116,7 @@ func TestAddChannel_DuplicateEmailAddress(t *testing.T) {
 	addEmail(t, userID, "dup@example.com")
 
 	// adding same email address again should be rejected
-	_, err := channels.AddChannel(ctx, testStore, userID, "email", "dup@example.com", "", false, "", "", "", false, 0, 0)
+	_, err := channels.AddChannel(ctx, testStore, userID, channels.ChannelParams{Type: "email", Address: "dup@example.com"}, channels.ChannelLimits{})
 	assertError(t, err, true, appError.Conflict)
 }
 
@@ -126,7 +126,7 @@ func TestAddChannel_DuplicateWebhookURL(t *testing.T) {
 	addWebhook(t, userID, webhookURL)
 
 	// adding same webhook URL again should be rejected
-	_, err := channels.AddChannel(ctx, testStore, userID, "webhook", webhookURL, "generic", false, "", "", "", false, 0, 0)
+	_, err := channels.AddChannel(ctx, testStore, userID, channels.ChannelParams{Type: "webhook", Address: webhookURL, WebhookType: "generic"}, channels.ChannelLimits{})
 	assertError(t, err, true, appError.Conflict)
 }
 
@@ -138,7 +138,7 @@ func TestAddChannel_EmailLimitReached(t *testing.T) {
 	addEmail(t, userID, "first@example.com")
 
 	// next one should be rejected
-	_, err := channels.AddChannel(ctx, testStore, userID, "email", "second@example.com", "", false, "", "", "", false, 0, 1)
+	_, err := channels.AddChannel(ctx, testStore, userID, channels.ChannelParams{Type: "email", Address: "second@example.com"}, channels.ChannelLimits{MaxEmails: 1})
 	assertError(t, err, true, appError.Conflict)
 }
 
@@ -150,7 +150,7 @@ func TestAddChannel_WebhookLimitReached(t *testing.T) {
 	addWebhook(t, userID, "https://example.com/hook1")
 
 	// next one should be rejected
-	_, err := channels.AddChannel(ctx, testStore, userID, "webhook", "https://example.com/hook2", "generic", false, "", "", "", false, 1, 0)
+	_, err := channels.AddChannel(ctx, testStore, userID, channels.ChannelParams{Type: "webhook", Address: "https://example.com/hook2", WebhookType: "generic"}, channels.ChannelLimits{MaxWebhooks: 1})
 	assertError(t, err, true, appError.Conflict)
 }
 
@@ -161,7 +161,7 @@ func TestAddChannel_LimitZeroMeansUnlimited(t *testing.T) {
 	// maxEmails=0 means no limit - should never block
 	for i := range 3 {
 		addr := fmt.Sprintf("user%d@example.com", i)
-		_, err := channels.AddChannel(ctx, testStore, userID, "email", addr, "", false, "", "", "", false, 0, 0)
+		_, err := channels.AddChannel(ctx, testStore, userID, channels.ChannelParams{Type: "email", Address: addr}, channels.ChannelLimits{})
 		if err != nil {
 			t.Errorf("expected no error for channel %d with unlimited quota, got: %v", i, err)
 		}

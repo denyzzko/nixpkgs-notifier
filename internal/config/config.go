@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -392,11 +391,17 @@ func GetRuntimeConfig(ctx context.Context, db *database.Store, disp *dispatcher.
 			MaxEmailsPerUser:   saved.MaxEmailsPerUser,
 		}
 	}
-	// no DB row yet (or error happened during query) - reflect what dispatcher and checker currently run with
+
+	// log unexpected error
+	if !errors.Is(err, database.ErrNotFound) {
+		log.Printf("[WARN] config: failed to load runtime config from database, falling back to in-memory state: %v", err)
+	}
+
+	// no DB row yet - reflect what dispatcher and checker currently run with
 	return RuntimeConfig{
-		Dispatcher: disp.GetConfig(),
-		Checker:    chk.GetConfig(),
-		Cleaner:    clnr.GetConfig(),
+		Dispatcher: disp.Config(),
+		Checker:    chk.Config(),
+		Cleaner:    clnr.Config(),
 	}
 }
 
@@ -415,7 +420,7 @@ func SaveRuntimeConfig(ctx context.Context, db *database.Store, rcfg RuntimeConf
 		MaxEmailsPerUser:                rcfg.MaxEmailsPerUser,
 	}
 	// store config to database
-	if err := db.UpdateSystemConfig(ctx, dbCfg); err != nil {
+	if err := db.UpsertSystemConfig(ctx, dbCfg); err != nil {
 		return err
 	}
 
@@ -425,129 +430,4 @@ func SaveRuntimeConfig(ctx context.Context, db *database.Store, rcfg RuntimeConf
 	clnr.UpdateConfig(rcfg.Cleaner)
 
 	return nil
-}
-
-// parseDurationFromForm parses a duration from two form fields: numeric value and a unit (seconds/minutes/hours).
-// Returns an error if the value is missing, negative, or the unit is not recognised.
-func parseDurationFromForm(r *http.Request, valField, unitField string) (time.Duration, error) {
-	val, err := strconv.ParseFloat(r.FormValue(valField), 64)
-	if err != nil || val <= 0 {
-		return 0, fmt.Errorf("invalid value for %s", valField)
-	}
-	switch r.FormValue(unitField) {
-	case "seconds":
-		return time.Duration(val * float64(time.Second)), nil
-	case "minutes":
-		return time.Duration(val * float64(time.Minute)), nil
-	case "hours":
-		return time.Duration(val * float64(time.Hour)), nil
-	default:
-		return 0, fmt.Errorf("invalid unit for %s", unitField)
-	}
-}
-
-// parseIntFromForm parses a positive integer from form field.
-// Returns an error if the value is missing, not a number, or less than 1.
-func parseIntFromForm(r *http.Request, field string) (int, error) {
-	v, err := strconv.Atoi(r.FormValue(field))
-	if err != nil || v < 1 {
-		return 0, fmt.Errorf("invalid value for %s", field)
-	}
-	return v, nil
-}
-
-// parseRetentionDaysFromForm parses the notification_retention_days select field.
-// Valid values are 0 (disabled), 30, 90, 180 (these are days). Returns an error for any other value.
-func parseRetentionDaysFromForm(r *http.Request) (int, error) {
-	v, err := strconv.Atoi(r.FormValue("notification_retention_days"))
-	if err != nil {
-		return 0, fmt.Errorf("invalid value for notification_retention_days")
-	}
-	switch v {
-	case 0, 30, 90, 180:
-		return v, nil
-	default:
-		return 0, fmt.Errorf("invalid value for notification_retention_days: must be 0, 30, 90 or 180")
-	}
-}
-
-// parseNonNegativeIntFromForm parses a non-negative integer from form field.
-// Returns an error if the value is missing, not a number, or less then 0.
-// Unlike parseIntFromForm 0 is valid value here (used for "unlimited" webhook limit setting).
-func parseNonNegativeIntFromForm(r *http.Request, field string) (int, error) {
-	v, err := strconv.Atoi(r.FormValue(field))
-	if err != nil || v < 0 {
-		return 0, fmt.Errorf("invalid value for %s", field)
-	}
-	return v, nil
-}
-
-// RuntimeConfigFromForm parses a RuntimeConfig from HTTP form.
-// Returns an error if any field is missing or has an invalid value.
-func RuntimeConfigFromForm(r *http.Request) (RuntimeConfig, error) {
-	// ensure all form values are populated
-	if err := r.ParseForm(); err != nil {
-		return RuntimeConfig{}, fmt.Errorf("invalid form data: %w", err)
-	}
-
-	// dispatcher fields
-	dispatchInterval, err := parseDurationFromForm(r, "notification_dispatch_interval_val", "notification_dispatch_interval_unit")
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-	maxRetries, err := parseIntFromForm(r, "notification_max_retries")
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-	notifWorkers, err := parseIntFromForm(r, "notification_worker_count")
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-	// checker fields
-	checkInterval, err := parseDurationFromForm(r, "package_check_interval_val", "package_check_interval_unit")
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-	skipInterval, err := parseDurationFromForm(r, "package_check_skip_interval_val", "package_check_skip_interval_unit")
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-	checkWorkers, err := parseIntFromForm(r, "package_check_worker_count")
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-	// cleaner fields
-	retentionDays, err := parseRetentionDaysFromForm(r)
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-	// channel fields (user webhook and email limit)
-	maxWebhooks, err := parseNonNegativeIntFromForm(r, "max_webhooks_per_user")
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-	maxEmails, err := parseNonNegativeIntFromForm(r, "max_emails_per_user")
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-
-	// return populated RuntimeConfig
-	return RuntimeConfig{
-		Dispatcher: dispatcher.Config{
-			Interval:            dispatchInterval,
-			MaxRetries:          maxRetries,
-			DisableOnMaxRetries: r.FormValue("notification_disable_on_max_retries") == "on",
-			WorkerCount:         notifWorkers,
-		},
-		Checker: checker.Config{
-			Interval:     checkInterval,
-			WorkerCount:  checkWorkers,
-			SkipInterval: skipInterval,
-		},
-		Cleaner: cleaner.Config{
-			RetentionDays: retentionDays,
-		},
-		MaxWebhooksPerUser: maxWebhooks,
-		MaxEmailsPerUser:   maxEmails,
-	}, nil
 }

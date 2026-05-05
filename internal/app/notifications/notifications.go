@@ -17,7 +17,6 @@ package notifications
 
 import (
 	"context"
-	"errors"
 	"log"
 	"time"
 
@@ -25,8 +24,14 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 )
 
-// user is not authenticated error
-var ErrNotAuthenticated = errors.New("not authenticated")
+// VersionEvent carries package identity and version information for a notification trigger.
+// Used by CreatePendingNotifications and CreatePendingNotificationsFirstAppearance.
+type VersionEvent struct {
+	PackageID   int64
+	PackageName string
+	Branch      string
+	NewVersion  string
+}
 
 // LogPage holds one page of notification records and pagination info.
 type LogPage struct {
@@ -69,29 +74,17 @@ func GetDeliveryLogPage(ctx context.Context, db *database.Store, userID int64, p
 	}, nil
 }
 
-// GetDeliveryLog returns all notification records for the authenticated user.
-func GetDeliveryLog(ctx context.Context, db *database.Store, userID int64) ([]database.UserNotification, error) {
-	const op = "notifications.GetDeliveryLog"
-
-	logs, err := db.QueryNotificationsByUserID(ctx, userID)
-	if err != nil {
-		return nil, appError.NewAppError(op, appError.Internal, "failed to load delivery log", err)
-	}
-
-	return logs, nil
-}
-
 // CreatePendingNotifications creates one pending notification per active channel for every user
 // tracking the given package, if their last notified version is different from newVersion.
 // triggerUserID is 0 for system-triggered checks. When non-zero, channels with
 // NotifyOnManualVerify=false are skipped for the triggering user.
-func CreatePendingNotifications(ctx context.Context, db *database.Store, packageID int64, packageName string, packageBranch string, newVersion string, triggerUserID int64) {
+func CreatePendingNotifications(ctx context.Context, db *database.Store, event VersionEvent, triggerUserID int64) {
 	detectedAt := time.Now().UTC()
 
 	// find all user trackings for this package
-	trackings, err := db.QueryTrackingsByPackageID(ctx, packageID)
+	trackings, err := db.QueryTrackingsByPackageID(ctx, event.PackageID)
 	if err != nil {
-		log.Printf("[ERROR] notifications: query trackings (packageID=%d): %v", packageID, err)
+		log.Printf("[ERROR] notifications: query trackings (packageID=%d): %v", event.PackageID, err)
 		return
 	}
 
@@ -99,7 +92,7 @@ func CreatePendingNotifications(ctx context.Context, db *database.Store, package
 	var jobs []database.ChannelNotification
 	for _, t := range trackings {
 		// skip users who are already on the new version (safetycheck to not send duplicate notifications)
-		if t.LastNotifiedVersion == newVersion {
+		if t.LastNotifiedVersion == event.NewVersion {
 			continue
 		}
 
@@ -125,13 +118,13 @@ func CreatePendingNotifications(ctx context.Context, db *database.Store, package
 	}
 
 	// update package current_version and insert pending notifications in one step
-	err = db.CreateNotificationsForVersionChange(ctx, packageName, packageBranch, newVersion, packageID, jobs, detectedAt)
+	err = db.CreateNotificationsForVersionChange(ctx, event.PackageName, event.Branch, event.NewVersion, event.PackageID, jobs, detectedAt)
 	if err != nil {
-		log.Printf("[ERROR] notifications: store version change (packageID=%d): %v", packageID, err)
+		log.Printf("[ERROR] notifications: store version change (packageID=%d): %v", event.PackageID, err)
 		return
 	}
 
-	log.Printf("[INFO] notifications: %d pending notification(s) created for %s/%s new version: %s", len(jobs), packageName, packageBranch, newVersion)
+	log.Printf("[INFO] notifications: %d pending notification(s) created for %s/%s new version: %s", len(jobs), event.PackageName, event.Branch, event.NewVersion)
 }
 
 // CreatePendingNotificationsFirstAppearance is like CreatePendingNotifications but used exclusively
@@ -139,13 +132,13 @@ func CreatePendingNotifications(ctx context.Context, db *database.Store, package
 // It skips lnv == newVersion duplicate-check because lnv was set to newVersion at
 // promotion time (so tracking is immediately usable), and it always sets OldVersion=""
 // so notification message correctly reads "package appeared" rather than "updated from X to Y".
-func CreatePendingNotificationsFirstAppearance(ctx context.Context, db *database.Store, packageID int64, packageName string, packageBranch string, newVersion string, triggerUserID int64) {
+func CreatePendingNotificationsFirstAppearance(ctx context.Context, db *database.Store, event VersionEvent, triggerUserID int64) {
 	detectedAt := time.Now().UTC()
 
 	// find all trackings for this package
-	trackings, err := db.QueryTrackingsByPackageID(ctx, packageID)
+	trackings, err := db.QueryTrackingsByPackageID(ctx, event.PackageID)
 	if err != nil {
-		log.Printf("[ERROR] notifications: query trackings (packageID=%d): %v", packageID, err)
+		log.Printf("[ERROR] notifications: query trackings (packageID=%d): %v", event.PackageID, err)
 		return
 	}
 
@@ -171,11 +164,11 @@ func CreatePendingNotificationsFirstAppearance(ctx context.Context, db *database
 	}
 
 	// insert pending notifications atomically
-	err = db.CreateNotificationsForFirstAppearance(ctx, newVersion, packageID, jobs, detectedAt)
+	err = db.CreateNotificationsForFirstAppearance(ctx, event.NewVersion, event.PackageID, jobs, detectedAt)
 	if err != nil {
-		log.Printf("[ERROR] notifications: store first appearance (packageID=%d): %v", packageID, err)
+		log.Printf("[ERROR] notifications: store first appearance (packageID=%d): %v", event.PackageID, err)
 		return
 	}
 
-	log.Printf("[INFO] notifications: %d first-appearance notification(s) created for %s/%s version: %s", len(jobs), packageName, packageBranch, newVersion)
+	log.Printf("[INFO] notifications: %d first-appearance notification(s) created for %s/%s version: %s", len(jobs), event.PackageName, event.Branch, event.NewVersion)
 }

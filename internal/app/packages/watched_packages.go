@@ -1,17 +1,3 @@
-// Package packages handles all operations on tracked and watched packages.
-//
-// Both tracked and watched packages live in the packages table.
-// Tracked packages have a trackings row and a known current_version.
-// Watched packages have a watchlist row and current_version = "" (not yet in nixpkgs).
-//
-// Implementation is split across three files:
-//   - packages.go:          shared types, CheckAll, StartBackgroundCleanup
-//   - tracked_packages.go:  Track, GetTrackStatus, Untrack, Check, GetCheckStatus
-//   - watched_packages.go:  Watch, Unwatch, WatchCheck, GetWatchCheckStatus
-//
-// Track operations use an in-memory operationResults sync.Map because a failed Track init
-// rolls back both the tracking and package rows — check_state would cascade-delete with the package.
-// Check and WatchCheck operations use the check_state DB table (1-hour TTL).
 package packages
 
 import (
@@ -135,7 +121,7 @@ func WatchCheck(ctx context.Context, db *database.Store, userID int64, chk *chec
 	}
 
 	// persist pending check state (old_version nil - watched packages have no version yet)
-	err = db.InsertCheckState(ctx, userID, wp.PackageID, nil)
+	err = db.UpsertCheckState(ctx, userID, wp.PackageID, nil)
 	if err != nil {
 		log.Printf("[WARN] %s: upsert check state failed (%q/%q): %v", op, wp.Name, wp.Branch, err)
 	}
@@ -208,7 +194,12 @@ func watchCheckAsync(db *database.Store, userID int64, wp database.WatchedPackag
 
 	if len(userIDs) > 0 {
 		// fire notifications for all users that were watching (pass userID so notify_on_manual_verify is respected)
-		go notifications.CreatePendingNotificationsFirstAppearance(bgCtx, db, wp.PackageID, wp.Name, wp.Branch, version, userID)
+		go notifications.CreatePendingNotificationsFirstAppearance(bgCtx, db, notifications.VersionEvent{
+			PackageID:   wp.PackageID,
+			PackageName: wp.Name,
+			Branch:      wp.Branch,
+			NewVersion:  version,
+		}, userID)
 	}
 
 	// clean up check state rows - polling endpoint detects promotion by finding the watchlist row gone

@@ -81,12 +81,6 @@ func (sm *SessionManager) Put(ctx context.Context, key string, value any) {
 	sm.manager.Put(ctx, key, value)
 }
 
-// Get retrieves a value from the session by key (nil if not found).
-func (sm *SessionManager) Get(ctx context.Context, key string) any {
-	value := sm.manager.Get(ctx, key)
-	return value
-}
-
 // GetUserID returns authenticated user's ID from the session.
 // Returns 0 if no user is logged in.
 func (sm *SessionManager) GetUserID(ctx context.Context) int64 {

@@ -1,18 +1,3 @@
-// Package database provides the data access layer for application.
-//
-// It is organised in these files:
-//   - database.go:              opens connection pool and runs migrations
-//   - embeds.go:                embeds all SQL files into the binary at compile time
-//   - models.go:                defines data types returned by queries
-//   - queries_channels.go:      notification channel operations
-//   - queries_check_state.go:   check state operations (pending/done/failed/not_found rows written by check goroutines and read by polling endpoints)
-//   - queries_config.go:        system configuration operations
-//   - queries_helpers.go:       shared helpers and sentinel errors used across query files
-//   - queries_notifications.go: notification creation and delivery operations
-//   - queries_packages.go:      package  operations
-//   - queries_trackings.go:      tracking operations
-//   - queries_users.go:         user and account operations
-//   - queries_watchlist.go:     watchlist operations
 package database
 
 import (
@@ -87,21 +72,6 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	}
 
 	return packages, nil
-}
-
-// QueryPackage retrieves package identified by id.
-func (db *Store) QueryPackage(ctx context.Context, packageID int64) (Package, error) {
-	var pckg Package
-	row := db.pool.QueryRow(ctx, qGetPackage, packageID)
-	err := row.Scan(&pckg.ID, &pckg.CreatedAt, &pckg.UpdatedAt, &pckg.LastCheckedAt, &pckg.Name, &pckg.Branch, &pckg.CurrentVersion)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Package{}, ErrNotFound
-		}
-		return Package{}, fmt.Errorf("database.QueryPackage: error querying package (id=%d): %w", packageID, err)
-	}
-
-	return pckg, nil
 }
 
 // QueryPackageByNameAndBranch retrieves package identified by its name and branch.

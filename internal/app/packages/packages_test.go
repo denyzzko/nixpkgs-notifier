@@ -95,11 +95,11 @@ func pollTrackStatus(t *testing.T, userID, pkgID int64) packages.TrackStatus {
 }
 
 // pollCheckStatus polls GetCheckStatus until Done=true or 1s timeout.
-func pollCheckStatus(t *testing.T, userID, pkgID int64, prev string) packages.TrackingCheckStatus {
+func pollCheckStatus(t *testing.T, userID, pkgID int64) packages.TrackingCheckStatus {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		status, err := packages.GetCheckStatus(context.Background(), testStore, userID, strconv.FormatInt(pkgID, 10), prev)
+		status, err := packages.GetCheckStatus(context.Background(), testStore, userID, strconv.FormatInt(pkgID, 10))
 		if err != nil {
 			t.Fatalf("pollCheckStatus: %v", err)
 		}
@@ -363,13 +363,13 @@ func TestGetTrackStatus_NotDone(t *testing.T) {
 	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
 	pkgID := addTracking(t, userID)
 
-	// no result in map - goroutine hasn't finished yet
+	// no result in operationResults yet - goroutine hasn't finished
 	status, err := packages.GetTrackStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if status.Done {
-		t.Error("expected Done=false when result not in map yet")
+		t.Error("expected Done=false when result not in operationResults yet")
 	}
 }
 
@@ -430,7 +430,7 @@ func TestGetCheckStatus_InvalidID(t *testing.T) {
 	ctx := context.Background()
 	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
 
-	_, err := packages.GetCheckStatus(ctx, testStore, userID, "not-a-number", "1.0.0")
+	_, err := packages.GetCheckStatus(ctx, testStore, userID, "not-a-number")
 	assertError(t, err, true, appError.Invalid)
 }
 
@@ -440,15 +440,12 @@ func TestGetCheckStatus_NotDone(t *testing.T) {
 	pkgID := addTracking(t, userID)
 
 	// no check_state row - goroutine hasn't finished yet
-	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10), "1.0.0")
+	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if status.Done {
 		t.Error("expected Done=false when no check_state row exists")
-	}
-	if status.Prev != "1.0.0" {
-		t.Errorf("Prev = %q, want %q", status.Prev, "1.0.0")
 	}
 }
 
@@ -459,16 +456,16 @@ func TestGetCheckStatus_DoneWithFailure(t *testing.T) {
 
 	// simulate goroutine finishing with failure via DB check_state
 	oldVer := "1.0.0"
-	err := testStore.InsertCheckState(ctx, userID, pkgID, &oldVer)
+	err := testStore.UpsertCheckState(ctx, userID, pkgID, &oldVer)
 	if err != nil {
-		t.Fatalf("InsertCheckState: %v", err)
+		t.Fatalf("UpsertCheckState: %v", err)
 	}
 	err = testStore.UpdateCheckStateFailed(ctx, userID, pkgID, "Nix evaluation failed - try again later")
 	if err != nil {
 		t.Fatalf("UpdateCheckStateFailed: %v", err)
 	}
 
-	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10), "1.0.0")
+	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -502,16 +499,16 @@ func TestGetCheckStatus_DoneVersionChanged(t *testing.T) {
 	// old_version=1.0.0 (prev), new_version=2.0.0 (changed)
 	oldVer := "1.0.0"
 	newVer := "2.0.0"
-	err = testStore.InsertCheckState(ctx, userID, pkgID, &oldVer)
+	err = testStore.UpsertCheckState(ctx, userID, pkgID, &oldVer)
 	if err != nil {
-		t.Fatalf("InsertCheckState: %v", err)
+		t.Fatalf("UpsertCheckState: %v", err)
 	}
 	err = testStore.UpdateCheckStateDone(ctx, userID, pkgID, &newVer)
 	if err != nil {
 		t.Fatalf("UpdateCheckStateDone: %v", err)
 	}
 
-	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10), "1.0.0")
+	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -531,16 +528,16 @@ func TestGetCheckStatus_DoneVersionUnchanged(t *testing.T) {
 	// simulate goroutine finishing successfully via DB check_state
 	// new_version nil = no change
 	oldVer := "1.0.0"
-	err := testStore.InsertCheckState(ctx, userID, pkgID, &oldVer)
+	err := testStore.UpsertCheckState(ctx, userID, pkgID, &oldVer)
 	if err != nil {
-		t.Fatalf("InsertCheckState: %v", err)
+		t.Fatalf("UpsertCheckState: %v", err)
 	}
 	err = testStore.UpdateCheckStateDone(ctx, userID, pkgID, nil)
 	if err != nil {
 		t.Fatalf("UpdateCheckStateDone: %v", err)
 	}
 
-	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10), "1.0.0")
+	status, err := packages.GetCheckStatus(ctx, testStore, userID, strconv.FormatInt(pkgID, 10))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -588,9 +585,9 @@ func TestGetWatchCheckStatus_StillNotFound(t *testing.T) {
 	entry := addWatchlistEntry(t, userID)
 
 	// simulate goroutine: write not_found to check_state
-	err := testStore.InsertCheckState(ctx, userID, entry.PackageID, nil)
+	err := testStore.UpsertCheckState(ctx, userID, entry.PackageID, nil)
 	if err != nil {
-		t.Fatalf("InsertCheckState: %v", err)
+		t.Fatalf("UpsertCheckState: %v", err)
 	}
 	err = testStore.UpdateCheckStateNotFound(ctx, userID, entry.PackageID)
 	if err != nil {
@@ -615,9 +612,9 @@ func TestGetWatchCheckStatus_Failed(t *testing.T) {
 	entry := addWatchlistEntry(t, userID)
 
 	// simulate goroutine: write failed to check_state
-	err := testStore.InsertCheckState(ctx, userID, entry.PackageID, nil)
+	err := testStore.UpsertCheckState(ctx, userID, entry.PackageID, nil)
 	if err != nil {
-		t.Fatalf("InsertCheckState: %v", err)
+		t.Fatalf("UpsertCheckState: %v", err)
 	}
 	err = testStore.UpdateCheckStateFailed(ctx, userID, entry.PackageID, "Nix evaluation failed - try again later")
 	if err != nil {
@@ -813,7 +810,7 @@ func TestCheck_VersionUnchanged(t *testing.T) {
 		t.Fatal("expected Skipped=false")
 	}
 
-	status := pollCheckStatus(t, userID, pkgID, "1.0.0")
+	status := pollCheckStatus(t, userID, pkgID)
 	if status.Failed {
 		t.Errorf("expected success, got failure: %s", status.ErrMsg)
 	}
@@ -845,7 +842,7 @@ func TestCheck_VersionChanged(t *testing.T) {
 		t.Fatal("expected Skipped=false")
 	}
 
-	status := pollCheckStatus(t, userID, pkgID, "1.0.0")
+	status := pollCheckStatus(t, userID, pkgID)
 	if status.Failed {
 		t.Errorf("expected success, got failure: %s", status.ErrMsg)
 	}
@@ -854,12 +851,12 @@ func TestCheck_VersionChanged(t *testing.T) {
 	}
 
 	// notification should be created
-	rows, err := testStore.QueryNotificationsByUserID(ctx, userID)
+	count, err := testStore.CountNotificationsByUserID(ctx, userID)
 	if err != nil {
-		t.Fatalf("QueryNotificationsByUserID: %v", err)
+		t.Fatalf("CountNotificationsByUserID: %v", err)
 	}
-	if len(rows) != 1 {
-		t.Errorf("expected 1 notification, got %d", len(rows))
+	if count != 1 {
+		t.Errorf("expected 1 notification, got %d", count)
 	}
 }
 
@@ -909,7 +906,7 @@ func TestCheck_NixFailed(t *testing.T) {
 		t.Fatal("expected Skipped=false")
 	}
 
-	status := pollCheckStatus(t, userID, pkgID, "1.0.0")
+	status := pollCheckStatus(t, userID, pkgID)
 	if !status.Failed {
 		t.Error("expected Failed=true on nix error")
 	}
@@ -1008,12 +1005,12 @@ func TestWatchCheck_Promoted(t *testing.T) {
 	}
 
 	// notification should be created
-	rows, err := testStore.QueryNotificationsByUserID(ctx, userID)
+	count, err := testStore.CountNotificationsByUserID(ctx, userID)
 	if err != nil {
-		t.Fatalf("QueryNotificationsByUserID: %v", err)
+		t.Fatalf("CountNotificationsByUserID: %v", err)
 	}
-	if len(rows) != 1 {
-		t.Errorf("expected 1 notification, got %d", len(rows))
+	if count != 1 {
+		t.Errorf("expected 1 notification, got %d", count)
 	}
 }
 

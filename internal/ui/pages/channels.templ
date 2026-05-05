@@ -401,52 +401,86 @@ templ ChannelItemWithMessage(ch ChannelVM, msgClass string, msg string) {
 	@ChannelRow(ch, msgClass, msg)
 }
 
-// NewChannelForm renders inline form for adding a new notification channel.
-// Selecting "Mattermost Webhook" in the type dropdown reveals extra Mattermost specific fields.
-// Submits via HTMX POST to /channel/add, replacing new-channel-slot with the result.
+// NewChannelForm renders empty add-channel form.
 templ NewChannelForm() {
-    <form
-        class="rounded-5 p-2 ps-1 pe-1 mt-2 new-channel-form"
-        style="background: #474747;"
-        data-form-id="new"
-        hx-post="/channel/add"
-        hx-target="#new-channel-slot"
-        hx-swap="innerHTML"
-    >
-        <div class="row g-2 mx-0 align-items-stretch">
+    @channelForm("", "", "")
+}
 
-            <!-- Column 1: Type (+ Username - Mattermost only) -->
-            <div class="col-2 d-flex flex-column gap-2">
-                <select
-                    class="form-select form-select-sm rounded-5 text-white"
-                    style="background: #3A3A3A; border: 1px solid #5A5A5A; padding-right: .5rem;"
-                    name="type"
-                    required
-                >
-                    <option value="email">Email</option>
-                    <option value="webhook_generic">Generic Webhook</option>
-                    <option value="webhook_mattermost">Mattermost Webhook</option>
-                </select>
-                <input
-                    id="mm-username-new"
-                    class="form-control form-control-sm rounded-5 text-white d-none"
-                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
-                    type="text" name="username" placeholder="Username"
-                />
-            </div>
+// NewChannelError re-renders form pre-filled with the submitted values and error message below.
+// Used when the server rejects the submission.
+templ NewChannelError(chType string, address string, message string) {
+    @channelForm(chType, address, message)
+}
 
-            <!-- Column 2: Address (+ Channel/Priority/Req.Ack - Mattermost only) -->
-            <div class="col-5 d-flex flex-column gap-2">
-                <input
-                    class="form-control form-control-sm rounded-5 text-white"
-                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
-                    type="text"
-                    name="address"
-                    placeholder="Enter email address or webhook URL..."
-                    required
-                    autofocus
-                />
-                <div id="mm-fields-col2-new" class="d-none gap-2">
+// channelForm is shared implementation used by NewChannelForm and NewChannelError.
+// When message is empty it renders the blank new-form variant.
+// When message is non-empty it renders the error variant: red border, pre-filled inputs, error message.
+templ channelForm(chType string, address string, message string) {
+    if message != "" {
+        <!-- error variant -->
+        <form
+            class="rounded-4-5 overflow-hidden p-2 ps-1 pe-1 mt-2 new-channel-form"
+            style="background: #474747; border: 1px solid #FF6B6B;"
+            data-form-id="error"
+            data-error-form="true"
+            hx-post="/channel/add"
+            hx-target="#new-channel-slot"
+            hx-swap="innerHTML"
+        >
+            @channelFormBody(chType, address, "error")
+            <small class="text-danger px-2">{ message }.</small>
+        </form>
+    } else {
+        <!-- normal variant -->
+        <form
+            class="rounded-5 p-2 ps-1 pe-1 mt-2 new-channel-form"
+            style="background: #474747;"
+            data-form-id="new"
+            hx-post="/channel/add"
+            hx-target="#new-channel-slot"
+            hx-swap="innerHTML"
+        >
+            @channelFormBody(chType, address, "new")
+        </form>
+    }
+}
+
+// packageFormBody renders inputs and buttons shared by both packageForm variants.
+templ channelFormBody(chType string, address string, formID string) {
+    <div class="row g-2 mx-0 align-items-stretch">
+
+        <!-- Column 1: Type (+ Username - Mattermost only) -->
+        <div class="col-2 d-flex flex-column gap-2">
+            <select
+                class="form-select form-select-sm rounded-5 text-white"
+                style="background: #3A3A3A; border: 1px solid #5A5A5A; padding-right: .5rem;"
+                name="type"
+                required
+            >
+                <option value="email" selected?={ chType == "email" }>Email</option>
+                <option value="webhook_generic" selected?={ chType == "webhook_generic" }>Generic Webhook</option>
+                <option value="webhook_mattermost" selected?={ chType == "webhook_mattermost" }>Mattermost Webhook</option>
+            </select>
+            <input
+                id={ "mm-username-" + formID }
+                class={ "form-control form-control-sm rounded-5 text-white" + mmHiddenClass(chType) }
+                style="background: #3A3A3A; border: 1px solid #5A5A5A;"
+                type="text" name="username" placeholder="Username"
+            />
+        </div>
+
+        <!-- Column 2: Address (+ Channel/Priority/Req.Ack - Mattermost only) -->
+        <div class="col-5 d-flex flex-column gap-2">
+            <input
+                class="form-control form-control-sm rounded-5 text-white"
+                style="background: #3A3A3A; border: 1px solid #5A5A5A;"
+                type="text"
+                name="address"
+                value={ address }
+                placeholder="Enter email address or webhook URL..."
+                required
+            />
+            <div id={ "mm-fields-col2-" + formID } class={ "gap-2" + mmFlexClass(chType) }>
                 <input
                     class="form-control form-control-sm rounded-5 text-white"
                     style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.5;"
@@ -466,146 +500,40 @@ templ NewChannelForm() {
                     style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.25;"
                     name="request_ack"
                 >
-                        <option value="false">Request Ack: false</option>
-                        <option value="true">Request Ack: true</option>
-                    </select>
-                </div>
-            </div>
-            <!-- Column 3: empty (toggle enabled in normal item) -->
-            <div class="col-1"></div>
-
-            <!-- Column 4: empty (always empty also in normal item) -->
-            <div class="col-1"></div>
-            
-            <!-- Column 5: Notify on manual verify Toggle -->
-            <div class="col-1 d-flex align-items-center justify-content-center gap-2">
-                <div class="form-check form-switch mb-0 me-1">
-                    <input class="form-check-input" type="checkbox" name="notify_on_manual_verify" id="new-manual"/>
-                </div>
-            </div>
-
-            <!-- Column 6: Submit and Cancel Buttons -->
-            <div class="col-2 d-flex align-items-center justify-content-end gap-2">
-                <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-4">
-                    <i class="bi bi-check-lg"></i>
-                </button>
-                <button
-                    type="button"
-                    class="btn-outline-basic btn btn-sm rounded-5 px-3"
-                    hx-get="/channel/add/cancel"
-                    hx-target="#new-channel-slot"
-                    hx-swap="innerHTML"
-                >
-                    <i class="bi bi-x-lg"></i>
-                </button>
-            </div>
-
-        </div>
-    </form>
-}
-
-// NewChannelError re-renders form pre-filled with the submitted values and shows an error message below it.
-// Used when server rejects the submission.
-templ NewChannelError(chType string, address string, message string) {
-    <form
-        class="rounded-4-5 p-2 ps-1 pe-1 mt-2 overflow-hidden new-channel-form"
-        style="background: #474747;  border: 1px solid #FF6B6B;"
-        data-form-id="error"
-        data-error-form="true"
-        hx-post="/channel/add"
-        hx-target="#new-channel-slot"
-        hx-swap="innerHTML"
-    >
-        <div class="row g-2 mx-0 align-items-stretch">
-
-            <!-- Column 1: Type (+ Username - Mattermost only) -->
-            <div class="col-2 d-flex flex-column gap-2">
-                <select
-                    class="form-select form-select-sm rounded-5 text-white"
-                    style="background: #3A3A3A; border: 1px solid #5A5A5A; padding-right: .5rem;"
-                    name="type"
-                    required
-                >
-                    <option value="email" selected?={chType == "email"}>Email</option>
-                    <option value="webhook_generic" selected?={chType == "webhook_generic"}>Generic Webhook</option>
-                    <option value="webhook_mattermost" selected?={chType == "webhook_mattermost"}>Mattermost Webhook</option>
+                    <option value="false">Request Ack: false</option>
+                    <option value="true">Request Ack: true</option>
                 </select>
-                <input
-                    id="mm-username-error"
-                    class={"form-control form-control-sm rounded-5 text-white" + mmHiddenClass(chType)}
-                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
-                    type="text" name="username" placeholder="Username"
-                />
             </div>
-
-            <!-- Column 2: Address (+ Channel/Priority/Req.Ack - Mattermost only) -->
-            <div class="col-5 d-flex flex-column gap-2">
-                <input
-                    class="form-control form-control-sm rounded-5 text-white"
-                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
-                    type="text"
-                    name="address"
-                    value={address}
-                    placeholder="Enter email address or webhook URL..."
-                    required
-                />
-                <div id="mm-fields-col2-error" class={"gap-2" + mmFlexClass(chType)}>
-                    <input
-                        class="form-control form-control-sm rounded-5 text-white"
-                        style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.5;"
-                        type="text" name="channel" placeholder="Channel"
-                    />
-                    <select
-                        class="form-select form-select-sm rounded-5 text-white pe-2"
-                        style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.25;"
-                        name="priority"
-                    >
-                        <option value="">Priority: None</option>
-                        <option value="important">Priority: Important</option>
-                        <option value="urgent">Priority: Urgent</option>
-                    </select>
-                    <select
-                        class="form-select form-select-sm rounded-5 text-white pe-2"
-                        style="background: #3A3A3A; border: 1px solid #5A5A5A; flex: 1.25;"
-                        name="request_ack"
-                    >
-                        <option value="false">Req. Ack: false</option>
-                        <option value="true">Req. Ack: true</option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- Column 3: empty (toggle enabled in normal item) -->
-            <div class="col-1"></div>
-
-            <!-- Column 4: empty (always empty also in normal item) -->
-            <div class="col-1"></div>
-
-            <!-- Column 5: Notify on manual verify Toggle-->
-            <div class="col-1 d-flex align-items-center justify-content-center gap-2">
-                <div class="form-check form-switch mb-0 me-1">
-                    <input class="form-check-input" type="checkbox" name="notify_on_manual_verify" id="new-manual-error"/>
-                </div>
-            </div>
-
-            <!-- Column 6: Submit and Cancel Buttons -->
-            <div class="col-2 d-flex align-items-center justify-content-end gap-2">
-                <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-4">
-                    <i class="bi bi-check-lg"></i>
-                </button>
-                <button
-                    type="button"
-                    class="btn-outline-basic btn btn-sm rounded-5 px-3"
-                    hx-get="/channel/add/cancel"
-                    hx-target="#new-channel-slot"
-                    hx-swap="innerHTML"
-                >
-                    <i class="bi bi-x-lg"></i>
-                </button>
-            </div>
-
         </div>
-        <!-- Error message -->
-        <small class="text-danger px-2">{message}.</small>
-    </form>
+
+        <!-- Column 3: empty (toggle enabled in normal item) -->
+        <div class="col-1"></div>
+
+        <!-- Column 4: empty (always empty also in normal item) -->
+        <div class="col-1"></div>
+
+        <!-- Column 5: Notify on manual verify Toggle -->
+        <div class="col-1 d-flex align-items-center justify-content-center gap-2">
+            <div class="form-check form-switch mb-0 me-1">
+                <input class="form-check-input" type="checkbox" name="notify_on_manual_verify" id={ "new-manual-" + formID }/>
+            </div>
+        </div>
+
+        <!-- Column 6: Submit and Cancel Buttons -->
+        <div class="col-2 d-flex align-items-center justify-content-end gap-2">
+            <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-4">
+                <i class="bi bi-check-lg"></i>
+            </button>
+            <button
+                type="button"
+                class="btn-outline-basic btn btn-sm rounded-5 px-3"
+                hx-get="/channel/add/cancel"
+                hx-target="#new-channel-slot"
+                hx-swap="innerHTML"
+            >
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+    </div>
 }

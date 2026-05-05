@@ -17,9 +17,6 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 )
 
-// user is not authenticated error
-var ErrNotAuthenticated = errors.New("not authenticated")
-
 // regex for username
 var usernameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
@@ -31,8 +28,8 @@ type AccountsSummary struct {
 
 // Resolves (issuer, subject) -> internal user ID
 // If no user account is found, it creates a new user + account mapping
-func GetUser(ctx context.Context, db *database.Store, provider *auth.Provider, claims auth.UserClaims) (int64, error) {
-	const op = "users.GetUser"
+func ResolveOrCreateUser(ctx context.Context, db *database.Store, provider *auth.Provider, claims auth.UserClaims) (int64, error) {
+	const op = "users.ResolveOrCreateUser"
 
 	// try to find existing account by (issuer, subject)
 	var userID int64
@@ -90,21 +87,31 @@ func createNewUser(ctx context.Context, db *database.Store, provider *auth.Provi
 	return userID, nil
 }
 
+// validateUsername trims whitespace from username and validates it.
+// Returns trimmed username or appError with Invalid cause.
+func validateUsername(op string, username string) (string, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return "", appError.NewAppError(op, appError.Invalid, "username cannot be empty", errors.New("empty username"))
+	}
+	if len(username) > 50 {
+		return "", appError.NewAppError(op, appError.Invalid, "username must be 50 characters or less", errors.New("username longer than 50 characters"))
+	}
+	if !usernameRe.MatchString(username) {
+		return "", appError.NewAppError(op, appError.Invalid, "username may only contain letters, digits, underscores and hyphens", errors.New("username contains invalid characters"))
+	}
+	return username, nil
+}
+
 // UpdateUsername validates and applies a username change for a user.
 // Returns error if username is empty, exceeds 50 characters, username is already taken or on DB failure.
 func UpdateUsername(ctx context.Context, db *database.Store, userID int64, username string) error {
 	const op = "users.UpdateUsername"
 
 	// trim and validate username
-	username = strings.TrimSpace(username)
-	if username == "" {
-		return appError.NewAppError(op, appError.Invalid, "username cannot be empty", errors.New("empty username"))
-	}
-	if len(username) > 50 {
-		return appError.NewAppError(op, appError.Invalid, "username is too long", errors.New("username longer than 50 characters"))
-	}
-	if !usernameRe.MatchString(username) {
-		return appError.NewAppError(op, appError.Invalid, "username may only contain letters, digits, underscores and hyphens", errors.New("username contains invalid characters"))
+	username, err := validateUsername(op, username)
+	if err != nil {
+		return err
 	}
 
 	// store username change in db
@@ -121,6 +128,7 @@ func UpdateUsername(ctx context.Context, db *database.Store, userID int64, usern
 // UpdateUsernameAndRole validates and applies username and role changes to a user.
 // Returns error if validation or DB update fails.
 // Returns error if username is empty, exceeds 50 characters, username is already taken, wrong role or on DB failure.
+// Returned User reflects the state BEFORE the change.
 func UpdateUsernameAndRole(ctx context.Context, db *database.Store, userID int64, username string, role string) (database.User, error) {
 	const op = "users.UpdateUsernameAndRole"
 
@@ -134,15 +142,9 @@ func UpdateUsernameAndRole(ctx context.Context, db *database.Store, userID int64
 	}
 
 	// trim and validate username
-	username = strings.TrimSpace(username)
-	if username == "" {
-		return u, appError.NewAppError(op, appError.Invalid, "username cannot be empty", errors.New("empty username"))
-	}
-	if len(username) > 50 {
-		return u, appError.NewAppError(op, appError.Invalid, "username must be 50 characters or fewer", errors.New("username longer than 50 characters"))
-	}
-	if !usernameRe.MatchString(username) {
-		return u, appError.NewAppError(op, appError.Invalid, "username may only contain letters, digits, underscores and hyphens", errors.New("username contains invalid characters"))
+	username, err = validateUsername(op, username)
+	if err != nil {
+		return u, err
 	}
 
 	// validate role
@@ -178,7 +180,13 @@ func LinkNewAccount(ctx context.Context, db *database.Store, provider *auth.Prov
 	}
 
 	// insert new account pointing at the existing logged-in user
-	err := db.CreateLinkedAccount(ctx, linkingUserID, emailPtr, claims.EmailVerified, provider.Name, provider.Issuer, claims.Subject)
+	err := db.CreateLinkedAccount(ctx, linkingUserID, database.UserInfo{
+		Email:         emailPtr,
+		EmailVerified: claims.EmailVerified,
+		Provider:      provider.Name,
+		Issuer:        provider.Issuer,
+		Subject:       claims.Subject,
+	})
 	if err != nil {
 		if errors.Is(err, database.ErrConflict) {
 			return appError.NewAppError(op, appError.Conflict,

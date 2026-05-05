@@ -1,0 +1,205 @@
+/* Tooltip */
+.tooltip {
+    --bs-tooltip-bg: #181818;
+}
+
+.tooltip-inner {
+    border: 1px solid #5A5A5A;
+}
+
+/* Toggle switches */
+.form-check-input[type="checkbox"] {
+    width: 3.5em;
+    height: 1.6em;
+    cursor: pointer;
+}
+
+.form-check-input:checked {
+    background-color: #009DE0;
+    border-color: #009DE0;
+}
+
+/* Shadow on expanded row (mattermost channel and error log) */
+.js-expand-main-row.expanded {
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* Custom border radius between Bootstrap rounded-4 and rounded-5 */
+.rounded-4-5 {
+    border-radius: 1.25rem !important;
+}
+
+/* Remove number input spinners */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+/* Remove box-shadow on all form controls */
+.form-control,
+.form-select,
+input[type="number"] {
+    box-shadow: none !important;
+}
+
+/* Blue border on focus everywhere */
+.form-control:focus,
+.form-select:focus,
+input[type="number"]:focus {
+    outline: none;
+    border-color: #009DE0 !important;
+}
+
+.new-channel-form .form-control:focus,
+.new-channel-form .form-select:focus,
+.new-package-form .form-control:focus {
+    border-color: #009DE0 !important;
+}
+
+/* Outlined brand (blue style) button with fill-on-hover */
+.btn-outline-brand {
+    background: transparent;
+    color: #009DE0;
+    border: 1px solid #009DE0;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.btn-outline-brand:hover {
+    background: #009DE0;
+    color: white;
+    border: 1px solid #6ed4ff;
+}
+
+/* Outlined brand (blue style filled) button with fill-on-hover */
+.btn-outline-brand-fill {
+    background: #006b98;
+    color: white;
+    border: 1px solid #009DE0;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.btn-outline-brand-fill:hover {
+    background: #009DE0;
+    color: white;
+    border: 1px solid #6cd3ff;
+}
+
+/* Outlined danger (red style) button with fill-on-hover */
+.btn-outline-danger-custom {
+    background: transparent;
+    color: #FF6B6B;
+    border: 1px solid #FF6B6B;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.btn-outline-danger-custom:hover {
+    background: #893838;
+    color: white;
+    border: 1px solid #ff8888;
+}
+
+/* Outlined success (green style) button with fill-on-hover */
+.btn-outline-success-custom {
+    background: transparent;
+    color: #68FF90;
+    border: 1px solid #68FF90;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.btn-outline-success-custom:hover {
+    background: #51ca71;
+    color: white;
+    border: 1px solid #acffc2;
+}
+
+/* Outlined basic (grey style) button with fill-on-hover */
+.btn-outline-basic {
+    background: transparent;
+    color: #AAAAAA;
+    border: 1px solid #AAAAAA;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.btn-outline-basic:hover {
+    background: #8d8d8d;
+    color: white;
+    border: 1px solid #c6c6c6;
+}
+
+/* Outlined basic (grey style filled) button with fill-on-hover */
+.btn-outline-basic-fill {
+    background: #474747;
+    color: #AAAAAA;
+    border: 1px solid #7A7A7A;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.btn-outline-basic-fill:hover {
+    background: #8d8d8d;
+    color: white;
+    border: 1px solid #c6c6c6;
+}
+
+/* Outlined watch (purple style) button with fill-on-hover */
+.btn-outline-watch {
+    background: transparent;
+    color: #7DAAFF;
+    border: 1px solid #7DAAFF;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.btn-outline-watch:hover {
+    background: #5a78ff;
+    color: white;
+    border: 1px solid #acc9ff;
+}
+
+/* Outlined profile button with fill-on-hover */
+.btn-outline-profile {
+    background: transparent;
+    color: white;
+    border: 1px solid white;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.btn-outline-profile:hover {
+    background: #575757;
+    border: 1px solid white;
+    color: white;
+}
+
+/* Sign in button with fill-on-hover */
+.btn-outline-signin {
+    background: #474747;
+    color: white;
+    border: 1px solid #474747;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.btn-outline-signin:hover {
+    background: #919191;
+    border: 1px solid #dfdfdf;
+    color: white;
+}
+
+/* Icon swap on hover (for profile menu username edit buttons)*/
+.icon-fill-on-hover .icon-filled {
+    display: none;
+}
+
+.icon-fill-on-hover .icon-outline {
+    display: inline;
+}
+
+.icon-fill-on-hover:hover .icon-filled {
+    display: inline;
+}
+
+.icon-fill-on-hover:hover .icon-outline {
+    display: none;
+}

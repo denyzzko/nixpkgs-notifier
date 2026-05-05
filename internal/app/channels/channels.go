@@ -14,9 +14,6 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/notify"
 )
 
-// user is not authenticated error
-var ErrNotAuthenticated = errors.New("not authenticated")
-
 // ChannelResult holds the resolved data for a notification channel.
 type ChannelResult struct {
 	ID                   int64
@@ -25,7 +22,6 @@ type ChannelResult struct {
 	Address              string
 	IsEnabled            bool
 	DisabledByServer     bool
-	MaxRetries           int
 	NotifyOnManualVerify bool
 	WebhookUsername      string // mattermost only
 	WebhookChannel       string // mattermost only
@@ -45,6 +41,22 @@ type ChannelTestPayload struct {
 	Channel ChannelResult
 	Email   *database.Email
 	Webhook *database.Webhook
+}
+
+// ChannelParams groups user-supplied fields for creating a new notification channel.
+type ChannelParams struct {
+	Type                 string // "email" or "webhook"
+	Address              string
+	WebhookType          string // "generic" or "mattermost"; empty for email
+	NotifyOnManualVerify bool
+	Mattermost           database.MattermostParams
+}
+
+// ChannelLimits holds per-user channel count limits enforced by configuration.
+// Zero means unlimited.
+type ChannelLimits struct {
+	MaxWebhooks int
+	MaxEmails   int
 }
 
 // GetChannels returns all channels for a user with resolved type, address and per-type counts.
@@ -118,7 +130,7 @@ func channelResultFromRow(row database.UserChannel) ChannelResult {
 
 // AddChannel creates a new notification channel of the given type ("email" or "webhook") for current user.
 // Returns the newly created channel ready to render.
-func AddChannel(ctx context.Context, db *database.Store, userID int64, chType string, address string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool, maxWebhooks int, maxEmails int) (ChannelResult, error) {
+func AddChannel(ctx context.Context, db *database.Store, userID int64, params ChannelParams, limits ChannelLimits) (ChannelResult, error) {
 	const op = "channels.Add"
 
 	// guard: if user already has a channel with this address, return error
@@ -127,49 +139,49 @@ func AddChannel(ctx context.Context, db *database.Store, userID int64, chType st
 		return ChannelResult{}, appError.NewAppError(op, appError.Internal, "failed to query channels", err)
 	}
 	for _, ch := range existingChannels {
-		if (ch.Email != nil && ch.Email.Address == address) ||
-			(ch.Webhook != nil && ch.Webhook.URL == address) {
+		if (ch.Email != nil && ch.Email.Address == params.Address) ||
+			(ch.Webhook != nil && ch.Webhook.URL == params.Address) {
 			return ChannelResult{}, appError.NewAppError(op, appError.Conflict, "You already have a channel with this address", nil)
 		}
 	}
 
 	// guard: enforce per-user webhook limit when adding a webhook channel
-	if chType == "webhook" && maxWebhooks > 0 {
+	if params.Type == "webhook" && limits.MaxWebhooks > 0 {
 		webhookCount := 0
 		for _, ch := range existingChannels {
 			if ch.Webhook != nil {
 				webhookCount++
 			}
 		}
-		if webhookCount >= maxWebhooks {
+		if webhookCount >= limits.MaxWebhooks {
 			return ChannelResult{}, appError.NewAppError(op, appError.Conflict,
-				fmt.Sprintf("Webhook limit of %d reached. Remove an existing webhook to add a new one", maxWebhooks), nil)
+				fmt.Sprintf("Webhook limit of %d reached. Remove an existing webhook to add a new one", limits.MaxWebhooks), nil)
 		}
 	}
 
 	// guard: enforce per-user email limit when adding an email channel
-	if chType == "email" && maxEmails > 0 {
+	if params.Type == "email" && limits.MaxEmails > 0 {
 		emailCount := 0
 		for _, ch := range existingChannels {
 			if ch.Email != nil {
 				emailCount++
 			}
 		}
-		if emailCount >= maxEmails {
+		if emailCount >= limits.MaxEmails {
 			return ChannelResult{}, appError.NewAppError(op, appError.Conflict,
-				fmt.Sprintf("Email limit of %d reached. Remove an existing email to add a new one", maxEmails), nil)
+				fmt.Sprintf("Email limit of %d reached. Remove an existing email to add a new one", limits.MaxEmails), nil)
 		}
 	}
 
 	// delegate to appropriate creator based on channel type
 	var id int64
-	switch chType {
+	switch params.Type {
 	case "email":
-		id, err = addEmailChannel(ctx, db, userID, address, notifyOnManualVerify)
+		id, err = addEmailChannel(ctx, db, userID, params.Address, params.NotifyOnManualVerify)
 	case "webhook":
-		id, err = addWebhookChannel(ctx, db, userID, address, webhookType, notifyOnManualVerify, username, channel, priority, requestAck)
+		id, err = addWebhookChannel(ctx, db, userID, params.Address, params.WebhookType, params.NotifyOnManualVerify, params.Mattermost)
 	default:
-		return ChannelResult{}, appError.NewAppError(op, appError.Invalid, "invalid channel type", fmt.Errorf("unknown channel type %q", chType))
+		return ChannelResult{}, appError.NewAppError(op, appError.Invalid, "invalid channel type", fmt.Errorf("unknown channel type %q", params.Type))
 	}
 	if err != nil {
 		return ChannelResult{}, err
@@ -177,21 +189,21 @@ func AddChannel(ctx context.Context, db *database.Store, userID int64, chType st
 
 	// resolve the display type name
 	typeName := "Email"
-	if chType == "webhook" {
+	if params.Type == "webhook" {
 		typeName = "Webhook"
 	}
 
 	return ChannelResult{
 		ID:                   id,
 		Type:                 typeName,
-		WebhookType:          webhookType,
-		Address:              address,
+		WebhookType:          params.WebhookType,
+		Address:              params.Address,
 		IsEnabled:            true,
-		NotifyOnManualVerify: notifyOnManualVerify,
-		WebhookUsername:      username,
-		WebhookChannel:       channel,
-		WebhookPriority:      priority,
-		WebhookRequestAck:    requestAck,
+		NotifyOnManualVerify: params.NotifyOnManualVerify,
+		WebhookUsername:      params.Mattermost.Username,
+		WebhookChannel:       params.Mattermost.Channel,
+		WebhookPriority:      params.Mattermost.Priority,
+		WebhookRequestAck:    params.Mattermost.RequestAck,
 	}, nil
 }
 
@@ -208,7 +220,7 @@ func addEmailChannel(ctx context.Context, db *database.Store, userID int64, emai
 }
 
 // addWebhookChannel creates a new webhook channel for a user.
-func addWebhookChannel(ctx context.Context, db *database.Store, userID int64, webhookURL string, webhookType string, notifyOnManualVerify bool, username string, channel string, priority string, requestAck bool) (int64, error) {
+func addWebhookChannel(ctx context.Context, db *database.Store, userID int64, webhookURL string, webhookType string, notifyOnManualVerify bool, mParams database.MattermostParams) (int64, error) {
 	const op = "channels.AddWebhookChannel"
 
 	// validate URL safety - rejects private/reserved IP addresses and non-http schemes (ftp:, mailto:, ...)
@@ -217,7 +229,7 @@ func addWebhookChannel(ctx context.Context, db *database.Store, userID int64, we
 	}
 
 	// create webhook channel
-	id, err := db.CreateWebhookChannel(ctx, userID, webhookURL, webhookType, notifyOnManualVerify, username, channel, priority, requestAck)
+	id, err := db.CreateWebhookChannel(ctx, userID, webhookURL, webhookType, notifyOnManualVerify, mParams)
 	if err != nil {
 		return 0, appError.NewAppError(op, appError.Internal, "failed to create webhook channel", err)
 	}
@@ -288,7 +300,7 @@ func GetChannelTestPayload(ctx context.Context, db *database.Store, userID int64
 	// fetch channel
 	ch, err := GetChannelByID(ctx, db, userID, channelID)
 	if err != nil {
-		return ChannelTestPayload{}, appError.NewAppError(op, appError.NotFound, "channel not found", err)
+		return ChannelTestPayload{}, err
 	}
 
 	// resolve types

@@ -45,7 +45,7 @@ func fakeNix(version string, err error) func(ctx context.Context, name string, b
 // notificationsForUser returns all notification records for given user.
 func notificationsForUser(t *testing.T, userID int64) []database.UserNotification {
 	t.Helper()
-	rows, err := testStore.QueryNotificationsByUserID(context.Background(), userID)
+	rows, err := testStore.QueryNotificationsByUserIDPaged(context.Background(), userID, 100, 0)
 	if err != nil {
 		t.Fatalf("notificationsForUser: %v", err)
 	}

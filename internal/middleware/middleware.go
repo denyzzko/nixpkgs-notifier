@@ -19,12 +19,15 @@ var ipLimiters sync.Map
 // userLimiters stores one rate.Limiter per authenticated user ID.
 var userLimiters sync.Map
 
-// Middleware is function that wraps http.Handler to add behaviour before or after it.
-type Middleware func(http.Handler) http.Handler
+// MiddlewareHandler wraps http.Handler - used in Chain and middleware composition.
+type MiddlewareHandler func(http.Handler) http.Handler
+
+// MiddlewareHandlerFunc wraps http.HandlerFunc - used for rate limiters applied to individual routes.
+type MiddlewareHandlerFunc func(http.HandlerFunc) http.HandlerFunc
 
 // Chain composes multiple middlewares into one, applying them in the order they are given.
 // The first middleware in the list is the outermost wrapper (runs first on way in).
-func Chain(middlewares ...Middleware) Middleware {
+func Chain(middlewares ...MiddlewareHandler) MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
 		for i := len(middlewares) - 1; i >= 0; i-- {
 			next = middlewares[i](next)

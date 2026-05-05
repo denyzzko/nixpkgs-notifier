@@ -147,7 +147,7 @@ func setupWebhookNotification(t *testing.T, oldVersion, newVersion string) (user
 	}
 
 	url := fmt.Sprintf("https://hooks.example.com/webhook-%d", testutil.NextID())
-	chID, err := testStore.CreateWebhookChannel(ctx, userID, url, "generic", false, "", "", "", false)
+	chID, err := testStore.CreateWebhookChannel(ctx, userID, url, "generic", false, database.MattermostParams{})
 	if err != nil {
 		t.Fatalf("setupWebhookNotification: CreateWebhookChannel: %v", err)
 	}
@@ -173,7 +173,7 @@ func setupWebhookNotification(t *testing.T, oldVersion, newVersion string) (user
 // notificationsForUser returns all notification records for given user.
 func notificationsForUser(t *testing.T, userID int64) []database.UserNotification {
 	t.Helper()
-	rows, err := testStore.QueryNotificationsByUserID(context.Background(), userID)
+	rows, err := testStore.QueryNotificationsByUserIDPaged(context.Background(), userID, 100, 0)
 	if err != nil {
 		t.Fatalf("notificationsForUser: %v", err)
 	}

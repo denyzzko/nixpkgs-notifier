@@ -1,12 +1,3 @@
-// Package notify provides sender implementations used by the dispatcher to deliver notifications.
-//
-// Sender interface abstracts the delivery transport so the dispatcher does not need
-// to know, which channel type it is sending to.
-//
-// Three implementations are provided:
-//   - ResendSender:  delivers email via the Resend HTTP API
-//   - SMTPSender:    delivers email via raw SMTP
-//   - WebhookSender: delivers notifications via HTTP POST to a webhook URL
 package notify
 
 import (
@@ -115,6 +106,9 @@ func (s *ResendSender) Send(ctx context.Context, event VersionChangeEvent) error
 		Subject: subject,
 		Text:    body,
 	})
+	if err != nil {
+		return fmt.Errorf("notify.ResendSender: marshal request: %w", err)
+	}
 
 	// POST the payload to the Resend API
 	return s.post(ctx, data)

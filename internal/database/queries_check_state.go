@@ -1,33 +1,19 @@
-// Package database provides the data access layer for application.
-//
-// It is organised in these files:
-//   - database.go:              opens connection pool and runs migrations
-//   - embeds.go:                embeds all SQL files into the binary at compile time
-//   - models.go:                defines data types returned by queries
-//   - queries_channels.go:      notification channel operations
-//   - queries_check_state.go:   check state operations (pending/done/failed/not_found rows written by check goroutines and read by polling endpoints)
-//   - queries_config.go:        system configuration operations
-//   - queries_helpers.go:       shared helpers and sentinel errors used across query files
-//   - queries_notifications.go: notification creation and delivery operations
-//   - queries_packages.go:      package  operations
-//   - queries_trackings.go:      tracking operations
-//   - queries_users.go:         user and account operations
-//   - queries_watchlist.go:     watchlist operations
 package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 )
 
-// InsertCheckState inserts (or resets) pending check state row for (user, package).
+// UpsertCheckState  inserts (or resets) pending check state row for (user, package).
 // old_version is nil for watched packages (no version yet), non-nil for tracked packages.
-func (db *Store) InsertCheckState(ctx context.Context, userID int64, packageID int64, oldVersion *string) error {
+func (db *Store) UpsertCheckState(ctx context.Context, userID int64, packageID int64, oldVersion *string) error {
 	_, err := db.pool.Exec(ctx, sInsertCheckState, userID, packageID, oldVersion)
 	if err != nil {
-		return fmt.Errorf("database.InsertCheckState: exec error (userID=%d, packageID=%d): %w", userID, packageID, err)
+		return fmt.Errorf("database.UpsertCheckState : exec error (userID=%d, packageID=%d): %w", userID, packageID, err)
 	}
 	return nil
 }
@@ -41,7 +27,7 @@ func (db *Store) QueryCheckStateByPackage(ctx context.Context, userID int64, pac
 		&cs.ErrorMsg, &cs.StartedAt, &cs.ExpiresAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("database.QueryCheckStateByPackage: scan error (userID=%d, packageID=%d): %w", userID, packageID, err)
@@ -80,7 +66,7 @@ func (db *Store) QueryCheckStatesByUserID(ctx context.Context, userID int64) ([]
 // UpdateCheckStateDone marks check state row as done.
 // newVersion nil = no version change.
 func (db *Store) UpdateCheckStateDone(ctx context.Context, userID int64, packageID int64, newVersion *string) error {
-	_, err := db.pool.Exec(ctx, qUpdateCheckStateDone, userID, packageID, newVersion)
+	_, err := db.pool.Exec(ctx, sUpdateCheckStateDone, userID, packageID, newVersion)
 	if err != nil {
 		return fmt.Errorf("database.UpdateCheckStateDone: exec error (userID=%d, packageID=%d): %w", userID, packageID, err)
 	}
@@ -89,7 +75,7 @@ func (db *Store) UpdateCheckStateDone(ctx context.Context, userID int64, package
 
 // UpdateCheckStateFailed marks check state row as failed.
 func (db *Store) UpdateCheckStateFailed(ctx context.Context, userID int64, packageID int64, errMsg string) error {
-	_, err := db.pool.Exec(ctx, qUpdateCheckStateFailed, userID, packageID, errMsg)
+	_, err := db.pool.Exec(ctx, sUpdateCheckStateFailed, userID, packageID, errMsg)
 	if err != nil {
 		return fmt.Errorf("database.UpdateCheckStateFailed: exec error (userID=%d, packageID=%d): %w", userID, packageID, err)
 	}
@@ -99,7 +85,7 @@ func (db *Store) UpdateCheckStateFailed(ctx context.Context, userID int64, packa
 // UpdateCheckStateNotFound marks check state row as not_found (package still not in nixpkgs).
 // Only used for watched packages.
 func (db *Store) UpdateCheckStateNotFound(ctx context.Context, userID int64, packageID int64) error {
-	_, err := db.pool.Exec(ctx, qUpdateCheckStateNotFound, userID, packageID)
+	_, err := db.pool.Exec(ctx, sUpdateCheckStateNotFound, userID, packageID)
 	if err != nil {
 		return fmt.Errorf("database.UpdateCheckStateNotFound: exec error (userID=%d, packageID=%d): %w", userID, packageID, err)
 	}

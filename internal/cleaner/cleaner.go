@@ -59,16 +59,8 @@ func (c *Cleaner) UpdateConfig(cfg Config) {
 	}
 }
 
-// GetConfig returns current config.
-// Used to expose config state to the admin UI via config.GetRuntimeConfig.
-func (c *Cleaner) GetConfig() Config {
-	c.cfgMu.RLock()
-	defer c.cfgMu.RUnlock()
-	return c.cfg
-}
-
-// config is internal helper that returns current config.
-func (c *Cleaner) config() Config {
+// Config returns current cleaner configuration.
+func (c *Cleaner) Config() Config {
 	c.cfgMu.RLock()
 	defer c.cfgMu.RUnlock()
 	return c.cfg
@@ -84,7 +76,7 @@ func (c *Cleaner) Start(ctx context.Context) {
 // loop is the core background goroutine.
 func (c *Cleaner) loop(ctx context.Context) {
 	for {
-		cfg := c.config()
+		cfg := c.Config()
 
 		// if disabled, park goroutine until a config changes or server shutdowns.
 		if cfg.RetentionDays == 0 {

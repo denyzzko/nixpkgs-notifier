@@ -1,18 +1,3 @@
-// Package database provides the data access layer for application.
-//
-// It is organised in these files:
-//   - database.go:              opens connection pool and runs migrations
-//   - embeds.go:                embeds all SQL files into the binary at compile time
-//   - models.go:                defines data types returned by queries
-//   - queries_channels.go:      notification channel operations
-//   - queries_check_state.go:   check state operations (pending/done/failed/not_found rows written by check goroutines and read by polling endpoints)
-//   - queries_config.go:        system configuration operations
-//   - queries_helpers.go:       shared helpers and sentinel errors used across query files
-//   - queries_notifications.go: notification creation and delivery operations
-//   - queries_packages.go:      package  operations
-//   - queries_trackings.go:      tracking operations
-//   - queries_users.go:         user and account operations
-//   - queries_watchlist.go:     watchlist operations
 package database
 
 import (
@@ -34,9 +19,6 @@ var qGetAllPackages string
 
 //go:embed sql/get_package_by_NAME_BRANCH.sql
 var qGetPackageByNameAndBranch string
-
-//go:embed sql/get_package_by_ID.sql
-var qGetPackage string
 
 //go:embed sql/get_tracking_by_userID_packageID.sql
 var qGetTracking string
@@ -64,9 +46,6 @@ var qGetChannelByID string
 
 //go:embed sql/get_all_pending_failed_notifications.sql
 var qGetAllPendingFailedNotifications string
-
-//go:embed sql/get_notifications_by_userID.sql
-var qGetNotificationsByUserID string
 
 //go:embed sql/get_system_config.sql
 var qGetSystemConfig string
@@ -210,16 +189,16 @@ var sUpdateAccountUserByIssuerSubject string
 var sUpdateChannelsUserByUserID string
 
 //go:embed sql/update_check_state_done.sql
-var qUpdateCheckStateDone string
+var sUpdateCheckStateDone string
 
 //go:embed sql/update_check_state_failed.sql
-var qUpdateCheckStateFailed string
+var sUpdateCheckStateFailed string
 
 //go:embed sql/update_check_state_not_found.sql
-var qUpdateCheckStateNotFound string
+var sUpdateCheckStateNotFound string
 
 //go:embed sql/count_accounts_by_userID.sql
-var qCountAccountsByUserID string
+var sCountAccountsByUserID string
 
 //go:embed sql/count_all_packages_by_userID.sql
 var qCountAllPackages string

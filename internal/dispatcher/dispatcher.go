@@ -76,22 +76,11 @@ func (d *Dispatcher) UpdateConfig(cfg Config) {
 	d.cfg = cfg
 }
 
-// Config helper that returns current config
-func (d *Dispatcher) config() Config {
+// Config returns current dispatcher configuration.
+func (d *Dispatcher) Config() Config {
 	d.cfgMu.RLock()
 	defer d.cfgMu.RUnlock()
 	return d.cfg
-}
-
-// GetConfig returns the current dispatcher configuration.
-// Used to get access to dispatcher config from other packages (config Manager).
-func (d *Dispatcher) GetConfig() Config {
-	return d.config()
-}
-
-// Config helper that returns the currently configured maximum delivery attempts
-func (d *Dispatcher) MaxRetries() int {
-	return d.config().MaxRetries
 }
 
 // Launches the dispatch loop in a background goroutine
@@ -104,7 +93,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 // Core background goroutine
 // Uses time.Ticker to wake up at configured Interval and call dispatch
 func (d *Dispatcher) loop(ctx context.Context) {
-	cfg := d.config()
+	cfg := d.Config()
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 
@@ -116,7 +105,7 @@ func (d *Dispatcher) loop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// re-read config and call dispatch
-			cfg = d.config()
+			cfg = d.Config()
 			ticker.Reset(cfg.Interval)
 			d.dispatch(ctx, cfg)
 		}

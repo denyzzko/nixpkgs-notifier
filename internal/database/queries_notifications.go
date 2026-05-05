@@ -1,18 +1,3 @@
-// Package database provides the data access layer for application.
-//
-// It is organised in these files:
-//   - database.go:              opens connection pool and runs migrations
-//   - embeds.go:                embeds all SQL files into the binary at compile time
-//   - models.go:                defines data types returned by queries
-//   - queries_channels.go:      notification channel operations
-//   - queries_check_state.go:   check state operations (pending/done/failed/not_found rows written by check goroutines and read by polling endpoints)
-//   - queries_config.go:        system configuration operations
-//   - queries_helpers.go:       shared helpers and sentinel errors used across query files
-//   - queries_notifications.go: notification creation and delivery operations
-//   - queries_packages.go:      package  operations
-//   - queries_trackings.go:      tracking operations
-//   - queries_users.go:         user and account operations
-//   - queries_watchlist.go:     watchlist operations
 package database
 
 import (
@@ -115,10 +100,6 @@ func (db *Store) QueryPendingFailedNotifications(ctx context.Context, maxRetries
 	return notifications, nil
 }
 
-// 1. Marks the notification as "sent"
-// 2. updates the tracking's last notified version
-// In one transaction for atomicity
-
 // MarkNotificationSent marks the notification as "sent" and updates the tracking's
 // last_notified_version (atomically in one transaction).
 func (db *Store) MarkNotificationSent(ctx context.Context, notificationID int64, userID int64, packageID int64, newVersion string) error {
@@ -200,43 +181,6 @@ func (db *Store) CountNotificationsByUserID(ctx context.Context, userID int64) (
 		return 0, fmt.Errorf("database.CountNotificationsByUserID: query error (userID=%d): %w", userID, err)
 	}
 	return count, nil
-}
-
-// QueryNotificationsByUserID retrieves all notifications for a specific user.
-// Ordered by detected_at (descending).
-func (db *Store) QueryNotificationsByUserID(ctx context.Context, userID int64) ([]UserNotification, error) {
-	rows, err := db.pool.Query(ctx, qGetNotificationsByUserID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("database.QueryNotificationsByUserID: query error (userID=%d): %w", userID, err)
-	}
-	defer rows.Close()
-
-	var notifications []UserNotification
-	for rows.Next() {
-		var n UserNotification
-		var emailAddr, webhookURL, webhookType *string
-
-		err := rows.Scan(
-			&n.ID, &n.DetectedAt, &n.OldVersion, &n.NewVersion,
-			&n.Status, &n.AttemptCount, &n.ErrorMessage,
-			&n.PackageName, &n.PackageBranch,
-			&emailAddr, &webhookURL, &webhookType,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("database.QueryNotificationsByUserID: scan error: %w", err)
-		}
-
-		n.Email, n.Webhook = buildEmailWebhook(emailAddr, webhookURL, webhookType, nil, nil, nil, nil)
-
-		notifications = append(notifications, n)
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return nil, fmt.Errorf("database.QueryNotificationsByUserID: incomplete results: %w", err)
-	}
-
-	return notifications, nil
 }
 
 // RemoveExpiredNotifications deletes all notifications created before the given "cutoff" time.

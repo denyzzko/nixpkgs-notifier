@@ -18,6 +18,7 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/dispatcher"
 	"github.com/denyzzko/nixpkgs-notifier/internal/middleware"
 	"github.com/denyzzko/nixpkgs-notifier/internal/session"
+	"github.com/denyzzko/nixpkgs-notifier/internal/ui"
 	"golang.org/x/time/rate"
 )
 
@@ -29,6 +30,9 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config, db *database.Store, 
 
 	// user rate limiter for authenticated write endpoints that trigger expensive operations
 	userLimit := middleware.RateLimitUser(rate.Limit(20.0/60), 10, sessionManager) // 20 req/min, burst 10
+
+	// serve embedded static files (app.css, app.js)
+	mux.Handle("GET /static/", http.FileServerFS(ui.StaticFiles))
 
 	// home page (displays all tracked packages)
 	mux.HandleFunc("GET /", requireAuth(sessionManager, indexPage(sessionManager, db)))
@@ -109,6 +113,6 @@ func requireAdmin(sessionManager *session.SessionManager, next http.HandlerFunc)
 }
 
 // requireAuthLimited is like requireAuth but also applies per-user rate limit.
-func requireAuthLimited(sm *session.SessionManager, limit func(http.HandlerFunc) http.HandlerFunc, next http.HandlerFunc) http.HandlerFunc {
+func requireAuthLimited(sm *session.SessionManager, limit middleware.MiddlewareHandlerFunc, next http.HandlerFunc) http.HandlerFunc {
 	return requireAuth(sm, limit(next))
 }

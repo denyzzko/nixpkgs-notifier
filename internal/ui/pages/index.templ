@@ -191,7 +191,6 @@ templ IndexContent(vm IndexVM) {
 templ WatchlistItem(entry WatchlistEntryVM) {
     <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={ fmt.Sprintf("watchlist-%d", entry.ID) }
         hx-post={ fmt.Sprintf("/package/watch/check/%d", entry.ID) }
-        hx-trigger="checkAll from:#package-list"
         hx-target={ fmt.Sprintf("#watchlist-%d", entry.ID) }
         hx-swap="outerHTML"
     >
@@ -293,26 +292,6 @@ templ WatchlistItemError(entry WatchlistEntryVM) {
     </div>
 }
 
-// WatchlistItemPromoted replaces the watchlist row with success version and at the same time
-// inserts new tracking loading row into #tracked-list via HTMX OOB swap.
-templ WatchlistItemPromoted(watchlistIDStr string, pkg TrackedPackageVM) {
-    <div id={ fmt.Sprintf("watchlist-%s", watchlistIDStr) } class="d-flex flex-column rounded-4-5 ps-3 pe-2 py-2" style="background: #474747; border: 1px solid #51ca71;">
-        <div class="d-flex align-items-center">
-            <div style="flex: 2;"><strong class="text-white">{ pkg.Name }</strong></div>
-            <div style="flex: 1;"></div>
-            <div style="flex: 2;"><span class="small text-white">{ pkg.Branch }</span></div>
-            <div style="flex: 2;"><span class="small text-white">{ pkg.LastNotifiedVersion }</span></div>
-            <div style="flex: 2;"></div>
-        </div>
-        <div class="ps-1 pt-1">
-            <span class="small" style="color: #51ca71;">Package appeared in nixpkgs - now tracking</span>
-        </div>
-    </div>
-    <div hx-swap-oob="afterbegin:#package-list">
-        @TrackedPackageItem(pkg)
-    </div>
-}
-
 // WatchPackageResponse is returned by POST /package/watch.
 // Main body is empty so HTMX clears #new-package-slot (removing the NotFound row).
 // OOB swap prepends new watchlist row into the unified #package-list.
@@ -367,12 +346,9 @@ templ PackageList(items []PackageRowVM) {
 //  - not yet verified: neutral badge showing LastNotifiedVersion
 //  - version changed: warning(orange) badges showing LastNotifiedVersion -> CurrentVersion
 //  - up to date: green badge showing CurrentVersion
-//
-// The row also listens for "checkAll" event from #tracked-list so "Check All" triggers all rows at once.
 templ TrackedPackageItem(pckg TrackedPackageVM) {
     <div class="d-flex align-items-center rounded-5 ps-3 pe-2 py-2" style="background: #474747;" id={fmt.Sprintf("package-%d", pckg.ID)}
         hx-post={fmt.Sprintf("/package/check/%d", pckg.ID)}
-        hx-trigger="checkAll from:#package-list"
         hx-swap="outerHTML"
     >
         <!-- Package name -->
@@ -574,53 +550,86 @@ templ TrackedPackageItemCheckError(pckg TrackedPackageVM, errMsg string) {
     </div>
 }
 
-// NewPackageForm renders the inline form for adding a new tracked package.
-// Submits via HTMX POST to /package/track and replaces the #new-package-slot with the result.
+// NewPackageForm renders form for adding a new tracked package.
 templ NewPackageForm() {
-    <form
-        class="d-flex align-items-center rounded-5 ps-2 pe-2 py-2 gap-3 new-package-form"
-        style="background: #474747;"
-        hx-post="/package/track"
-        hx-target="#new-package-slot"
-        hx-swap="innerHTML"
-    >
+    @packageForm("", "", "")
+}
+
+// NewPackageError re-renders form pre-filled with name and branch and shows error message.
+// Used when the server rejects Track attempt.
+templ NewPackageError(name string, branch string, message string) {
+    @packageForm(name, branch, message)
+}
+
+// packageForm is shared implementation used by NewPackageForm and NewPackageError.
+// When message is empty it renders the blank new-form variant.
+// When message is non-empty it renders the error variant: red border, pre-filled inputs, error message.
+templ packageForm(name string, branch string, message string) {
+    if message != "" {
+        // error variant - red border, pre-filled inputs, error message below
+        <form
+            class="d-flex flex-column gap-2 rounded-4-5 px-2 py-2 new-package-form"
+            style="background: #474747; border: 1px solid #FF6B6B;"
+            hx-post="/package/track"
+            hx-target="#new-package-slot"
+            hx-swap="innerHTML"
+        >
+            @packageFormBody(name, branch)
+            <small class="text-danger px-2">{ message }.</small>
+        </form>
+    } else {
+        // normal variant - neutral border, empty inputs
+        <form
+            class="rounded-5 ps-2 pe-2 py-2 new-package-form"
+            style="background: #474747;"
+            hx-post="/package/track"
+            hx-target="#new-package-slot"
+            hx-swap="innerHTML"
+        >
+            @packageFormBody(name, branch)
+        </form>
+    }
+}
+
+// packageFormBody renders the inputs and buttons shared by both packageForm variants.
+templ packageFormBody(name string, branch string) {
+    <div class="d-flex align-items-center gap-2">
         <!-- Package name input -->
-        <div style="flex: 1;">
+        <div style="flex: 3;">
             <input
                 class="form-control form-control-sm rounded-5 text-white"
                 style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                 type="text"
                 name="name"
+                value={ name }
                 placeholder="Package name (e.g. go)"
                 required
-                autofocus
             />
         </div>
         <!-- Package branch input -->
-        <div style="flex: 1;">
+        <div style="flex: 2;">
             <input
                 class="form-control form-control-sm rounded-5 text-white"
                 style="background: #3A3A3A; border: 1px solid #5A5A5A;"
                 type="text"
                 list="branch-suggestions"
                 name="branch"
+                value={ branch }
                 placeholder="Branch (e.g. nixos-unstable)"
                 autocomplete="off"
                 required
             />
             <datalist id="branch-suggestions">
                 for _, b := range nix.GetCommonBranches() {
-                    <option value={b}/>
+                    <option value={ b }/>
                 }
             </datalist>
         </div>
         <!-- Buttons -->
-        <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
-            <!-- Submit button -->
+        <div class="d-flex gap-2 justify-content-end" style="flex: 4;">
             <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-4">
                 <i class="bi bi-check-lg"></i>
             </button>
-            <!-- Cancel button -->
             <button
                 type="button"
                 class="btn-outline-basic btn btn-sm rounded-5 px-3"
@@ -631,70 +640,5 @@ templ NewPackageForm() {
                 <i class="bi bi-x-lg"></i>
             </button>
         </div>
-    </form>
-}
-
-// NewPackageError re-renders the new-package form with the previously entered name and branch
-// pre-filled and an error message displayed below the inputs.
-templ NewPackageError(name string, branch string, message string) {
-    <form
-        class="d-flex flex-column gap-2 rounded-4-5 px-2 py-2 new-package-form"
-        style="background: #474747; border: 1px solid #FF6B6B;"
-        hx-post="/package/track"
-        hx-target="#new-package-slot"
-        hx-swap="innerHTML"
-    >
-        <div class="d-flex align-items-center gap-3">
-            <!-- Package name input -->
-            <div style="flex: 1;">
-                <input
-                    class="form-control form-control-sm rounded-5 text-white"
-                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
-                    type="text"
-                    name="name"
-                    value={name}
-                    placeholder="Package name (e.g. firefox)"
-                    required
-                />
-            </div>
-            <!-- Package branch input -->
-            <div style="flex: 1;">
-                <input
-                    class="form-control form-control-sm rounded-5 text-white"
-                    style="background: #3A3A3A; border: 1px solid #5A5A5A;"
-                    type="text"
-                    list="branch-suggestions"
-                    name="branch"
-                    value={branch}
-                    placeholder="Branch (e.g. nixos-unstable)"
-                    autocomplete="off"
-                    required
-                />
-                <datalist id="branch-suggestions">
-                    for _, b := range nix.GetCommonBranches() {
-                        <option value={b}/>
-                    }
-                </datalist>
-            </div>
-            <!-- Buttons -->
-            <div class="d-flex gap-2 justify-content-end" style="flex: 1;">
-                <!-- Submit button -->
-                <button type="submit" class="btn-outline-success-custom btn btn-sm rounded-5 px-3">
-                    Submit
-                </button>
-                <!-- Cancel button -->
-                <button
-                    type="button"
-                    class="btn-outline-basic btn btn-sm rounded-5 px-3"
-                    hx-get="/package/track/cancel"
-                    hx-target="#new-package-slot"
-                    hx-swap="innerHTML"
-                >
-                    Cancel
-                </button>
-            </div>
-        </div>
-        <!-- Error message -->
-        <small class="text-danger px-2">{message}.</small>
-    </form>
+    </div>
 }

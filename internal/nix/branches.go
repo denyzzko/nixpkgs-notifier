@@ -1,18 +1,3 @@
-// Package nix handles two concerns: evaluating package versions via nix CLI,
-// and maintaining an in-memory list of common nixpkgs branches fetched from GitHub.
-//
-// Version evaluation: GetPackageVersionByNameAndBranch spawns a nix eval subprocess
-// for a given package name and branch. Concurrent calls for the same name+branch pair
-// are automatically coalesced via singleflight so that only one subprocess runs
-// at a time and all callers share its result.
-// Errors are classified into three sentinel values:
-//   - ErrAttrNotFound: the package name or branch is invalid
-//   - ErrNixUnavailable: the nix binary is not present on this system
-//   - ErrEvalFailed: all other failures (network, timeout, unexpected nix error)
-//
-// Branch list: StartBranchFetcher launches a background goroutine that refreshes
-// common nixpkgs branches from the GitHub API every 24h. GetCommonBranches returns
-// current list (falls back to a hardcoded default if API is unreachable).
 package nix
 
 import (

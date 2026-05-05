@@ -61,11 +61,11 @@ func newSetup(t *testing.T, notifyOnManualVerify bool, lastNotifiedVersion strin
 // Used to verify the result of CreatePendingNotifications which returns nothing.
 func notificationCount(t *testing.T, userID int64) int {
 	t.Helper()
-	logs, err := testStore.QueryNotificationsByUserID(context.Background(), userID)
+	count, err := testStore.CountNotificationsByUserID(context.Background(), userID)
 	if err != nil {
 		t.Fatalf("notificationCount: %v", err)
 	}
-	return len(logs)
+	return int(count)
 }
 
 // ----------------------------------------------------------------
@@ -77,7 +77,7 @@ func TestCreatePendingNotifications_SystemTriggered_CreatesNotification(t *testi
 
 	s := newSetup(t, false, "1.0.0")
 
-	notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
+	notifications.CreatePendingNotifications(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "2.0.0"}, 0)
 
 	count := notificationCount(t, s.userID)
 	if count != 1 {
@@ -90,7 +90,7 @@ func TestCreatePendingNotifications_ManualTrigger_ChannelOptedOut_SkipsNotificat
 	// channel has notifyOnManualVerify=false and triggerUser is set to userID (manual check)
 	s := newSetup(t, false, "1.0.0")
 
-	notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", s.userID)
+	notifications.CreatePendingNotifications(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "2.0.0"}, s.userID)
 
 	count := notificationCount(t, s.userID)
 	if count != 0 {
@@ -103,7 +103,7 @@ func TestCreatePendingNotifications_ManualTrigger_ChannelOptedIn_CreatesNotifica
 	// channel has notifyOnManualVerify=true and triggerUser is set to userID (manual check)
 	s := newSetup(t, true, "1.0.0")
 
-	notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", s.userID)
+	notifications.CreatePendingNotifications(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "2.0.0"}, s.userID)
 
 	count := notificationCount(t, s.userID)
 	if count != 1 {
@@ -116,7 +116,7 @@ func TestCreatePendingNotifications_AlreadyOnNewVersion_SkipsNotification(t *tes
 	// lastNotifiedVersion == newVersion - user already notified, no duplicate should be created
 	s := newSetup(t, true, "2.0.0")
 
-	notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
+	notifications.CreatePendingNotifications(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "2.0.0"}, 0)
 
 	count := notificationCount(t, s.userID)
 	if count != 0 {
@@ -143,7 +143,7 @@ func TestCreatePendingNotifications_ManualTrigger_OnlySkipsTriggeringUser(t *tes
 
 	// user1 manually triggers - their channel should be skipped
 	// and user2's channel should get notification
-	notifications.CreatePendingNotifications(ctx, testStore, s1.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", s1.userID)
+	notifications.CreatePendingNotifications(ctx, testStore, notifications.VersionEvent{PackageID: s1.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "2.0.0"}, s1.userID)
 
 	count := notificationCount(t, s1.userID)
 	if count != 0 {
@@ -165,7 +165,7 @@ func TestCreatePendingNotificationsFirstAppearance_SkipsVersionCheck(t *testing.
 	// but FirstAppearance version creates regardless
 	s := newSetup(t, true, "1.0.0")
 
-	notifications.CreatePendingNotificationsFirstAppearance(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "1.0.0", 0)
+	notifications.CreatePendingNotificationsFirstAppearance(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "1.0.0"}, 0)
 
 	count := notificationCount(t, s.userID)
 	if count != 1 {
@@ -178,7 +178,7 @@ func TestCreatePendingNotificationsFirstAppearance_ManualTrigger_ChannelOptedOut
 	// channel has notifyOnManualVerify=false - manual trigger should skip it
 	s := newSetup(t, false, "1.0.0")
 
-	notifications.CreatePendingNotificationsFirstAppearance(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "1.0.0", s.userID)
+	notifications.CreatePendingNotificationsFirstAppearance(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "1.0.0"}, s.userID)
 
 	count := notificationCount(t, s.userID)
 	if count != 0 {
@@ -190,86 +190,17 @@ func TestCreatePendingNotificationsFirstAppearance_OldVersionIsEmpty(t *testing.
 	ctx := context.Background()
 	s := newSetup(t, true, "1.0.0")
 
-	notifications.CreatePendingNotificationsFirstAppearance(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "1.0.0", 0)
+	notifications.CreatePendingNotificationsFirstAppearance(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "1.0.0"}, 0)
 
-	logs, err := testStore.QueryNotificationsByUserID(ctx, s.userID)
+	page, err := notifications.GetDeliveryLogPage(ctx, testStore, s.userID, 1, 10)
 	if err != nil {
 		t.Fatalf("query notifications: %v", err)
 	}
-	if len(logs) != 1 {
-		t.Fatalf("expected 1 notification, got %d", len(logs))
+	if len(page.Notifications) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(page.Notifications))
 	}
-	if logs[0].OldVersion != "" {
-		t.Errorf("OldVersion = %q, want empty string for first appearance notification", logs[0].OldVersion)
-	}
-}
-
-// ----------------------------------------------------------------
-// -------------------- GetDeliveryLog ----------------------------
-// ----------------------------------------------------------------
-
-func TestGetDeliveryLog_Empty(t *testing.T) {
-	ctx := context.Background()
-	userID, _, _ := testutil.CreateTestUser(t, testStore, "user")
-
-	logs, err := notifications.GetDeliveryLog(ctx, testStore, userID)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(logs) != 0 {
-		t.Errorf("expected empty delivery log, got %d entries", len(logs))
-	}
-}
-
-func TestGetDeliveryLog_ReturnsNotificationsForUser(t *testing.T) {
-	ctx := context.Background()
-	s := newSetup(t, true, "1.0.0")
-
-	// create a notification so the log is not empty
-	notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
-
-	logs, err := notifications.GetDeliveryLog(ctx, testStore, s.userID)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(logs) != 1 {
-		t.Errorf("expected 1 delivery log entry, got %d", len(logs))
-	}
-}
-
-func TestGetDeliveryLog_IsolatedPerUser(t *testing.T) {
-	ctx := context.Background()
-	s1 := newSetup(t, true, "1.0.0")
-
-	// user2 also tracks the same package and has a channel - so they also get notification
-	user2ID, _, _ := testutil.CreateTestUser(t, testStore, "user")
-	err := testStore.StoreTracking(ctx, user2ID, s1.packageID, "1.0.0")
-	if err != nil {
-		t.Fatalf("setup user2 tracking: %v", err)
-	}
-	_, err = testStore.CreateEmailChannel(ctx, user2ID, fmt.Sprintf("user2-%d@example.com", testutil.NextID()), true)
-	if err != nil {
-		t.Fatalf("setup user2 channel: %v", err)
-	}
-
-	// system check creates one notification per user
-	notifications.CreatePendingNotifications(ctx, testStore, s1.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
-
-	// each user must only see their own entry - not each other's
-	logs1, err := notifications.GetDeliveryLog(ctx, testStore, s1.userID)
-	if err != nil {
-		t.Fatalf("user1 query: %v", err)
-	}
-	if len(logs1) != 1 {
-		t.Errorf("expected user1 to have 1 delivery log entry, got %d", len(logs1))
-	}
-
-	logs2, err := notifications.GetDeliveryLog(ctx, testStore, user2ID)
-	if err != nil {
-		t.Fatalf("user2 query: %v", err)
-	}
-	if len(logs2) != 1 {
-		t.Errorf("expected user2 to have 1 delivery log entry, got %d", len(logs2))
+	if page.Notifications[0].OldVersion != "" {
+		t.Errorf("OldVersion = %q, want empty string for first appearance notification", page.Notifications[0].OldVersion)
 	}
 }
 
@@ -297,7 +228,7 @@ func TestGetDeliveryLogPage_ReturnsNotificationsForUser(t *testing.T) {
 	ctx := context.Background()
 	s := newSetup(t, true, "1.0.0")
 
-	notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
+	notifications.CreatePendingNotifications(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "2.0.0"}, 0)
 
 	page, err := notifications.GetDeliveryLogPage(ctx, testStore, s.userID, 1, 25)
 	if err != nil {
@@ -322,7 +253,7 @@ func TestGetDeliveryLogPage_IsolatedPerUser(t *testing.T) {
 		t.Fatalf("setup user2 channel: %v", err)
 	}
 
-	notifications.CreatePendingNotifications(ctx, testStore, s1.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
+	notifications.CreatePendingNotifications(ctx, testStore, notifications.VersionEvent{PackageID: s1.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "2.0.0"}, 0)
 
 	// each user must only see their own notifications
 	page1, err := notifications.GetDeliveryLogPage(ctx, testStore, s1.userID, 1, 25)
@@ -348,7 +279,7 @@ func TestGetDeliveryLogPage_Pagination(t *testing.T) {
 
 	// create 3 notifications by simulating 3 version changes
 	for _, ver := range []string{"2.0.0", "3.0.0", "4.0.0"} {
-		notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", ver, 0)
+		notifications.CreatePendingNotifications(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: ver}, 0)
 		// update last_notified_version so next version change is valid
 		err := testStore.StoreTracking(ctx, s.userID, s.packageID, ver)
 		if err != nil {
@@ -382,7 +313,7 @@ func TestGetDeliveryLogPage_PageCappedWhenTooHigh(t *testing.T) {
 	ctx := context.Background()
 	s := newSetup(t, true, "1.0.0")
 
-	notifications.CreatePendingNotifications(ctx, testStore, s.packageID, "testpkg", "nixpkgs-unstable", "2.0.0", 0)
+	notifications.CreatePendingNotifications(ctx, testStore, notifications.VersionEvent{PackageID: s.packageID, PackageName: "testpkg", Branch: "nixpkgs-unstable", NewVersion: "2.0.0"}, 0)
 
 	// request page 999 - should be capped to last valid page and return results
 	page, err := notifications.GetDeliveryLogPage(ctx, testStore, s.userID, 999, 25)

@@ -1,10 +1,3 @@
-// Package web contains HTTP layer of the application.
-//
-// It is organised in four files:
-//   - router.go:      registers all routes and access control wrappers (requireAuth, requireAdmin)
-//   - handlers.go:    HTTP handler functions
-//   - viewmodels.go:  converts database and app types to template view models (e.g. ChannelVM)
-//   - webErrors.go:   maps appError causes to HTTP status codes and writes error responses (writeGenericErr for plain errors)
 package web
 
 import (
@@ -133,11 +126,7 @@ func trackedPackageVMWithCheckState(t database.TrackedPackage, cs *database.Chec
 	switch cs.Status {
 	case "pending":
 		vm.IsPending = true
-		oldVer := ""
-		if cs.OldVersion != nil {
-			oldVer = *cs.OldVersion
-		}
-		vm.PollingURL = fmt.Sprintf("/package/status/check/%d?prev=%s", t.PackageID, oldVer)
+		vm.PollingURL = fmt.Sprintf("/package/status/check/%d", t.PackageID)
 	case "done":
 		vm.Verified = true
 		if cs.NewVersion != nil {

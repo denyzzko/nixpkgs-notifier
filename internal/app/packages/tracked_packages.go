@@ -1,17 +1,3 @@
-// Package packages handles all operations on tracked and watched packages.
-//
-// Both tracked and watched packages live in the packages table.
-// Tracked packages have a trackings row and a known current_version.
-// Watched packages have a watchlist row and current_version = "" (not yet in nixpkgs).
-//
-// Implementation is split across three files:
-//   - packages.go:          shared types, CheckAll, StartBackgroundCleanup
-//   - tracked_packages.go:  Track, GetTrackStatus, Untrack, Check, GetCheckStatus
-//   - watched_packages.go:  Watch, Unwatch, WatchCheck, GetWatchCheckStatus
-//
-// Track operations use an in-memory operationResults sync.Map because a failed Track init
-// rolls back both the tracking and package rows — check_state would cascade-delete with the package.
-// Check and WatchCheck operations use the check_state DB table (1-hour TTL).
 package packages
 
 import (
@@ -19,9 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
-
 	"strconv"
+	"time"
 
 	"github.com/denyzzko/nixpkgs-notifier/internal/app/notifications"
 	"github.com/denyzzko/nixpkgs-notifier/internal/appError"
@@ -29,6 +14,15 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/database"
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 )
+
+// trackInit groups package identity fields passed to the Track initialization goroutine.
+// isNewPackage is true when Track created the package row -> it must be rolled back on nix failure.
+type trackInit struct {
+	id           int64
+	name         string
+	branch       string
+	isNewPackage bool
+}
 
 // Retrieves all packages that user tracks by his ID.
 func GetTrackedPackages(ctx context.Context, db *database.Store, userID int64) ([]database.TrackedPackage, error) {
@@ -97,99 +91,108 @@ func Track(ctx context.Context, db *database.Store, userID int64, chk *checker.C
 	}
 
 	// launch goroutine to run nix eval and set version baseline
-	go initializePackageBaseline(db, chk, userID, packageID, packageName, packageBranch, newPackage)
+	go initializePackageBaseline(db, chk, userID, trackInit{
+		id:           packageID,
+		name:         packageName,
+		branch:       packageBranch,
+		isNewPackage: newPackage,
+	})
 
 	return trackedPackage, nil
 }
 
 // Runs nix eval for newly tracked package and sets the version baseline.
 // Launched as a goroutine by Track.
-//
-// On failure: rolls back tracking record and package record (if newly created),
-// then signals the polling endpoint via operationResults. When the failure is
-// ErrAttrNotFound result is marked Watchable=true so handler can offer
-// user the option to watch package instead.
-//
-// On success: sets current_version and last_notified_version baseline, then signals
-// the polling endpoint via operationResults.
-//
-// If user untracked while the goroutine was running, StoreTracking is skipped
-// to avoid recreating a deleted tracking record.
-func initializePackageBaseline(db *database.Store, chk *checker.Checker, userID int64, packageID int64, packageName string, packageBranch string, newPackage bool) {
+// On failure calls rollbackTrackInit, on success calls applyTrackBaseline.
+// Signals the polling endpoint via operationResults in both cases.
+func initializePackageBaseline(db *database.Store, chk *checker.Checker, userID int64, pkg trackInit) {
 	const op = "packages.initializePackageBaseline"
 	bgCtx := context.Background()
-	resultKey := fmt.Sprintf("%d:%d", userID, packageID)
+	resultKey := fmt.Sprintf("%d:%d", userID, pkg.id)
 
 	// get current version via checker high-priority worker pool
 	resultCh := make(chan checker.NixResult, 1)
 	chk.EnqueueHigh(checker.CheckJob{
-		Name:      packageName,
-		Branch:    packageBranch,
-		PackageID: packageID,
+		Name:      pkg.name,
+		Branch:    pkg.branch,
+		PackageID: pkg.id,
 		Result:    resultCh,
 	})
 	nixResult := <-resultCh // blocks until result arrives in resultCh
 
 	if nixResult.Err != nil {
-		log.Printf("[WARN] %s: nix eval failed for %q/%q: %v", op, packageName, packageBranch, nixResult.Err)
-
-		// signal polling endpoint that operation failed
-		watchable := errors.Is(nixResult.Err, nix.ErrAttrNotFound)
-		operationResults.Store(resultKey, operationResult{
-			failed:    true,
-			watchable: watchable,
-			errMsg:    classifyNixError(nixResult.Err),
-			name:      packageName,
-			branch:    packageBranch,
-			createdAt: time.Now(),
-		})
-
-		// rollback: remove the tracking record that was created
-		err := db.DeleteTracking(bgCtx, userID, packageID)
-		if err != nil && !errors.Is(err, database.ErrNotFound) {
-			log.Printf("[WARN] %s: rollback tracking delete failed (%q/%q): %v", op, packageName, packageBranch, err)
-		}
-		// if the package was newly created in the system by this Track call -> also remove it
-		if newPackage {
-			err := db.DeletePackage(bgCtx, packageID)
-			if err != nil {
-				log.Printf("[WARN] %s: rollback package delete failed (%q/%q): %v", op, packageName, packageBranch, err)
-			}
-		}
+		log.Printf("[WARN] %s: nix eval failed for %q/%q: %v", op, pkg.name, pkg.branch, nixResult.Err)
+		rollbackTrackInit(db, bgCtx, op, userID, pkg, nixResult.Err, resultKey)
 		return
 	}
 
-	currentVersion := nixResult.Version
+	applyTrackBaseline(db, bgCtx, op, userID, pkg, nixResult.Version, resultKey)
+}
 
+// rollbackTrackInit handles the failure path of initializePackageBaseline.
+// Signals polling endpoint with a failed result, then removes the tracking row
+// and package row (if newly created) that Track inserted.
+func rollbackTrackInit(db *database.Store, ctx context.Context, op string, userID int64, pkg trackInit, nixErr error, resultKey string) {
+	// signal polling endpoint that operation failed
+	watchable := errors.Is(nixErr, nix.ErrAttrNotFound)
+	operationResults.Store(resultKey, operationResult{
+		failed:    true,
+		watchable: watchable,
+		errMsg:    classifyNixError(nixErr),
+		name:      pkg.name,
+		branch:    pkg.branch,
+		createdAt: time.Now(),
+	})
+
+	// rollback: remove tracking record that was created
+	err := db.DeleteTracking(ctx, userID, pkg.id)
+	if err != nil && !errors.Is(err, database.ErrNotFound) {
+		log.Printf("[WARN] %s: rollback tracking delete failed (%q/%q): %v", op, pkg.name, pkg.branch, err)
+	}
+
+	// if package was newly created in the system by this Track call -> also remove it
+	if pkg.isNewPackage {
+		if err := db.DeletePackage(ctx, pkg.id); err != nil {
+			log.Printf("[WARN] %s: rollback package delete failed (%q/%q): %v", op, pkg.name, pkg.branch, err)
+		}
+	}
+}
+
+// applyTrackBaseline handles the success path of initializePackageBaseline.
+// Persists the resolved version, sets the last_notified_version baseline,
+// and signals the polling endpoint that initialization completed.
+// If user untracked while the goroutine was running, StoreTracking is skipped
+// to avoid recreating a deleted tracking record.
+func applyTrackBaseline(db *database.Store, ctx context.Context, op string, userID int64, pkg trackInit, currentVersion, resultKey string) {
 	// update package current_version
-	_, err := db.StorePackage(bgCtx, packageName, packageBranch, currentVersion)
-	if err != nil {
-		log.Printf("[WARN] %s: update current_version failed (%q/%q): %v", op, packageName, packageBranch, err)
+	if _, err := db.StorePackage(ctx, pkg.name, pkg.branch, currentVersion); err != nil {
+		log.Printf("[WARN] %s: update current_version failed (%q/%q): %v", op, pkg.name, pkg.branch, err)
 	}
 
-	// guard: check if user has untracked the package while this goroutine was running
+	// guard: check if user untracked the package while this goroutine was running
 	// StoreTracking would just recreate a deleted tracking
-	_, err = db.QueryTracking(bgCtx, userID, packageID)
-	if errors.Is(err, database.ErrNotFound) {
-		log.Printf("[INFO] %s: tracking removed while initializing (%q/%q) - skipping baseline", op, packageName, packageBranch)
-		dbErr := db.UpdatePackageLastCheckedAt(bgCtx, packageID)
-		if dbErr != nil {
-			log.Printf("[WARN] %s: update last_checked_at failed (%q/%q): %v", op, packageName, packageBranch, dbErr)
+	_, err := db.QueryTracking(ctx, userID, pkg.id)
+	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			log.Printf("[INFO] %s: tracking removed while initializing (%q/%q) - skipping baseline", op, pkg.name, pkg.branch)
+			if dbErr := db.UpdatePackageLastCheckedAt(ctx, pkg.id); dbErr != nil {
+				log.Printf("[WARN] %s: update last_checked_at failed (%q/%q): %v", op, pkg.name, pkg.branch, dbErr)
+			}
+			operationResults.Store(resultKey, operationResult{failed: false, createdAt: time.Now()})
+			return
 		}
-		operationResults.Store(resultKey, operationResult{failed: false, createdAt: time.Now()})
-		return
+		// non-NotFound error - proceed with StoreTracking anyway but log error
+		log.Printf("[WARN] %s: query tracking failed (%q/%q), proceeding anyway: %v", op, pkg.name, pkg.branch, err)
 	}
 
 	// set last_notified_version baseline
-	err = db.StoreTracking(bgCtx, userID, packageID, currentVersion)
-	if err != nil {
-		log.Printf("[WARN] %s: update last_notified_version failed (%q/%q): %v", op, packageName, packageBranch, err)
+	if err := db.StoreTracking(ctx, userID, pkg.id, currentVersion); err != nil {
+		log.Printf("[WARN] %s: update last_notified_version failed (%q/%q): %v", op, pkg.name, pkg.branch, err)
 	}
 
 	// update last_checked_at
-	dbErr := db.UpdatePackageLastCheckedAt(bgCtx, packageID)
-	if dbErr != nil {
-		log.Printf("[WARN] %s: update last_checked_at failed (%q/%q): %v", op, packageName, packageBranch, dbErr)
+	if dbErr := db.UpdatePackageLastCheckedAt(ctx, pkg.id); dbErr != nil {
+		log.Printf("[WARN] %s: update last_checked_at failed (%q/%q): %v", op, pkg.name, pkg.branch, dbErr)
 	}
 
 	// signal polling endpoint that operation completed successfully
@@ -276,7 +279,7 @@ func Untrack(ctx context.Context, db *database.Store, userID int64, packageIDStr
 //
 // If skipped: Skipped=true, no goroutine is launched, handler renders the result row directly (no polling needed).
 // If not skipped: a goroutine (checkPackageAsync) runs the eval, compares versions, fires notifications if changed.
-// The polling endpoint GET /package/status/check/{id}?prev=V checks operationResults map to detect completion.
+// The polling endpoint GET /package/status/check/{id} reads check_state DB to detect completion.
 func Check(ctx context.Context, db *database.Store, userID int64, chk *checker.Checker, packageIDStr string) (CheckOutcome, error) {
 	const op = "packages.Check"
 
@@ -323,7 +326,7 @@ func Check(ctx context.Context, db *database.Store, userID int64, chk *checker.C
 	}
 
 	// persist pending check state so spinner row survives page navigation (1-hour TTL)
-	err = db.InsertCheckState(ctx, userID, pckg.PackageID, &prevVersion)
+	err = db.UpsertCheckState(ctx, userID, pckg.PackageID, &prevVersion)
 	if err != nil {
 		log.Printf("[WARN] %s: upsert check state failed (%q/%q): %v", op, pckg.Name, pckg.Branch, err)
 	}
@@ -371,7 +374,12 @@ func checkPackageAsync(db *database.Store, userID int64, pckg database.TrackedPa
 		}
 
 		// version changed - notify all users tracking this package
-		notifications.CreatePendingNotifications(bgCtx, db, pckg.PackageID, pckg.Name, pckg.Branch, currentVersion, userID)
+		notifications.CreatePendingNotifications(bgCtx, db, notifications.VersionEvent{
+			PackageID:   pckg.PackageID,
+			PackageName: pckg.Name,
+			Branch:      pckg.Branch,
+			NewVersion:  currentVersion,
+		}, userID)
 
 		// update last_notified_version for triggering user
 		err = db.StoreTracking(bgCtx, userID, pckg.PackageID, currentVersion)
@@ -401,7 +409,7 @@ func checkPackageAsync(db *database.Store, userID int64, pckg database.TrackedPa
 // Called every 3s by the checking row after Check.
 // Reads check_state DB table - the goroutine writes to it on completion.
 // Returns whether the check is done and what the result was (version changed, error or no change).
-func GetCheckStatus(ctx context.Context, db *database.Store, userID int64, packageIDStr string, prev string) (TrackingCheckStatus, error) {
+func GetCheckStatus(ctx context.Context, db *database.Store, userID int64, packageIDStr string) (TrackingCheckStatus, error) {
 	const op = "packages.GetCheckStatus"
 
 	// convert package ID string to int64
@@ -426,20 +434,20 @@ func GetCheckStatus(ctx context.Context, db *database.Store, userID int64, packa
 	}
 	if cs == nil {
 		// no row yet - goroutine not done
-		return TrackingCheckStatus{Done: false, Package: pckg, Prev: prev}, nil
+		return TrackingCheckStatus{Done: false, Package: pckg}, nil
 	}
 
 	switch cs.Status {
 	case "pending":
 		// goroutine still running - keep polling
-		return TrackingCheckStatus{Done: false, Package: pckg, Prev: prev}, nil
+		return TrackingCheckStatus{Done: false, Package: pckg}, nil
 	case "failed":
 		// nix eval threw an error
 		errMsg := ""
 		if cs.ErrorMsg != nil {
 			errMsg = *cs.ErrorMsg
 		}
-		return TrackingCheckStatus{Done: true, Failed: true, ErrMsg: errMsg, Package: pckg, Prev: prev}, nil
+		return TrackingCheckStatus{Done: true, Failed: true, ErrMsg: errMsg, Package: pckg}, nil
 	case "done":
 		versionChanged := cs.NewVersion != nil
 		if versionChanged {
@@ -449,8 +457,8 @@ func GetCheckStatus(ctx context.Context, db *database.Store, userID int64, packa
 			}
 			pckg.CurrentVersion = *cs.NewVersion
 		}
-		return TrackingCheckStatus{Done: true, Package: pckg, Prev: prev, VersionChanged: versionChanged}, nil
+		return TrackingCheckStatus{Done: true, Package: pckg, VersionChanged: versionChanged}, nil
 	}
 	// unknown status - treat as not done
-	return TrackingCheckStatus{Done: false, Package: pckg, Prev: prev}, nil
+	return TrackingCheckStatus{Done: false, Package: pckg}, nil
 }

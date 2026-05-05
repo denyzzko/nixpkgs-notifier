@@ -27,9 +27,6 @@ import (
 	"github.com/denyzzko/nixpkgs-notifier/internal/nix"
 )
 
-// user is not authenticated error
-var ErrNotAuthenticated = errors.New("not authenticated")
-
 // operationResult stores outcome of a Track initialization goroutine.
 // Written on completion (success or failure), read and cleared by GetTrackStatus.
 // Entries not polled (e.g. user closes browser) are cleaned up by StartBackgroundCleanup.
@@ -72,7 +69,6 @@ type TrackingCheckStatus struct {
 	Failed         bool
 	ErrMsg         string
 	Package        database.TrackedPackage
-	Prev           string
 	VersionChanged bool
 }
 
@@ -199,7 +195,7 @@ func CheckAll(ctx context.Context, db *database.Store, userID int64, chk *checke
 			continue // still initializing - skip
 		}
 		oldVer := pckg.LastNotifiedVersion
-		err := db.InsertCheckState(ctx, userID, pckg.PackageID, &oldVer)
+		err := db.UpsertCheckState(ctx, userID, pckg.PackageID, &oldVer)
 		if err != nil {
 			log.Printf("[WARN] %s: upsert check state failed (%q/%q): %v", op, pckg.Name, pckg.Branch, err)
 			continue
@@ -231,7 +227,7 @@ func CheckAll(ctx context.Context, db *database.Store, userID int64, chk *checke
 	}
 	for _, wp := range watched {
 		// old_version is nil - watched packages have no version yet
-		err := db.InsertCheckState(ctx, userID, wp.PackageID, nil)
+		err := db.UpsertCheckState(ctx, userID, wp.PackageID, nil)
 		if err != nil {
 			log.Printf("[WARN] %s: upsert check state failed for watched (%q/%q): %v", op, wp.Name, wp.Branch, err)
 			continue

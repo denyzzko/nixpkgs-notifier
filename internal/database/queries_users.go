@@ -1,18 +1,3 @@
-// Package database provides the data access layer for application.
-//
-// It is organised in these files:
-//   - database.go:              opens connection pool and runs migrations
-//   - embeds.go:                embeds all SQL files into the binary at compile time
-//   - models.go:                defines data types returned by queries
-//   - queries_channels.go:      notification channel operations
-//   - queries_check_state.go:   check state operations (pending/done/failed/not_found rows written by check goroutines and read by polling endpoints)
-//   - queries_config.go:        system configuration operations
-//   - queries_helpers.go:       shared helpers and sentinel errors used across query files
-//   - queries_notifications.go: notification creation and delivery operations
-//   - queries_packages.go:      package  operations
-//   - queries_trackings.go:      tracking operations
-//   - queries_users.go:         user and account operations
-//   - queries_watchlist.go:     watchlist operations
 package database
 
 import (
@@ -182,14 +167,14 @@ func (db *Store) QueryAccountsByUserID(ctx context.Context, userID int64) ([]Acc
 // CreateLinkedAccount inserts a new OIDC account pointing to already existing internal user.
 // Unlike CreateUserWithAccount this does NOT create a new user row.
 // Returns ErrConflict (sql code 23505) if the (issuer, subject) pair is already taken by some user.
-func (db *Store) CreateLinkedAccount(ctx context.Context, userID int64, email *string, emailVerified bool, provider, issuer, subject string) error {
-	_, err := db.pool.Exec(ctx, sInsertAccountLink, userID, email, emailVerified, provider, issuer, subject)
+func (db *Store) CreateLinkedAccount(ctx context.Context, userID int64, info UserInfo) error {
+	_, err := db.pool.Exec(ctx, sInsertAccountLink, userID, info.Email, info.EmailVerified, info.Provider, info.Issuer, info.Subject)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return ErrConflict
 		}
-		return fmt.Errorf("database.CreateLinkedAccount: error linking account (userID=%d, issuer=%q, subject=%q): %w", userID, issuer, subject, err)
+		return fmt.Errorf("database.CreateLinkedAccount: error linking account (userID=%d, issuer=%q, subject=%q): %w", userID, info.Issuer, info.Subject, err)
 	}
 	return nil
 }
@@ -256,7 +241,7 @@ func (db *Store) DeleteAccountByIssuerSub(ctx context.Context, userID int64, iss
 
 	// count accounts this user has
 	var count int
-	if err := tx.QueryRow(ctx, qCountAccountsByUserID, userID).Scan(&count); err != nil {
+	if err := tx.QueryRow(ctx, sCountAccountsByUserID, userID).Scan(&count); err != nil {
 		return fmt.Errorf("database.DeleteAccountByIssuerSub: count accounts: %w", err)
 	}
 

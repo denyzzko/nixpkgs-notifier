@@ -77,7 +77,6 @@ type CheckJob struct {
 // Checker with all resources it needs.
 // It is created once in main.go on startup.
 // It manages worker pool and priority queues for nix eval jobs.
-// NEEDS CHANGE?
 type Checker struct {
 	db    *database.Store
 	cfg   Config
@@ -94,8 +93,8 @@ type Checker struct {
 }
 
 // Constructs a Checker
-// highQ (128 slots) - user requests are few, when full they are not dropped silently (error is returned ->  if this happens in practice this value should be altered accordingly)
-// lowQ  (512 slots) - periodic bulk enqueue of all packages, can produce many jobs at once (logs if queue gets full -> that means this capacity should also be increased)
+// highQ (128 slots) - user requests are few, when full job is dropped (error is returned ->  if this happens in practice this value should be altered accordingly)
+// lowQ  (512 slots) - periodic bulk enqueue of all packages, can produce many jobs at once (drops job and logs if queue gets full -> that means this capacity should also be increased)
 func New(db *database.Store, cfg Config) *Checker {
 	return &Checker{
 		db:      db,
@@ -116,24 +115,18 @@ func (ch *Checker) UpdateConfig(cfg Config) {
 	ch.setWorkerCount(cfg.WorkerCount)
 }
 
-// Config helper that returns current config.
-func (ch *Checker) config() Config {
+// Config returns current checker configuration.
+func (ch *Checker) Config() Config {
 	ch.cfgMu.RLock()
 	defer ch.cfgMu.RUnlock()
 	return ch.cfg
-}
-
-// GetConfig returns the current checker configuration.
-// Used to get access to config from other packages (config Manager).
-func (ch *Checker) GetConfig() Config {
-	return ch.config()
 }
 
 // Launches initial N worker goroutines (where N is WorkerCount) and the schedule loop.
 // All goroutines run until ctx is cancelled (SIGTERM/SIGINT).
 func (ch *Checker) Start(ctx context.Context) {
 	ch.parentCtx = ctx
-	cfg := ch.config()
+	cfg := ch.Config()
 	ch.setWorkerCount(cfg.WorkerCount)
 	go ch.scheduleLoop(ctx)
 	log.Println("[INFO] checker: started")
@@ -171,7 +164,7 @@ func (ch *Checker) setWorkerCount(target int) {
 // Uses time.Ticker to wake up at the configured Interval to enqueue all
 // tracked packages into lowQ for a background version check.
 func (ch *Checker) scheduleLoop(ctx context.Context) {
-	cfg := ch.config()
+	cfg := ch.Config()
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 
@@ -183,7 +176,7 @@ func (ch *Checker) scheduleLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// re-read config (interval may have been updated at runtime) and enqueue all packages
-			cfg = ch.config()
+			cfg = ch.Config()
 			ticker.Reset(cfg.Interval)
 			ch.enqueueAllTracked(ctx)
 			ch.enqueueAllWatched(ctx)
@@ -207,7 +200,7 @@ func (ch *Checker) enqueueAllTracked(ctx context.Context) {
 		return
 	}
 
-	cfg := ch.config()
+	cfg := ch.Config()
 	threshold := time.Now().Add(-cfg.SkipInterval)
 
 	// enqueue to low-priority queue
@@ -286,7 +279,7 @@ func (ch *Checker) EnqueueHigh(job CheckJob) {
 // entirely and stored CurrentVersion is returned immediately through the reply channel (no job is enqueued).
 // Returns true if the job was skipped, false if it was enqueued for real evaluation.
 func (ch *Checker) EnqueueHighOrSkip(job CheckJob) bool {
-	cfg := ch.config()
+	cfg := ch.Config()
 	if cfg.SkipInterval > 0 && job.LastCheckedAt != nil {
 		threshold := time.Now().Add(-cfg.SkipInterval)
 		if job.LastCheckedAt.After(threshold) {
@@ -414,7 +407,12 @@ func (ch *Checker) processSystemTrackedJob(ctx context.Context, job CheckJob) {
 
 	// all users tracking this package are notified about version change
 	// triggerUserID=0 signals a system-triggered check
-	notifications.CreatePendingNotifications(ctx, ch.db, job.PackageID, job.Name, job.Branch, version, 0)
+	notifications.CreatePendingNotifications(ctx, ch.db, notifications.VersionEvent{
+		PackageID:   job.PackageID,
+		PackageName: job.Name,
+		Branch:      job.Branch,
+		NewVersion:  version,
+	}, 0)
 }
 
 // processSystemWatchlistJob handles a periodic background check for a watched package (Result == nil, IsWatchlistCheck == true).
@@ -446,5 +444,10 @@ func (ch *Checker) processSystemWatchlistJob(ctx context.Context, job CheckJob) 
 	}
 
 	// notify all users - triggerUserID=0 signals system-triggered check
-	notifications.CreatePendingNotificationsFirstAppearance(ctx, ch.db, job.PackageID, job.Name, job.Branch, version, 0)
+	notifications.CreatePendingNotificationsFirstAppearance(ctx, ch.db, notifications.VersionEvent{
+		PackageID:   job.PackageID,
+		PackageName: job.Name,
+		Branch:      job.Branch,
+		NewVersion:  version,
+	}, 0)
 }

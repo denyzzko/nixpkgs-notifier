@@ -60,7 +60,7 @@ func TestGetUser_ExistingAccount_ReturnsExistingUserID(t *testing.T) {
 	provider := &auth.Provider{Issuer: issuer}
 	claims := auth.UserClaims{Subject: subject}
 
-	got, err := users.GetUser(ctx, testStore, provider, claims)
+	got, err := users.ResolveOrCreateUser(ctx, testStore, provider, claims)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestGetUser_NewAccount_CreatesUser(t *testing.T) {
 		PreferredUsername: fmt.Sprintf("newuser%d", testutil.NextID()),
 	}
 
-	got, err := users.GetUser(ctx, testStore, provider, claims)
+	got, err := users.ResolveOrCreateUser(ctx, testStore, provider, claims)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -255,7 +255,11 @@ func TestGetAccounts_TwoAccounts_CanUnlink(t *testing.T) {
 	userID, issuer, _ := testutil.CreateTestUser(t, testStore, "user")
 
 	secondSub := fmt.Sprintf("second-sub-%d", testutil.NextID())
-	err := testStore.CreateLinkedAccount(ctx, userID, nil, false, "test", issuer, secondSub)
+	err := testStore.CreateLinkedAccount(ctx, userID, database.UserInfo{
+		Provider: "test",
+		Issuer:   issuer,
+		Subject:  secondSub,
+	})
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -288,7 +292,11 @@ func TestUnlinkAccount_SecondAccount_Succeeds(t *testing.T) {
 	userID, issuer, _ := testutil.CreateTestUser(t, testStore, "user")
 
 	secondSub := fmt.Sprintf("second-sub-%d", testutil.NextID())
-	err := testStore.CreateLinkedAccount(ctx, userID, nil, false, "test", issuer, secondSub)
+	err := testStore.CreateLinkedAccount(ctx, userID, database.UserInfo{
+		Provider: "test",
+		Issuer:   issuer,
+		Subject:  secondSub,
+	})
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -367,7 +375,11 @@ func TestLinkExistingAccount_SourceHasMultipleAccounts_NoPromotion(t *testing.T)
 
 	// give source second account so it won't be orphaned when first account moves
 	secondSub := fmt.Sprintf("second-sub-%d", testutil.NextID())
-	err := testStore.CreateLinkedAccount(ctx, sourceID, nil, false, "test", issuer, secondSub)
+	err := testStore.CreateLinkedAccount(ctx, sourceID, database.UserInfo{
+		Provider: "test",
+		Issuer:   issuer,
+		Subject:  secondSub,
+	})
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
