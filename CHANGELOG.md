@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.7.0...v1.7.1) (2026-05-11)
+
+
+### Bug Fixes
+
+* more isolated retry mechanism test ([2531051](https://github.com/denyzzko/nixpkgs-notifier/commit/25310510281ef8018076cf42b333ce065f22c26e))
+
 # [1.7.0](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.6.0...v1.7.0) (2026-05-04)
 
 
