@@ -194,9 +194,9 @@ func (ch *Checker) scheduleLoop(ctx context.Context) {
 // If lowQ is full, jobs are dropped and warning is logged.
 func (ch *Checker) enqueueAllTracked(ctx context.Context) {
 	// get all packages
-	packages, err := ch.db.QueryAllPackages(ctx)
+	packages, err := ch.db.QueryAllTrackedPackages(ctx)
 	if err != nil {
-		log.Printf("[ERROR] checker: query all packages: %v", err)
+		log.Printf("[ERROR] checker: query all tracked packages: %v", err)
 		return
 	}
 

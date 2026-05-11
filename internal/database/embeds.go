@@ -77,6 +77,9 @@ var qGetAllPackagesPaged string
 //go:embed sql/get_notifications_by_userID_paginated.sql
 var qGetNotificationsByUserIDPaged string
 
+//go:embed sql/get_all_tracked_packages.sql
+var qGetAllTrackedPackages string
+
 //go:embed sql/insert_tracking.sql
 var sInsertTracking string
 

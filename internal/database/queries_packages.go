@@ -74,6 +74,32 @@ func (db *Store) QueryAllPackages(ctx context.Context) ([]Package, error) {
 	return packages, nil
 }
 
+// QueryAllTrackedPackages retrieves all packages that have at least one tracking entry.
+func (db *Store) QueryAllTrackedPackages(ctx context.Context) ([]Package, error) {
+	rows, err := db.pool.Query(ctx, qGetAllTrackedPackages)
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryAllTrackedPackages: query error: %w", err)
+	}
+	defer rows.Close()
+
+	var packages []Package
+	for rows.Next() {
+		var p Package
+		err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &p.LastCheckedAt, &p.Name, &p.Branch, &p.CurrentVersion)
+		if err != nil {
+			return nil, fmt.Errorf("database.QueryAllTrackedPackages: scan error: %w", err)
+		}
+		packages = append(packages, p)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("database.QueryAllTrackedPackages: incomplete results: %w", err)
+	}
+
+	return packages, nil
+}
+
 // QueryPackageByNameAndBranch retrieves package identified by its name and branch.
 func (db *Store) QueryPackageByNameAndBranch(ctx context.Context, name string, branch string) (Package, error) {
 	var pckg Package
