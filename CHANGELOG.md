@@ -1,3 +1,10 @@
+## [1.7.2](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.7.1...v1.7.2) (2026-05-11)
+
+
+### Bug Fixes
+
+* enqueueAllTracked was incorrectly enqueing both tracked and watched packages ([3bffd90](https://github.com/denyzzko/nixpkgs-notifier/commit/3bffd90e7c657f7b7241e7fcf0973835fe5b5d8d))
+
 ## [1.7.1](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.7.0...v1.7.1) (2026-05-11)
 
 
