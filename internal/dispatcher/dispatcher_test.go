@@ -289,6 +289,55 @@ func TestDispatch_SenderFailure_MarkedFailed(t *testing.T) {
 	}
 }
 
+// TestDispatch_FailedNotification_RetriedAndMarkedSent verifies retry mechanism.
+// Notification that failed on the first dispatch attempt is picked up again
+// on the next dispatch cycle and marked as "sent" when delivery succeeds.
+func TestDispatch_FailedNotification_RetriedAndMarkedSent(t *testing.T) {
+	cfg := defaultCfg()
+
+	// first dispatch: sender fails -> notification marked failed
+	failingSender := &FakeSender{SendErr: &notify.SenderError{
+		PublicMsg: "temporary failure",
+		Err:       errors.New("smtp: connection refused"),
+	}}
+	d1 := dispatcher.NewWithSenders(testStore, cfg, failingSender, failingSender)
+
+	userID, _ := setupEmailNotification(t, "1.0.0", "2.0.0")
+	d1.Dispatch(context.Background(), cfg)
+
+	notifications := notificationsForUser(t, userID)
+	if len(notifications) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notifications))
+	}
+	if notifications[0].Status != database.NotificationStatusFailed {
+		t.Fatalf("after first dispatch: status got %q, want %q",
+			notifications[0].Status, database.NotificationStatusFailed)
+	}
+	if notifications[0].AttemptCount != 1 {
+		t.Fatalf("after first dispatch: attempt_count got %d, want 1",
+			notifications[0].AttemptCount)
+	}
+
+	// second dispatch: sender recovers -> failed notification is retried and marked sent
+	recoveringSender := &FakeSender{}
+	d2 := dispatcher.NewWithSenders(testStore, cfg, recoveringSender, recoveringSender)
+	d2.Dispatch(context.Background(), cfg)
+
+	got := recoveringSender.sendCallCount()
+	if got != 1 {
+		t.Errorf("second dispatch Send call count: got %d, want 1", got)
+	}
+
+	notifications = notificationsForUser(t, userID)
+	if len(notifications) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notifications))
+	}
+	if notifications[0].Status != database.NotificationStatusSent {
+		t.Errorf("after retry: status got %q, want %q",
+			notifications[0].Status, database.NotificationStatusSent)
+	}
+}
+
 // TestDispatch_MaxRetries_ChannelDisabled verifies that when DisableOnMaxRetries
 // is true and notification has already failed MaxRetries-1 times, one more
 // failure causes channel to be disabled by server.
