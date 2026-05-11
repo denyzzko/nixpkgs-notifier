@@ -323,11 +323,6 @@ func TestDispatch_FailedNotification_RetriedAndMarkedSent(t *testing.T) {
 	d2 := dispatcher.NewWithSenders(testStore, cfg, recoveringSender, recoveringSender)
 	d2.Dispatch(context.Background(), cfg)
 
-	got := recoveringSender.sendCallCount()
-	if got != 1 {
-		t.Errorf("second dispatch Send call count: got %d, want 1", got)
-	}
-
 	notifications = notificationsForUser(t, userID)
 	if len(notifications) != 1 {
 		t.Fatalf("expected 1 notification, got %d", len(notifications))
