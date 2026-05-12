@@ -1,3 +1,10 @@
+## [1.7.4](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.7.3...v1.7.4) (2026-05-12)
+
+
+### Bug Fixes
+
+* call CreatePendingNotificationsFirstAppearance synchronously also for watched packages ([e5d853e](https://github.com/denyzzko/nixpkgs-notifier/commit/e5d853e314c016abfc18610c1b8ad67826db6b86))
+
 ## [1.7.3](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.7.2...v1.7.3) (2026-05-12)
 
 
