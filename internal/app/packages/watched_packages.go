@@ -194,7 +194,7 @@ func watchCheckAsync(db *database.Store, userID int64, wp database.WatchedPackag
 
 	if len(userIDs) > 0 {
 		// fire notifications for all users that were watching (pass userID so notify_on_manual_verify is respected)
-		go notifications.CreatePendingNotificationsFirstAppearance(bgCtx, db, notifications.VersionEvent{
+		notifications.CreatePendingNotificationsFirstAppearance(bgCtx, db, notifications.VersionEvent{
 			PackageID:   wp.PackageID,
 			PackageName: wp.Name,
 			Branch:      wp.Branch,
