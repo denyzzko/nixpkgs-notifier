@@ -1,3 +1,10 @@
+## [1.7.3](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.7.2...v1.7.3) (2026-05-12)
+
+
+### Bug Fixes
+
+* wrong env var name and missing var in readme ([616f951](https://github.com/denyzzko/nixpkgs-notifier/commit/616f951543bffdafd40c9f77a8b1b561bf230146))
+
 ## [1.7.2](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.7.1...v1.7.2) (2026-05-11)
 
 
