@@ -6,28 +6,29 @@ A web application that tracks Nixpkgs packages and sends notifications when a ne
 
 ## Quick Start
 
-1. **Prerequisites** - make sure you have Nix, PostgreSQL, OIDC provider, and an email provider ready (see [Requirements](#requirements)).
+1. **Prerequisites** - make sure you have Go, Nix, PostgreSQL, OIDC provider, and an email provider ready (see [Requirements](#requirements)).
 2. **Clone** the repo:
 ```bash
-   $ git clone https://github.com/denyzzko/nixpkgs-notifier.git
+   git clone https://github.com/denyzzko/nixpkgs-notifier.git
+   cd nixpkgs-notifier
 ```
 3. **Copy** the example env file:
 ```bash
-   $ cp .env.example .env
+   cp .env.example .env
 ```
 4. **Fill in `.env`** with your database credentials, OIDC provider and email settings (for more information see [Configuration](#configuration)).
 
 5. **Register** the OIDC redirect URI with your identity provider:
-```bash
+```text
    {SERVER_URL}/auth/callback
 ```
 6. **Run the server**
 ```bash
-   $ go run cmd/server/main.go
+   make run
 ```
    Or with Nix:
 ```bash
-   $ nix run .#run
+   nix run .#run
 ```
 7. Visit `SERVER_URL` in your browser.
 
@@ -35,16 +36,23 @@ For NixOS deployment, see the [NixOS module](#nixos-module) section.
 
 ## Requirements
  
+- [Go](https://go.dev/) 1.25 or newer - required for running and building the application from source
 - [Nix](https://nixos.org/) - used to check package versions via `nix` CLI (must be available on the host)
 - PostgreSQL - the application connects to an existing database and creates all tables (only on first startup)
 - At least one OIDC identity provider (e.g. Google, Authentik, Keycloak)
 - Email provider - either SMTP or [Resend](https://resend.com)
+- `make` - used for common development commands
+- Docker - required only for integration tests and the development container
 
 ## Building
  
+Build the Linux x86-64 executable:
+
 ```bash
-go build ./cmd/server
+make build
 ```
+
+The resulting binary will be created at `bin/nixpkgs-notifier-linux-amd64`.
 
 ## Testing
 
@@ -53,7 +61,7 @@ Project includes two kinds of tests:
   - **Unit tests** that test HTTP middleware (authentication guards, rate limiting) and checker internals (job routing, queue behaviour, skip interval logic).
 
 ```bash
-go test ./...
+make test
 ```
 
 ## Nix
@@ -315,6 +323,7 @@ nix/    - Nix module files loaded by the flake
 .oidc-providers.local.json.example  - example OIDC provider config for local development
 .releaserc.json                     - semantic-release configuration
 flake.nix                           - Nix flake providing the development shell
+Makefile                            - helper commands for running, building, testing and cleaning project
 ```
 
 ## Project status
