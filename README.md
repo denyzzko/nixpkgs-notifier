@@ -255,6 +255,7 @@ OIDC redirect URI that needs to be registered with provider:
 | `SMTP_FROM` | if `EMAIL_PROVIDER=smtp` | - | From address used in sent emails |
 | `SMTP_USER` | - | - | SMTP username. Leave empty for unauthenticated connection. |
 | `SMTP_PASS` | - | - | SMTP password. Leave empty for unauthenticated connection. |
+| `SMTP_HELO_HOSTNAME` | - | `SMTP_HOST` | Hostname sent in SMTP EHLO/HELO. Leave empty to use `SMTP_HOST`. |
 | `RESEND_API_KEY` | if `EMAIL_PROVIDER=resend` | - | Resend API key |
 | `EMAIL_FROM_ADDR` | if `EMAIL_PROVIDER=resend` | - | From address used in sent emails |
  
@@ -279,7 +280,7 @@ Controls how often Nixpkgs package versions are checked.
 |---|---|---|---|
 | `PACKAGE_CHECK_INTERVAL` | - | `12h` | How often to check all tracked packages for new versions |
 | `PACKAGE_CHECK_WORKER_COUNT` | - | `2` | Max concurrent package checks |
-| `PACKAGE_CHECK_SKIP_THRESHOLD` | - | `5m` | Skip re-checking package that was already checked within this interval |
+| `PACKAGE_CHECK_SKIP_INTERVAL` | - | `5m` | Skip re-checking package that was already checked within this interval |
 
 ## Project structure
  
@@ -334,3 +335,4 @@ The core functionality is complete and ready for deployment.
 - Sync multiple accounts (OIDC identities) with one internal user
 - Notification history auto-cleanup
 - Feature request: Track Non-Existing Packages (issue #2)
+- Pagination for packages and delivery log tables (issue #9)

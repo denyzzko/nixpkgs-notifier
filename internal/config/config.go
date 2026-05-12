@@ -161,7 +161,7 @@ func LoadEnvConfig() (*Config, error) {
 	workerCount := parseIntFromEnv(os.Getenv("NOTIFICATION_WORKER_COUNT"), 2)
 	checkInterval := parseDurationFromEnv(os.Getenv("PACKAGE_CHECK_INTERVAL"), 12*time.Hour)
 	checkWorkers := parseIntFromEnv(os.Getenv("PACKAGE_CHECK_WORKER_COUNT"), 2)
-	checkSkipInterval := parseDurationFromEnv(os.Getenv("PACKAGE_CHECK_SKIP_THRESHOLD"), 5*time.Minute)
+	checkSkipInterval := parseDurationFromEnv(os.Getenv("PACKAGE_CHECK_SKIP_INTERVAL"), 5*time.Minute)
 
 	trustProxy := parseBoolFromEnv(os.Getenv("TRUST_PROXY"), false)
 
