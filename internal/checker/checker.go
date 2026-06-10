@@ -175,9 +175,17 @@ func (ch *Checker) scheduleLoop(ctx context.Context) {
 			log.Println("[INFO] checker: schedule loop stopped")
 			return
 		case <-ticker.C:
-			// re-read config (interval may have been updated at runtime) and enqueue all packages
+			// re-read config (interval may have been updated at runtime)
 			cfg = ch.Config()
 			ticker.Reset(cfg.Interval)
+
+			// skip this tick if previous cycle has not finished yet
+			if len(ch.lowQ) > 0 {
+				log.Printf("[WARN] checker: skipping periodic check, previous cycle is still in progress (%d jobs remaining in queue). Consider adjusting configuration (try increasing worker count or check interval).", len(ch.lowQ))
+				continue
+			}
+
+			// enqueue all packages
 			ch.enqueueAllTracked(ctx)
 			ch.enqueueAllWatched(ctx)
 		}
