@@ -1,3 +1,10 @@
+## [1.7.5](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.7.4...v1.7.5) (2026-06-10)
+
+
+### Bug Fixes
+
+* skip periodic check if previous cycle is still in progress [#10](https://github.com/denyzzko/nixpkgs-notifier/issues/10) ([4123a65](https://github.com/denyzzko/nixpkgs-notifier/commit/4123a6512fa365feb5428f83b02e6ae46d7aaff5))
+
 ## [1.7.4](https://github.com/denyzzko/nixpkgs-notifier/compare/v1.7.3...v1.7.4) (2026-05-12)
 
 
